@@ -131,6 +131,38 @@ def create_app(config: dict, templates_dir: str = "templates") -> FastAPI:
             "job": job,
         })
 
+    @app.post("/jobs/{job_id}/reprocess")
+    async def reprocess(job_id: str):
+        old_job = _jobs.get(job_id)
+        if old_job is None:
+            return HTMLResponse("Job not found", status_code=404)
+        if old_job.status in ("pending", "running"):
+            return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+
+        # The video path is stored in the result; fall back to scanning upload_dir
+        video_path = None
+        if old_job.result:
+            candidate = Path(old_job.result["video"])
+            if candidate.exists():
+                video_path = candidate
+        if video_path is None:
+            # Try to find it in upload_dir by job_id prefix
+            matches = list(upload_dir.glob(f"{job_id}_*"))
+            if matches:
+                video_path = matches[0]
+        if video_path is None:
+            return HTMLResponse("Original video file not found", status_code=404)
+
+        new_job_id = uuid.uuid4().hex
+        new_job = Job(job_id=new_job_id, filename=old_job.filename)
+        new_job.video_meta = old_job.video_meta
+        _jobs[new_job_id] = new_job
+
+        video_date = old_job.video_meta.recorded_at if old_job.video_meta else None
+        await _queue.put((new_job, str(video_path), video_date, old_job.video_meta))
+
+        return RedirectResponse(f"/jobs/{new_job_id}", status_code=303)
+
     @app.get("/jobs/{job_id}/crops/{filename}")
     async def serve_crop(job_id: str, filename: str):
         job = _jobs.get(job_id)

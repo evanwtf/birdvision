@@ -91,6 +91,12 @@
     <span style="font-size:0.95rem; font-weight:600">{{ job.filename }}</span>
   </div>
 
+  {% if job.status in ('done', 'error') %}
+  <form method="post" action="/jobs/{{ job.id }}/reprocess" style="margin-bottom:1rem">
+    <button class="btn btn-secondary" type="submit">↺ Reprocess</button>
+  </form>
+  {% endif %}
+
   {% if job.status == 'error' %}
     <p class="error-msg">{{ job.error }}</p>
 
