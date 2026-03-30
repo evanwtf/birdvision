@@ -494,7 +494,9 @@ def _load_existing_jobs(results_dir: Path):
                     job.selected_date = datetime.fromisoformat(result["date"])
                 except ValueError:
                     pass
-            if result.get("latitude") is not None and result.get("longitude") is not None:
+            if job.assets:
+                job.video_meta = build_video_meta_from_asset(job.assets[0])
+            elif result.get("latitude") is not None and result.get("longitude") is not None:
                 vm = VideoMetadata(
                     latitude=result["latitude"],
                     longitude=result["longitude"],
@@ -737,6 +739,11 @@ def build_video_meta_from_asset(asset: dict[str, Any]) -> VideoMetadata:
             meta.recorded_at = datetime.fromisoformat(recorded_at)
         except ValueError:
             pass
+    # camera_info is stored pre-formatted in the asset index; parse it
+    # back into make/model so VideoMetadata.camera_info property works
+    camera_info = asset.get("camera_info")
+    if camera_info:
+        meta.camera_model = camera_info
     return meta
 
 
