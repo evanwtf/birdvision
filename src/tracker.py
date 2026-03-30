@@ -14,19 +14,20 @@ class Track:
     last_classified_frame: int = -9999
     # Accumulated predictions: list of (species, prob) lists, one per classification event
     prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
+    prediction_weights: List[float] = field(default_factory=list)  # one weight per event
 
     @property
     def best_prediction(self) -> Optional[List[Tuple[str, float]]]:
-        """Average probabilities across all classification events for this track."""
+        """Weighted average of probabilities across all classification events."""
         if not self.prediction_history:
             return None
-        # Accumulate scores per species
+        weights = self.prediction_weights if self.prediction_weights else [1.0] * len(self.prediction_history)
+        total_weight = sum(weights)
         scores: Dict[str, float] = {}
-        for preds in self.prediction_history:
+        for preds, w in zip(self.prediction_history, weights):
             for species, prob in preds:
-                scores[species] = scores.get(species, 0.0) + prob
-        n = len(self.prediction_history)
-        averaged = [(s, p / n) for s, p in scores.items()]
+                scores[species] = scores.get(species, 0.0) + prob * w
+        averaged = [(s, p / total_weight) for s, p in scores.items()]
         return sorted(averaged, key=lambda x: -x[1])
 
 

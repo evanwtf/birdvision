@@ -46,6 +46,7 @@ class BirdIdentificationPipeline:
         self.classify_every_n = cls.get("classify_every_n_frames", 15)
         self.min_frames_to_report = trk.get("min_frames_to_report", 3)
         self.min_confidence_to_report = trk.get("min_confidence_to_report", 0.6)
+        self.center_weight_strength = config.get("scoring", {}).get("center_weight_strength", 2.0)
         self.prompt_template = sp.get("prompt_template", "a photo of a {species}")
         self.results_dir = config.get("output", {}).get("results_dir", "results/")
 
@@ -91,6 +92,11 @@ class BirdIdentificationPipeline:
         if self.min_confidence_to_report != new_min_conf:
             logger.info(f"Config reload: min_confidence_to_report {self.min_confidence_to_report} → {new_min_conf}")
             self.min_confidence_to_report = new_min_conf
+
+        new_cw = config.get("scoring", {}).get("center_weight_strength", 2.0)
+        if self.center_weight_strength != new_cw:
+            logger.info(f"Config reload: center_weight_strength {self.center_weight_strength} → {new_cw}")
+            self.center_weight_strength = new_cw
 
         new_lat = meta.get("latitude")
         new_lon = meta.get("longitude")
@@ -148,6 +154,9 @@ class BirdIdentificationPipeline:
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         logger.info(f"{Path(video_path).name}: {width}x{height} @ {fps:.1f}fps, ~{total_frames} frames")
 
+        frame_cx = width / 2.0
+        frame_cy = height / 2.0
+
         frame_idx = 0
         # track_id -> list of per-event dicts
         track_events: Dict[int, List[dict]] = {}
@@ -188,7 +197,18 @@ class BirdIdentificationPipeline:
                     batch_results = self.classifier.classify_batch(to_classify_crops)
                     for tid, preds, crop in zip(to_classify_ids, batch_results, to_classify_crops):
                         preds = self.prior.apply(preds, dt=video_date)
+
+                        # Weight by proximity to frame center (Gaussian falloff)
+                        bbox = tracks[tid].bbox
+                        bbox_cx = (bbox[0] + bbox[2]) / 2.0
+                        bbox_cy = (bbox[1] + bbox[3]) / 2.0
+                        dx = (bbox_cx - frame_cx) / frame_cx
+                        dy = (bbox_cy - frame_cy) / frame_cy
+                        dist_sq = dx * dx + dy * dy
+                        center_weight = float(np.exp(-dist_sq * self.center_weight_strength))
+
                         tracks[tid].prediction_history.append(preds)
+                        tracks[tid].prediction_weights.append(center_weight)
                         tracks[tid].last_classified_frame = frame_idx
 
                         top_conf = preds[0][1] if preds else 0.0
@@ -239,11 +259,20 @@ class BirdIdentificationPipeline:
                     "crop": saved_crops.get(tid),
                 })
 
+        duration_s = frame_idx / fps if fps else 0
         summary = {
             "video": str(video_path),
             "date": video_date.isoformat() if video_date else None,
             "latitude": latitude,
             "longitude": longitude,
+            "video_info": {
+                "width": width,
+                "height": height,
+                "fps": round(fps, 3),
+                "total_frames": total_frames,
+                "frames_processed": frame_idx,
+                "duration_s": round(duration_s, 2),
+            },
             "frames_processed": frame_idx,
             "fps": fps,
             "tracks": track_summaries,

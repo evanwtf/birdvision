@@ -102,10 +102,12 @@
 
   {% elif job.status == 'done' and job.result %}
     {% set result = job.result %}
+    {% if result.video_info %}{% set vi = result.video_info %}
     <p class="meta">
-      {{ result.tracks | length }} track(s) found &nbsp;·&nbsp;
-      {{ result.frames_processed }} frames &nbsp;·&nbsp;
-      {{ "%.1f"|format(result.fps) }} fps
+      {{ vi.width }}×{{ vi.height }}
+      &nbsp;·&nbsp; {{ "%.1f"|format(vi.fps) }} fps
+      &nbsp;·&nbsp; {{ "%.1f"|format(vi.duration_s) }}s
+      &nbsp;·&nbsp; {{ vi.frames_processed }} frames
       {% if result.date %}&nbsp;·&nbsp; {{ result.date[:10] }}{% endif %}
       {% if job.video_meta and job.video_meta.has_gps %}
         &nbsp;·&nbsp;
@@ -114,6 +116,12 @@
         </a>
       {% endif %}
     </p>
+    <p class="meta">{{ result.tracks | length }} track(s) found</p>
+    {% else %}
+    <p class="meta">
+      {{ result.tracks | length }} track(s) &nbsp;·&nbsp; {{ result.frames_processed }} frames &nbsp;·&nbsp; {{ "%.1f"|format(result.fps) }} fps
+    </p>
+    {% endif %}
 
     {% if result.tracks %}
       {% for track in result.tracks %}

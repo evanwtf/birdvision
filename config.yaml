@@ -19,6 +19,11 @@ metadata:
   latitude: 40.7
   longitude: -73.5
 
+scoring:
+  # Weight classification events by proximity to frame center.
+  # Higher = center detections count more. 0 = disable.
+  center_weight_strength: 2.0
+
 species:
   list_file: data/species_lists/north_america_common.txt
   prompt_template: "a photo of a {species}"
