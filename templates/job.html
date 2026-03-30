@@ -185,7 +185,7 @@
               <strong>{{ img.filename }}</strong>
               {% if img.date or img.latitude or img.camera %}
               <br><span style="font-weight:400; font-size:0.8rem; color:#888;">
-                {% set sep = joiner(" &nbsp;·&nbsp; ") %}
+                {% set sep = joiner(" · ") %}
                 {% if img.date %}{{ sep() }}{{ img.date[:10] }}{% if img.date|length > 10 %} {{ img.date[11:16] }}{% endif %}{% endif %}
                 {% if img.camera %}{{ sep() }}{{ img.camera }}{% endif %}
                 {% if img.latitude and img.longitude %}
