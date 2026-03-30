@@ -63,7 +63,13 @@
 .badge-running  { background: #cfe2ff; color: #084298; }
 .badge-done     { background: #d1e7dd; color: #0a3622; }
 .badge-error    { background: #f8d7da; color: #58151c; }
-.job-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-name {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; justify-content: space-between; align-items: center;
+  text-decoration: none; color: inherit;
+}
+.job-name:hover { color: #2d5a27; }
+.job-time { font-size: 0.78rem; color: #999; flex-shrink: 0; margin-left: 0.75rem; }
 .empty { color: #888; font-size: 0.9rem; text-align: center; padding: 1rem 0; }
 {% endblock %}
 
@@ -92,9 +98,10 @@
     {% for job in jobs %}
     <li>
       <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
-      <span class="job-name">
-        <a href="/jobs/{{ job.id }}">{{ job.filename }}</a>
-      </span>
+      <a class="job-name" href="/jobs/{{ job.id }}">
+        {{ job.summary }}
+        <span class="job-time">{{ job.created_at.strftime("%b %-d, %H:%M") }}</span>
+      </a>
     </li>
     {% endfor %}
   </ul>

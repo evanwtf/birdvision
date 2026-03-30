@@ -12,6 +12,7 @@ from .classifier import BirdClassifier
 from .detector import BirdDetector
 from .metadata import MetadataPrior
 from .tracker import BirdTracker, Track
+from .video_metadata import extract as extract_media_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +251,7 @@ class BirdIdentificationPipeline:
                 latitude=latitude,
                 longitude=longitude,
                 db_path=self.prior._con and self.prior._con.execute("PRAGMA database_list").fetchone()[2],
-                fips=self.prior._fips,
+                fips=None,
             )
 
         cap = cv2.VideoCapture(video_path)
@@ -363,6 +364,7 @@ class BirdIdentificationPipeline:
         # Build per-track summaries using averaged predictions
         track_summaries = []
         video_track_predictions: List[List[Tuple[str, float]]] = []
+        video_raw_predictions: List[List[Tuple[str, float]]] = []
         for tid, track in {**self.tracker.completed_tracks, **self.tracker.tracks}.items():
             best = track.best_prediction
             top_conf = best[0][1] if best else 0.0
@@ -372,6 +374,8 @@ class BirdIdentificationPipeline:
                 raw = track.best_raw_prediction
                 explanation = self._build_explanation(best, raw, video_date)
                 video_track_predictions.append(best)
+                if raw:
+                    video_raw_predictions.append(raw)
                 track_summaries.append({
                     "track_id": tid,
                     "frames_tracked": track.frame_count,
@@ -388,6 +392,11 @@ class BirdIdentificationPipeline:
 
         duration_s = frame_idx / fps if fps else 0
         video_predictions = self._build_video_predictions(video_track_predictions)
+        raw_video_predictions = self._build_video_predictions(video_raw_predictions)
+        # Merge raw probabilities into video_predictions for side-by-side display
+        raw_lookup = {p["species"]: p["presence_probability"] for p in raw_video_predictions}
+        for p in video_predictions:
+            p["raw_presence_probability"] = raw_lookup.get(p["species"], 0.0)
         summary = {
             "video": str(video_path),
             "date": video_date.isoformat() if video_date else None,
@@ -444,11 +453,9 @@ class BirdIdentificationPipeline:
         month_name = video_date.strftime("%B")
         county = "this area"
         try:
-            row = self.prior._con.execute(
-                "SELECT name FROM counties WHERE fips = ?", (self.prior._fips,)
-            ).fetchone()
-            if row:
-                county = row[0]
+            rows = self.prior._con.execute("SELECT name FROM counties").fetchall()
+            if rows:
+                county = ", ".join(r[0] for r in rows)
         except Exception:
             pass
 
@@ -495,7 +502,7 @@ class BirdIdentificationPipeline:
                 latitude=latitude,
                 longitude=longitude,
                 db_path=self.prior._con and self.prior._con.execute("PRAGMA database_list").fetchone()[2],
-                fips=self.prior._fips,
+                fips=None,
             )
 
         stem = job_id or Path(image_paths[0]).stem
@@ -503,14 +510,23 @@ class BirdIdentificationPipeline:
         crops_dir.mkdir(parents=True, exist_ok=True)
 
         all_species_scores: Dict[str, float] = {}
+        all_raw_species_scores: Dict[str, float] = {}
         image_results = []
 
         for img_idx, img_path in enumerate(image_paths):
+            # Extract per-image EXIF metadata
+            img_meta = extract_media_metadata(img_path)
+            img_date = img_meta.recorded_at or video_date  # fall back to job-level date
+
             frame = cv2.imread(img_path)
             if frame is None:
                 logger.warning(f"Cannot read image: {img_path}")
                 image_results.append({
                     "filename": Path(img_path).name,
+                    "date": img_meta.recorded_at.isoformat() if img_meta.recorded_at else None,
+                    "latitude": img_meta.latitude,
+                    "longitude": img_meta.longitude,
+                    "camera": img_meta.camera_info,
                     "detections": [],
                 })
                 continue
@@ -540,7 +556,7 @@ class BirdIdentificationPipeline:
                         )
                         continue
 
-                    preds = self.prior.apply(preds, dt=video_date)
+                    preds = self.prior.apply(preds, dt=img_date)
 
                     crop_file = f"img{img_idx}_bird{crop_indices[i]}.jpg"
                     cv2.imwrite(str(crops_dir / crop_file), crop)
@@ -548,6 +564,10 @@ class BirdIdentificationPipeline:
                     for species, prob in preds[:5]:
                         all_species_scores[species] = max(
                             all_species_scores.get(species, 0.0), prob
+                        )
+                    for species, prob in raw_preds[:5]:
+                        all_raw_species_scores[species] = max(
+                            all_raw_species_scores.get(species, 0.0), prob
                         )
 
                     det_idx = crop_indices[i]
@@ -566,12 +586,20 @@ class BirdIdentificationPipeline:
 
             image_results.append({
                 "filename": Path(img_path).name,
+                "date": img_meta.recorded_at.isoformat() if img_meta.recorded_at else None,
+                "latitude": img_meta.latitude,
+                "longitude": img_meta.longitude,
+                "camera": img_meta.camera_info,
                 "detections": det_results,
             })
 
         ranked = sorted(all_species_scores.items(), key=lambda x: -x[1])
         species_summary = [
-            {"species": s, "probability": round(p, 4)}
+            {
+                "species": s,
+                "probability": round(p, 4),
+                "raw_probability": round(all_raw_species_scores.get(s, 0.0), 4),
+            }
             for s, p in ranked[:5]
         ]
 

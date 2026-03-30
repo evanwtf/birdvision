@@ -41,6 +41,17 @@ class Job:
         self.error: Optional[str] = None
         self.video_meta: Optional[VideoMetadata] = None
         self.image_paths: list[str] = []  # for image jobs
+        self.created_at: datetime = datetime.now()
+
+    @property
+    def summary(self) -> str:
+        """Short description for the jobs list, e.g. '1 video' or '8 photos'."""
+        if self.media_type == "images":
+            n = len(self.image_paths)
+            if n == 0 and self.result and self.result.get("image_info"):
+                n = self.result["image_info"].get("count", 0)
+            return f"{n} photo{'s' if n != 1 else ''}"
+        return f"1 video ({self.filename})"
 
 
 _jobs: dict[str, Job] = {}        # job_id → Job
@@ -270,6 +281,7 @@ def _load_existing_jobs(results_dir: Path):
             job = Job(job_id=job_id, filename=original_filename, media_type=media_type)
             job.status = "done"
             job.result = result
+            job.created_at = datetime.fromtimestamp(result_file.stat().st_mtime)
             # Reconstruct video_meta from saved coords so the OSM link works
             if result.get("latitude") and result.get("longitude"):
                 from .video_metadata import VideoMetadata

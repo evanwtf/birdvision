@@ -3,9 +3,9 @@ Location and time-based prior probabilities over species, backed by eBird
 bar chart data stored in a local SQLite database.
 
 The bar chart has 48 periods per year (4 per month). Given a date, we map
-to the nearest period and look up observed frequency for each species in
-the configured county (FIPS code). Frequency is used as a multiplier on
-the classifier's raw probabilities and then re-normalized.
+to the nearest period and look up the average observed frequency for each
+species across all counties in the database. Frequency is used as a
+multiplier on the classifier's raw probabilities and then re-normalized.
 
 Species with zero eBird frequency are floored at `zero_floor` so the model
 can still surface genuinely rare birds that the observer might be lucky enough
@@ -44,17 +44,16 @@ class MetadataPrior:
         self.longitude = longitude
         self.zero_floor = zero_floor
         self._con: Optional[sqlite3.Connection] = None
-        self._fips: Optional[str] = fips
+        self._county_fips: list[str] = []
 
         if db_path and Path(db_path).exists():
             self._con = sqlite3.connect(db_path, check_same_thread=False)
-            if not fips:
-                # Default to Nassau County — closest to configured location
-                self._fips = "US-NY-059"
             counties = self._con.execute("SELECT fips, name FROM counties").fetchall()
+            self._county_fips = [row[0] for row in counties]
+            county_names = [row[1] for row in counties]
             logger.info(
                 f"eBird priors loaded from {db_path} "
-                f"({len(counties)} counties, using {self._fips})"
+                f"({len(counties)} counties: {', '.join(county_names)})"
             )
         else:
             if db_path:
@@ -69,14 +68,18 @@ class MetadataPrior:
             return {s: 1.0 for s in species_names}
 
         period = _date_to_period(dt)
+        n_counties = len(self._county_fips)
 
         placeholders = ",".join("?" * len(species_names))
+        fips_placeholders = ",".join("?" * n_counties)
         rows = self._con.execute(
             f"""
-            SELECT species, freq FROM barchart
-            WHERE fips = ? AND period = ? AND species IN ({placeholders})
+            SELECT species, AVG(freq) FROM barchart
+            WHERE fips IN ({fips_placeholders}) AND period = ?
+              AND species IN ({placeholders})
+            GROUP BY species
             """,
-            [self._fips, period, *species_names],
+            [*self._county_fips, period, *species_names],
         ).fetchall()
 
         freq_map = {row[0]: row[1] for row in rows}
