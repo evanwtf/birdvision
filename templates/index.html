@@ -126,6 +126,24 @@
   color: #8a5a00;
   font-weight: 600;
 }
+.select-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.btn-select {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.7rem;
+  border: 1.5px solid #c8d8c4;
+  border-radius: 6px;
+  background: #f8fcf7;
+  color: #3a5a34;
+  cursor: pointer;
+}
+.btn-select:hover {
+  background: #e8f2e4;
+  border-color: #2d5a27;
+}
 .jobs-list { list-style: none; }
 .jobs-list li {
   display: flex;
@@ -182,6 +200,11 @@
       <div class="review-head">
         <h2 style="margin-bottom:0">Review Before Processing</h2>
         <div class="review-summary" id="review-summary"></div>
+      </div>
+      <div class="select-buttons" id="select-buttons">
+        <button type="button" class="btn-select" onclick="selectAssets('all')">Select All</button>
+        <button type="button" class="btn-select" onclick="selectAssets('none')">Select None</button>
+        <button type="button" class="btn-select" onclick="selectAssets('new')">Select New</button>
       </div>
       <div class="review-list" id="review-list"></div>
     </div>
@@ -430,6 +453,21 @@ async function collectClientMetadata(file) {
     URL.revokeObjectURL(url);
   }
   return meta;
+}
+
+function selectAssets(mode) {
+  if (!state.inspection) return;
+  state.inspection.assets.forEach((asset) => {
+    if (mode === 'all') asset.selected = true;
+    else if (mode === 'none') asset.selected = false;
+    else if (mode === 'new') asset.selected = !asset.duplicate;
+  });
+  reviewList.querySelectorAll('.asset-check').forEach((checkbox) => {
+    const index = Number(checkbox.dataset.index);
+    checkbox.checked = state.inspection.assets[index].selected;
+  });
+  updateReviewSummary();
+  updateButtonState();
 }
 
 async function inspectSelection() {
