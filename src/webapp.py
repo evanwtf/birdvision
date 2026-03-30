@@ -48,12 +48,55 @@ class Job:
 
     @property
     def summary(self) -> str:
+        label = self._species_summary_label()
+        if label:
+            return label
+
         if self.media_type == "images":
             n = len(self.assets) or len(self.image_paths)
             if n == 0 and self.result and self.result.get("image_info"):
                 n = self.result["image_info"].get("count", 0)
             return f"{n} photo{'s' if n != 1 else ''}"
         return f"1 video ({self.filename})"
+
+    def _species_summary_label(self) -> Optional[str]:
+        """Build a label like '2024-02-03: Mourning Dove, Blue Jay, 2 others'."""
+        if not self.result or self.status != "done":
+            return None
+
+        # Collect top species names
+        top_species: list[str] = []
+        if self.result.get("type") == "images":
+            seen: set[str] = set()
+            for img in self.result.get("images", []):
+                for pred in img.get("species_summary", []):
+                    sp = pred.get("species", "")
+                    prob = pred.get("probability", 0)
+                    if sp and prob >= 0.15 and sp not in seen:
+                        seen.add(sp)
+                        top_species.append(sp)
+        else:
+            for pred in self.result.get("video_predictions", []):
+                sp = pred.get("species", "")
+                prob = pred.get("presence_probability", 0)
+                if sp and prob >= 0.15:
+                    top_species.append(sp)
+
+        if not top_species:
+            return None
+
+        # Build the species part: show up to 2, then "N others"
+        if len(top_species) <= 2:
+            species_text = ", ".join(top_species)
+        else:
+            species_text = f"{top_species[0]}, {top_species[1]}, {len(top_species) - 2} other{'s' if len(top_species) - 2 != 1 else ''}"
+
+        # Prefix with date if available
+        date_str = self.result.get("date")
+        if date_str:
+            date_prefix = date_str[:10]
+            return f"{date_prefix}: {species_text}"
+        return species_text
 
 
 class AssetStore:
@@ -411,7 +454,7 @@ def _load_existing_jobs(results_dir: Path):
                     original_filename = original_filename[len(job_id) + 1:]
 
             media_type = "images" if is_image else "video"
-            job = Job(job_id=job_id, filename=original_filename, media_type=media_type)
+            job = Job(id=job_id, filename=original_filename, media_type=media_type)
             job.status = "done"
             job.result = result
             job.created_at = datetime.fromtimestamp(result_file.stat().st_mtime)

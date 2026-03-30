@@ -379,15 +379,20 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
       &nbsp;·&nbsp; {{ "%.1f"|format(vi.fps) }} fps
       &nbsp;·&nbsp; {{ "%.1f"|format(vi.duration_s) }}s
       &nbsp;·&nbsp; {{ vi.frames_processed }} frames
-      {% if result.date %}&nbsp;·&nbsp; {{ result.date[:10] }}{% endif %}
+      &nbsp;·&nbsp; {{ result.tracks | length }} track(s)
+    </p>
+    {% if result.date or (job.video_meta and (job.video_meta.camera_info or job.video_meta.has_gps)) %}
+    <p class="meta">
+      {% set sep = joiner(" &middot; ") %}
+      {% if result.date %}{{ sep() }}{{ result.date[:10] }}{% if result.date|length > 10 %} {{ result.date[11:16] }}{% endif %}{% endif %}
+      {% if job.video_meta and job.video_meta.camera_info %}{{ sep() }}{{ job.video_meta.camera_info }}{% endif %}
       {% if job.video_meta and job.video_meta.has_gps %}
-        &nbsp;·&nbsp;
-        <a href="{{ job.video_meta.osm_url }}" target="_blank" rel="noopener">
+        {{ sep() }}<a href="{{ job.video_meta.osm_url }}" target="_blank" rel="noopener" style="color:#888;">
           📍 {{ "%.4f"|format(job.video_meta.latitude) }}, {{ "%.4f"|format(job.video_meta.longitude) }}
         </a>
       {% endif %}
     </p>
-    <p class="meta">{{ result.tracks | length }} track(s) found</p>
+    {% endif %}
     {% else %}
     <p class="meta">
       {{ result.tracks | length }} track(s) &nbsp;·&nbsp; {{ result.frames_processed }} frames &nbsp;·&nbsp; {{ "%.1f"|format(result.fps) }} fps
