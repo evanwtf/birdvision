@@ -16,17 +16,18 @@ location/season frequency data.
 ```
 src/
   detector.py       — YOLOv8 object detection (COCO bird class), returns bbox + crop
-  tracker.py        — IoU-based multi-frame tracker with stable IDs; stores
-                      both raw (pre-prior) and weighted (post-prior) prediction
-                      history per track; weighted average for final result
+  tracker.py        — multi-frame tracker with IoU matching plus centroid-
+                      distance fallback; stores both raw (pre-prior) and
+                      weighted (post-prior) prediction history per track
   classifier.py     — BioCLIP zero-shot classifier; pre-computes text embeddings
                       for all species at startup; batched inference
   metadata.py       — eBird bar chart priors; maps date → 1-of-48 annual periods,
                       multiplies classifier probs by observed frequency per county;
                       zero-frequency species floored at 0.01
   pipeline.py       — orchestrates all stages; center-weights classification
-                      events by bbox proximity to frame center; generates plain-
-                      English explanation per track comparing visual vs prior scores
+                      events by bbox proximity to frame center; applies adaptive
+                      crop padding + confidence/crop-size gates; generates both
+                      video-level species summaries and per-track explanations
   video_metadata.py — ExifTool wrapper; extracts recording date + GPS from video
   webapp.py         — FastAPI web UI; in-memory job queue; restores completed jobs
                       from results JSON on startup; hot-reloads config before each job
@@ -55,6 +56,10 @@ data/
 - **Classify every 15 frames** per track, not every frame
 - **Center weighting** — classification events weighted by Gaussian based on
   distance of bbox center from frame center (`scoring.center_weight_strength`)
+- **Adaptive crop padding** — smaller/distant birds get more surrounding
+  context; close-up birds get less background
+- **Video-level summary + per-track detail** — UI and console now lead with a
+  video-level species summary; fragmented tracks remain available as debug detail
 - **eBird priors** are multiplicative — visual prob × frequency, then renormalized;
   species with 0 frequency are floored at `zero_floor=0.01` (not zeroed out)
 - **Job state** is in-memory but reconstructed from results JSON on startup
@@ -74,18 +79,22 @@ data/
   on host (Docker creates them as root)
 - eBird SQLite DB is built during `docker compose build` via import script
 
-## Config (config.yaml) — hot-reloadable settings
+## Config (config.yaml)
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `detector.confidence` | `0.4` | Raise to cut false positives |
-| `tracker.min_frames_to_report` | `3` | Filter short/noisy tracks |
-| `tracker.min_confidence_to_report` | `0.6` | Bypass min_frames if confidence high |
-| `scoring.center_weight_strength` | `2.0` | Gaussian weight for center-frame events |
-| `metadata.ebird_fips` | `US-NY-059` | Nassau County |
-| `metadata.ebird_db` | `/app/data/ebird_priors.db` | Built at image build time |
+Current defaults change as tuning evolves; treat `config.yaml` as the source of
+truth rather than this document.
 
-## Codex-specific workflow notes
+Hot-reloadable settings currently include:
+
+- detector confidence threshold
+- classifier cadence, crop padding, crop-size gate, and event-confidence gate
+- tracker disappearance/IoU/centroid thresholds and reporting thresholds
+- scoring.center-weight strength
+- metadata latitude/longitude/FIPS and results directory
+
+Model path / model name / device changes still require restart.
+
+## Workflow notes for AI/code assistants
 
 - **No automated test suite is currently checked in** (`tests/` is absent).
   Prefer focused smoke checks:
@@ -109,10 +118,6 @@ data/
 
 Repo: https://github.com/evandhoffman/birdvision (private)
 
-## Open issues
-
-- evandhoffman/birdvision#1 — eBird priors integration (now done; issue can be closed)
-
 ## What's not done yet
 
 - eBird API integration for dynamic location-based county selection
@@ -120,3 +125,5 @@ Repo: https://github.com/evandhoffman/birdvision (private)
 - Live camera feed support (currently batch/upload only)
 - Results persistence across container restarts beyond JSON reconstruction
   (no database; in-memory only)
+- Bird-specific classifier replacement/evaluation is still open work; see GitHub
+  issues for the current backlog rather than relying on this file

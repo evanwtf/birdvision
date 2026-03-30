@@ -58,8 +58,8 @@ drop the file in `ebird_data/`, and rebuild the image.
 
 ## Configuration
 
-`config.yaml` is mounted from the host — edit it and the next job picks up
-changes automatically (no restart needed). Key settings:
+`config.yaml` is mounted from the host. Mutable settings are re-read before the
+next job, but model/device changes still require a restart. Key settings:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
