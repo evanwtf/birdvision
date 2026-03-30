@@ -1,66 +1,83 @@
 # BirdVision
 
-Proof-of-concept bird species identification from video using local computer vision models.
+Bird species identification from video using local computer vision models.
 Aimed at the Long Island / Northeast US region, no cloud dependencies.
 
 ## How it works
 
 1. **Detection** — finds birds in each frame
-2. **Tracking** — assigns stable IDs across frames
-3. **Classification** — identifies the species from each cropped bird
-4. **Metadata weighting** — location + date priors re-rank predictions (stub → eBird integration planned)
+2. **Tracking** — assigns stable IDs across frames, classifies every N frames
+3. **Classification** — zero-shot species ID from cropped bird images; events are weighted by proximity to frame center (centered bird = better crop = more weight)
+4. **eBird priors** — observed species frequency for the recording location and week re-ranks predictions; e.g. Herring Gull at 44% checklist frequency in Nassau County in March outweighs a visually-similar but implausible species
+5. **Explanation** — each result includes a plain-English summary of what the model saw visually vs. what the location/season data contributed
 
-Models download automatically on first run.
+Models download automatically on first run (~600 MB + ~6 MB).
 
 ## Setup
+
+### Docker (recommended)
+
+Requires [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+
+```bash
+docker compose build
+docker compose up
+```
+
+Open `http://localhost:3587` in a browser or on your phone. Upload a video,
+view results with species predictions, confidence scores, crop thumbnails,
+and links to Cornell All About Birds for each candidate species.
+
+Videos and results persist in `./videos/` and `./results/` on the host.
+Model weights are cached in `./models/` and reused across restarts.
 
 ### Local (uv)
 
 ```bash
 uv sync
-uv run scripts/identify_videos.py videos/
+uv run scripts/serve.py          # web UI on :3587
+uv run scripts/identify_videos.py videos/   # CLI batch mode
 ```
 
-### Docker
+## eBird priors
 
-Requires [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+Species frequency data is sourced from eBird bar chart downloads for the
+following counties:
 
-```bash
-# Build
-docker compose build
+| File | County |
+|------|--------|
+| `US-NY-047` | Kings (Brooklyn) |
+| `US-NY-059` | Nassau |
+| `US-NY-061` | New York (Manhattan) |
+| `US-NY-081` | Queens |
+| `US-NY-103` | Suffolk |
 
-# Drop videos into ./videos/, then run
-docker compose run --rm birdvision
-
-# With a recording date
-docker compose run --rm birdvision /data/videos --date 2026-04-15
-```
-
-Models are cached in `./models/` on the host and reused across runs.
-
-Requires CUDA. Tested on RTX 3080 Ti.
-
-## Usage
-
-```bash
-# Process a directory of videos
-uv run scripts/identify_videos.py videos/
-
-# With a recording date (improves seasonal priors)
-uv run scripts/identify_videos.py videos/ --date 2026-04-15
-```
-
-Results are written as JSON to `results/<videoname>_results.json`.
-
-## Test videos
-
-Good sources for bird footage to test with:
-- [Xeno-canto](https://xeno-canto.org) — bird recordings (some have video)
-- YouTube: search "birds Long Island backyard" and download with `yt-dlp`
-- Your own backyard camera footage
+The active county is set via `metadata.ebird_fips` in `config.yaml`.
+To add more counties, download the bar chart from `ebird.org/barchart`,
+drop the file in `ebird_data/`, and rebuild the image.
 
 ## Configuration
 
-Edit `config.yaml` to adjust detection confidence, GPU device, output paths, etc.
-The species list at `data/species_lists/north_america_common.txt` can be trimmed
-to your local expected species for faster and more accurate classification.
+`config.yaml` is mounted from the host — edit it and the next job picks up
+changes automatically (no restart needed). Key settings:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `detector.confidence` | `0.4` | Detection threshold (raise to reduce false positives) |
+| `tracker.min_frames_to_report` | `3` | Minimum frames tracked to include in results |
+| `tracker.min_confidence_to_report` | `0.6` | Override min_frames for high-confidence single detections |
+| `scoring.center_weight_strength` | `2.0` | How much to favor center-frame detections (0 = off) |
+| `metadata.ebird_fips` | `US-NY-059` | County for eBird frequency priors |
+
+## CLI batch mode
+
+```bash
+# Process a directory of videos
+docker compose --profile cli run birdvision
+
+# With explicit date (if not embedded in video metadata)
+docker compose --profile cli run birdvision \
+  /data/videos --date 2026-04-15 --config /data/config.yaml
+```
+
+Results are written as JSON to `results/<videoname>_results.json`.
