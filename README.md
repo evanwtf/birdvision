@@ -64,6 +64,10 @@ changes automatically (no restart needed). Key settings:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `detector.confidence` | `0.4` | Detection threshold (raise to reduce false positives) |
+| `classifier.crop_padding_ratio` | `0.12` | Expand each detected bird box before classification to include some context |
+| `classifier.min_crop_area` | `2500` | Skip classification for tiny detections that are mostly noise when upscaled |
+| `classifier.min_event_confidence` | `0.25` | Discard low-confidence visual classification events instead of averaging them into a track |
+| `tracker.centroid_max_distance` | `0.15` | Fallback match radius as a fraction of frame diagonal when IoU matching fails |
 | `tracker.min_frames_to_report` | `3` | Minimum frames tracked to include in results |
 | `tracker.min_confidence_to_report` | `0.6` | Override min_frames for high-confidence single detections |
 | `scoring.center_weight_strength` | `2.0` | How much to favor center-frame detections (0 = off) |

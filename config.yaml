@@ -8,11 +8,15 @@ classifier:
   device: cuda
   top_k: 5
   classify_every_n_frames: 15
+  crop_padding_ratio: 0.12
+  min_crop_area: 2500
+  min_event_confidence: 0.25
 
 tracker:
   max_disappeared: 90
   iou_threshold: 0.2
   min_frames_to_report: 8
+  centroid_max_distance: 0.15
   min_confidence_to_report: 0.6
 
 metadata:

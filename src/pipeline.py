@@ -11,7 +11,7 @@ import numpy as np
 from .classifier import BirdClassifier
 from .detector import BirdDetector
 from .metadata import MetadataPrior
-from .tracker import BirdTracker, Track, iou
+from .tracker import BirdTracker, Track
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ class BirdIdentificationPipeline:
         self.tracker = BirdTracker(
             max_disappeared=trk.get("max_disappeared", 30),
             iou_threshold=trk.get("iou_threshold", 0.3),
+            centroid_max_distance=trk.get("centroid_max_distance", 0.15),
         )
         self.prior = MetadataPrior(
             latitude=meta.get("latitude"),
@@ -46,6 +47,9 @@ class BirdIdentificationPipeline:
         )
 
         self.classify_every_n = cls.get("classify_every_n_frames", 15)
+        self.crop_padding_ratio = cls.get("crop_padding_ratio", 0.12)
+        self.min_crop_area = cls.get("min_crop_area", 2500)
+        self.min_event_confidence = cls.get("min_event_confidence", 0.25)
         self.min_frames_to_report = trk.get("min_frames_to_report", 3)
         self.min_confidence_to_report = trk.get("min_confidence_to_report", 0.6)
         self.center_weight_strength = config.get("scoring", {}).get("center_weight_strength", 2.0)
@@ -75,6 +79,23 @@ class BirdIdentificationPipeline:
             logger.info(f"Config reload: classify_every_n {self.classify_every_n} → {new_classify_every_n}")
             self.classify_every_n = new_classify_every_n
 
+        new_crop_padding_ratio = cls.get("crop_padding_ratio", 0.12)
+        if self.crop_padding_ratio != new_crop_padding_ratio:
+            logger.info(f"Config reload: crop_padding_ratio {self.crop_padding_ratio} → {new_crop_padding_ratio}")
+            self.crop_padding_ratio = new_crop_padding_ratio
+
+        new_min_crop_area = cls.get("min_crop_area", 2500)
+        if self.min_crop_area != new_min_crop_area:
+            logger.info(f"Config reload: min_crop_area {self.min_crop_area} → {new_min_crop_area}")
+            self.min_crop_area = new_min_crop_area
+
+        new_min_event_confidence = cls.get("min_event_confidence", 0.25)
+        if self.min_event_confidence != new_min_event_confidence:
+            logger.info(
+                f"Config reload: min_event_confidence {self.min_event_confidence} → {new_min_event_confidence}"
+            )
+            self.min_event_confidence = new_min_event_confidence
+
         new_max_disappeared = trk.get("max_disappeared", 30)
         if self.tracker.max_disappeared != new_max_disappeared:
             logger.info(f"Config reload: tracker.max_disappeared {self.tracker.max_disappeared} → {new_max_disappeared}")
@@ -84,6 +105,14 @@ class BirdIdentificationPipeline:
         if self.tracker.iou_threshold != new_iou:
             logger.info(f"Config reload: tracker.iou_threshold {self.tracker.iou_threshold} → {new_iou}")
             self.tracker.iou_threshold = new_iou
+
+        new_centroid_max_distance = trk.get("centroid_max_distance", 0.15)
+        if self.tracker.centroid_max_distance != new_centroid_max_distance:
+            logger.info(
+                "Config reload: tracker.centroid_max_distance "
+                f"{self.tracker.centroid_max_distance} → {new_centroid_max_distance}"
+            )
+            self.tracker.centroid_max_distance = new_centroid_max_distance
 
         new_min_frames = trk.get("min_frames_to_report", 3)
         if self.min_frames_to_report != new_min_frames:
@@ -129,6 +158,22 @@ class BirdIdentificationPipeline:
             species = COMMON_NA_BIRDS
         self.classifier.set_species(species, prompt_template=self.prompt_template)
 
+    def _expanded_crop(self, frame: np.ndarray, bbox: np.ndarray) -> Optional[np.ndarray]:
+        box_w = max(0, int(bbox[2] - bbox[0]))
+        box_h = max(0, int(bbox[3] - bbox[1]))
+        if box_w * box_h < self.min_crop_area:
+            return None
+
+        pad_x = int(round(box_w * self.crop_padding_ratio))
+        pad_y = int(round(box_h * self.crop_padding_ratio))
+        x1 = max(0, int(bbox[0]) - pad_x)
+        y1 = max(0, int(bbox[1]) - pad_y)
+        x2 = min(frame.shape[1], int(bbox[2]) + pad_x)
+        y2 = min(frame.shape[0], int(bbox[3]) + pad_y)
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return frame[y1:y2, x1:x2]
+
     def process_video(
         self,
         video_path: str,
@@ -139,6 +184,7 @@ class BirdIdentificationPipeline:
         """
         Process a single video. Returns a summary dict and writes a JSON results file.
         """
+        self.tracker.next_id = 0
         self.tracker.tracks.clear()
         self.tracker.completed_tracks.clear()
 
@@ -177,17 +223,14 @@ class BirdIdentificationPipeline:
                     break
 
                 detections = self.detector.detect(frame)
-                tracks = self.tracker.update(detections)
+                tracks = self.tracker.update(detections, frame_size=(width, height))
 
                 # Map active tracks to their matching detection (for crop access)
                 det_for_track: Dict[int, object] = {}
                 for tid, track in tracks.items():
-                    if track.disappeared > 0:
+                    if track.disappeared > 0 or track.matched_detection_idx is None:
                         continue
-                    for det in detections:
-                        if iou(track.bbox, det.bbox) > 0.5:
-                            det_for_track[tid] = det
-                            break
+                    det_for_track[tid] = detections[track.matched_detection_idx]
 
                 # Collect tracks due for classification
                 to_classify_ids = []
@@ -197,13 +240,26 @@ class BirdIdentificationPipeline:
                         continue
                     if (frame_idx - track.last_classified_frame) >= self.classify_every_n:
                         if tid in det_for_track:
+                            crop = self._expanded_crop(frame, det_for_track[tid].bbox)
+                            if crop is None:
+                                track.last_classified_frame = frame_idx
+                                continue
                             to_classify_ids.append(tid)
-                            to_classify_crops.append(det_for_track[tid].crop)
+                            to_classify_crops.append(crop)
 
                 if to_classify_crops:
                     batch_results = self.classifier.classify_batch(to_classify_crops)
                     for tid, preds, crop in zip(to_classify_ids, batch_results, to_classify_crops):
                         raw_preds = preds[:]  # save pre-prior visual scores
+                        raw_top_conf = raw_preds[0][1] if raw_preds else 0.0
+                        tracks[tid].last_classified_frame = frame_idx
+                        if raw_top_conf < self.min_event_confidence:
+                            logger.info(
+                                f"  [{frame_idx / fps:.1f}s] track#{tid} skipped "
+                                f"low-confidence visual event ({raw_top_conf:.1%})"
+                            )
+                            continue
+
                         preds = self.prior.apply(preds, dt=video_date)
 
                         # Weight by proximity to frame center (Gaussian falloff)
@@ -218,11 +274,9 @@ class BirdIdentificationPipeline:
                         tracks[tid].prediction_history.append(preds)
                         tracks[tid].raw_prediction_history.append(raw_preds)
                         tracks[tid].prediction_weights.append(center_weight)
-                        tracks[tid].last_classified_frame = frame_idx
 
-                        top_conf = preds[0][1] if preds else 0.0
-                        if top_conf > best_crops.get(tid, (None, -1.0))[1]:
-                            best_crops[tid] = (crop.copy(), top_conf)
+                        if raw_top_conf > best_crops.get(tid, (None, -1.0))[1]:
+                            best_crops[tid] = (crop.copy(), raw_top_conf)
 
                         timestamp_s = frame_idx / fps
                         event = {

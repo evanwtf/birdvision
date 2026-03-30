@@ -12,6 +12,7 @@ class Track:
     disappeared: int = 0
     frame_count: int = 0
     last_classified_frame: int = -9999
+    matched_detection_idx: Optional[int] = None
     # Weighted (post-prior) predictions, one list per classification event
     prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
     prediction_weights: List[float] = field(default_factory=list)
@@ -60,16 +61,33 @@ def iou(box1: np.ndarray, box2: np.ndarray) -> float:
     return inter / (area1 + area2 - inter)
 
 
+def centroid_distance(box1: np.ndarray, box2: np.ndarray) -> float:
+    c1x = (box1[0] + box1[2]) / 2.0
+    c1y = (box1[1] + box1[3]) / 2.0
+    c2x = (box2[0] + box2[2]) / 2.0
+    c2y = (box2[1] + box2[3]) / 2.0
+    return float(np.hypot(c1x - c2x, c1y - c2y))
+
+
 class BirdTracker:
-    def __init__(self, max_disappeared: int = 30, iou_threshold: float = 0.3):
+    def __init__(
+        self,
+        max_disappeared: int = 30,
+        iou_threshold: float = 0.3,
+        centroid_max_distance: float = 0.15,
+    ):
         self.max_disappeared = max_disappeared
         self.iou_threshold = iou_threshold
+        self.centroid_max_distance = centroid_max_distance
         self.next_id = 0
         self.tracks: Dict[int, Track] = OrderedDict()
         self.completed_tracks: Dict[int, Track] = {}  # pruned tracks, kept for summary
 
-    def update(self, detections) -> Dict[int, Track]:
+    def update(self, detections, frame_size: Optional[Tuple[int, int]] = None) -> Dict[int, Track]:
         """Update tracks with new detections. Returns all active tracks."""
+        for track in self.tracks.values():
+            track.matched_detection_idx = None
+
         if not detections:
             for track in self.tracks.values():
                 track.disappeared += 1
@@ -77,8 +95,8 @@ class BirdTracker:
             return self.tracks
 
         if not self.tracks:
-            for det in detections:
-                self._new_track(det.bbox)
+            for di, det in enumerate(detections):
+                self._new_track(det.bbox, matched_detection_idx=di)
             return self.tracks
 
         track_ids = list(self.tracks.keys())
@@ -92,19 +110,53 @@ class BirdTracker:
                 iou_matrix[i, j] = iou(tb, db)
 
         matched_tracks, matched_dets = set(), set()
+
+        def match_detection(track_idx: int, det_idx: int):
+            tid = track_ids[track_idx]
+            track = self.tracks[tid]
+            track.bbox = detections[det_idx].bbox
+            track.disappeared = 0
+            track.frame_count += 1
+            track.matched_detection_idx = det_idx
+            matched_tracks.add(track_idx)
+            matched_dets.add(det_idx)
+
         while True:
             if iou_matrix.size == 0 or iou_matrix.max() < self.iou_threshold:
                 break
             ti, di = np.unravel_index(np.argmax(iou_matrix), iou_matrix.shape)
             if ti not in matched_tracks and di not in matched_dets:
-                tid = track_ids[ti]
-                self.tracks[tid].bbox = detections[di].bbox
-                self.tracks[tid].disappeared = 0
-                self.tracks[tid].frame_count += 1
-                matched_tracks.add(ti)
-                matched_dets.add(di)
+                match_detection(ti, di)
             iou_matrix[ti, :] = 0
             iou_matrix[:, di] = 0
+
+        if frame_size and self.centroid_max_distance > 0:
+            max_distance_px = self.centroid_max_distance * float(np.hypot(*frame_size))
+            unmatched_track_indices = [ti for ti in range(len(track_ids)) if ti not in matched_tracks]
+            unmatched_det_indices = [di for di in range(len(detections)) if di not in matched_dets]
+            if unmatched_track_indices and unmatched_det_indices:
+                distance_matrix = np.full(
+                    (len(unmatched_track_indices), len(unmatched_det_indices)),
+                    np.inf,
+                    dtype=float,
+                )
+                for row_idx, ti in enumerate(unmatched_track_indices):
+                    for col_idx, di in enumerate(unmatched_det_indices):
+                        distance_matrix[row_idx, col_idx] = centroid_distance(
+                            track_boxes[ti],
+                            det_boxes[di],
+                        )
+
+                while np.isfinite(distance_matrix).any():
+                    row_idx, col_idx = np.unravel_index(np.argmin(distance_matrix), distance_matrix.shape)
+                    if distance_matrix[row_idx, col_idx] > max_distance_px:
+                        break
+                    ti = unmatched_track_indices[row_idx]
+                    di = unmatched_det_indices[col_idx]
+                    if ti not in matched_tracks and di not in matched_dets:
+                        match_detection(ti, di)
+                    distance_matrix[row_idx, :] = np.inf
+                    distance_matrix[:, col_idx] = np.inf
 
         for ti, tid in enumerate(track_ids):
             if ti not in matched_tracks:
@@ -112,13 +164,18 @@ class BirdTracker:
 
         for di, det in enumerate(detections):
             if di not in matched_dets:
-                self._new_track(det.bbox)
+                self._new_track(det.bbox, matched_detection_idx=di)
 
         self._prune()
         return self.tracks
 
-    def _new_track(self, bbox: np.ndarray):
-        self.tracks[self.next_id] = Track(track_id=self.next_id, bbox=bbox, frame_count=1)
+    def _new_track(self, bbox: np.ndarray, matched_detection_idx: Optional[int] = None):
+        self.tracks[self.next_id] = Track(
+            track_id=self.next_id,
+            bbox=bbox,
+            frame_count=1,
+            matched_detection_idx=matched_detection_idx,
+        )
         self.next_id += 1
 
     def _prune(self):
