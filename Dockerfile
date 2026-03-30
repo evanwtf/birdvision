@@ -16,7 +16,7 @@ USER root
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # ffmpeg is needed by opencv for video decoding
-RUN apk add --no-cache ffmpeg mesa-gl
+RUN apk add --no-cache ffmpeg mesa-gl exiftool
 
 WORKDIR /app
 

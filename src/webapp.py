@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from .pipeline import BirdIdentificationPipeline
+from .video_metadata import VideoMetadata, extract as extract_video_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class Job:
         self.status = "pending"   # pending | running | done | error
         self.result: Optional[dict] = None
         self.error: Optional[str] = None
+        self.video_meta: Optional[VideoMetadata] = None
 
 
 _jobs: dict[str, Job] = {}        # job_id → Job
@@ -95,16 +97,28 @@ def create_app(config: dict, templates_dir: str = "templates") -> FastAPI:
         dest.write_bytes(contents)
         logger.info(f"Saved upload: {dest} ({len(contents):,} bytes)")
 
+        # Extract embedded metadata (date, GPS) from the video file
+        loop = asyncio.get_event_loop()
+        video_meta = await loop.run_in_executor(_executor, lambda: extract_video_metadata(str(dest)))
+        logger.info(
+            f"Video metadata: date={video_meta.recorded_at} "
+            f"gps={'yes' if video_meta.has_gps else 'no'}"
+        )
+
+        # Manual date overrides embedded date
         video_date = None
         if date_str:
             try:
                 video_date = datetime.strptime(date_str, "%Y-%m-%d")
             except ValueError:
                 pass
+        if video_date is None and video_meta.recorded_at:
+            video_date = video_meta.recorded_at
 
         job = Job(job_id=job_id, filename=safe_name)
+        job.video_meta = video_meta
         _jobs[job_id] = job
-        await _queue.put((job, str(dest), video_date))
+        await _queue.put((job, str(dest), video_date, video_meta))
 
         return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 
@@ -157,6 +171,20 @@ def _load_existing_jobs(results_dir: Path):
             job = Job(job_id=job_id, filename=original_filename)
             job.status = "done"
             job.result = result
+            # Reconstruct video_meta from saved coords so the OSM link works
+            if result.get("latitude") and result.get("longitude"):
+                from .video_metadata import VideoMetadata
+                from datetime import datetime as dt
+                vm = VideoMetadata(
+                    latitude=result["latitude"],
+                    longitude=result["longitude"],
+                )
+                if result.get("date"):
+                    try:
+                        vm.recorded_at = dt.fromisoformat(result["date"])
+                    except ValueError:
+                        pass
+                job.video_meta = vm
             _jobs[job_id] = job
             loaded += 1
         except Exception as e:
@@ -175,13 +203,18 @@ def _init_pipeline(config: dict) -> BirdIdentificationPipeline:
 async def _worker(loop: asyncio.AbstractEventLoop, pipeline: BirdIdentificationPipeline):
     """Process jobs from the queue one at a time in a thread-pool executor."""
     while True:
-        job, video_path, video_date = await _queue.get()
+        job, video_path, video_date, video_meta = await _queue.get()
         job.status = "running"
         logger.info(f"Processing job {job.id}: {job.filename}")
         try:
             result = await loop.run_in_executor(
                 _executor,
-                lambda: pipeline.process_video(video_path, video_date=video_date),
+                lambda: pipeline.process_video(
+                    video_path,
+                    video_date=video_date,
+                    latitude=video_meta.latitude if video_meta else None,
+                    longitude=video_meta.longitude if video_meta else None,
+                ),
             )
             job.result = result
             job.status = "done"

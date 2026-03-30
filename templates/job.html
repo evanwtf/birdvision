@@ -100,7 +100,13 @@
       {{ result.tracks | length }} track(s) found &nbsp;·&nbsp;
       {{ result.frames_processed }} frames &nbsp;·&nbsp;
       {{ "%.1f"|format(result.fps) }} fps
-      {% if result.date %}&nbsp;·&nbsp; {{ result.date }}{% endif %}
+      {% if result.date %}&nbsp;·&nbsp; {{ result.date[:10] }}{% endif %}
+      {% if job.video_meta and job.video_meta.has_gps %}
+        &nbsp;·&nbsp;
+        <a href="{{ job.video_meta.osm_url }}" target="_blank" rel="noopener">
+          📍 {{ "%.4f"|format(job.video_meta.latitude) }}, {{ "%.4f"|format(job.video_meta.longitude) }}
+        </a>
+      {% endif %}
     </p>
 
     {% if result.tracks %}

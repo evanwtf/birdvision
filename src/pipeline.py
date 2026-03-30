@@ -58,12 +58,22 @@ class BirdIdentificationPipeline:
             species = COMMON_NA_BIRDS
         self.classifier.set_species(species, prompt_template=self.prompt_template)
 
-    def process_video(self, video_path: str, video_date: Optional[datetime] = None) -> dict:
+    def process_video(
+        self,
+        video_path: str,
+        video_date: Optional[datetime] = None,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+    ) -> dict:
         """
         Process a single video. Returns a summary dict and writes a JSON results file.
         """
         self.tracker.tracks.clear()
         self.tracker.completed_tracks.clear()
+
+        # Use per-video GPS if provided, otherwise fall back to config prior
+        if latitude is not None and longitude is not None:
+            self.prior = MetadataPrior(latitude=latitude, longitude=longitude)
 
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
@@ -166,6 +176,8 @@ class BirdIdentificationPipeline:
         summary = {
             "video": str(video_path),
             "date": video_date.isoformat() if video_date else None,
+            "latitude": latitude,
+            "longitude": longitude,
             "frames_processed": frame_idx,
             "fps": fps,
             "tracks": track_summaries,
