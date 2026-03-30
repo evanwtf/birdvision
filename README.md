@@ -5,12 +5,12 @@ Aimed at the Long Island / Northeast US region, no cloud dependencies.
 
 ## How it works
 
-1. **Detection** — YOLOv8 finds birds in each frame
-2. **Tracking** — IoU tracker assigns stable IDs across frames
-3. **Classification** — [BioCLIP](https://huggingface.co/imageomics/bioclip) identifies the species from each cropped bird
+1. **Detection** — finds birds in each frame
+2. **Tracking** — assigns stable IDs across frames
+3. **Classification** — identifies the species from each cropped bird
 4. **Metadata weighting** — location + date priors re-rank predictions (stub → eBird integration planned)
 
-Models download automatically on first run (~600 MB BioCLIP + ~6 MB YOLOv8n).
+Models download automatically on first run.
 
 ## Setup
 

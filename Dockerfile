@@ -21,7 +21,7 @@ FROM cgr.dev/chainguard/python:latest-dev AS runtime
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# ffmpeg is needed by opencv / ultralytics for video decoding
+# ffmpeg is needed by opencv for video decoding
 RUN apk add --no-cache ffmpeg
 
 WORKDIR /app
