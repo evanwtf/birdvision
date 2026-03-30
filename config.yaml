@@ -2,42 +2,35 @@ detector:
   model: /data/models/yolov8s.pt
   confidence: 0.4
   device: cuda
-
+  enable_small_bird_zoom_fallback: true
+  small_bird_fallback_every_n_frames: 5
 classifier:
   model: hf-hub:imageomics/bioclip
   device: cuda
-  top_k: 5
-  classify_every_n_frames: 15
-  crop_padding_ratio: 0.12
+  top_k: 20
+  classify_every_n_frames: 10
+  crop_padding_ratio: 0.18
   crop_padding_ratio_min: 0.04
-  crop_closeup_area_ratio: 0.10
+  crop_closeup_area_ratio: 0.06
   min_crop_area: 2500
-  min_event_confidence: 0.30
-
+  min_event_confidence: 0.35
 tracker:
   max_disappeared: 120
   iou_threshold: 0.2
   min_frames_to_report: 8
   centroid_max_distance: 0.18
   min_confidence_to_report: 0.6
-
 metadata:
   latitude: 40.7
   longitude: -73.5
   ebird_db: /app/data/ebird_priors.db
-  ebird_fips: US-NY-059   # Nassau County — change to nearest county if needed
-
+  ebird_fips: US-NY-059
 scoring:
-  # Weight classification events by proximity to frame center.
-  # Higher = center detections count more. 0 = disable.
   center_weight_strength: 2.0
-
 species:
   list_file: data/species_lists/north_america_common.txt
-  prompt_template: "a photo of a {species}"
-
+  prompt_template: a photo of a {species}
 output:
   results_dir: /data/results
-
 webapp:
   upload_dir: /data/videos

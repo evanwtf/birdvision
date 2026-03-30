@@ -13,6 +13,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -65,6 +66,54 @@ def normalize_local_paths(config: dict) -> dict:
     return normalized
 
 
+def _set_nested(config: dict, dotted_key: str, value: Any) -> None:
+    current = config
+    parts = dotted_key.split(".")
+    for part in parts[:-1]:
+        current = current.setdefault(part, {})
+    current[parts[-1]] = value
+
+
+def _format_diff_lines(original: dict[str, Any], best: dict[str, Any]) -> list[str]:
+    lines = []
+    for key in original:
+        original_value = original[key]
+        best_value = best.get(key)
+        if original_value != best_value:
+            lines.append(f"  {key}: {original_value} -> {best_value}")
+    return lines
+
+
+def _prompt_apply_config_updates(config_path: Path, raw_config: dict, best_values: dict[str, Any], diff_lines: list[str]) -> None:
+    if not diff_lines:
+        print("\nParameter diff: no tuning-space changes from baseline.")
+        return
+
+    print("\nParameter diff:")
+    for line in diff_lines:
+        print(line)
+
+    if not sys.stdin.isatty():
+        print("\nInteractive config update skipped because stdin is not a TTY.")
+        return
+    if not config_path.exists():
+        print(f"\nInteractive config update skipped because {config_path} does not exist.")
+        return
+
+    response = input(f"\nUpdate {config_path} in place with these best values? [y/N] ").strip().lower()
+    if response not in {"y", "yes"}:
+        print("Config left unchanged.")
+        return
+
+    updated_config = json.loads(json.dumps(raw_config))
+    for key, value in best_values.items():
+        _set_nested(updated_config, key, value)
+
+    with open(config_path, "w") as f:
+        yaml.safe_dump(updated_config, f, sort_keys=False)
+    print(f"Updated {config_path} with best tuning values.")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Tune BirdVision parameters for one video and one target species")
     parser.add_argument(
@@ -85,6 +134,10 @@ def parse_args() -> argparse.Namespace:
         help="Stop early once the target species reaches this video-level confidence",
     )
     parser.add_argument(
+        "--success-species-contains",
+        help="Optional case-insensitive species-name substring that counts for stop-rule success, for example Gull",
+    )
+    parser.add_argument(
         "--time-budget-minutes",
         type=float,
         default=30.0,
@@ -100,14 +153,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
 
-    config = {}
+    raw_config = {}
     config_path = Path(args.config)
     if config_path.exists():
         with open(config_path) as f:
-            config = yaml.safe_load(f) or {}
+            raw_config = yaml.safe_load(f) or {}
     else:
         logger.warning("Config file not found: %s; using defaults", args.config)
-    config = normalize_local_paths(config)
+    config = normalize_local_paths(raw_config)
 
     video_path = Path(args.video)
     if not video_path.exists():
@@ -122,6 +175,7 @@ def main() -> int:
         config=config,
         video_path=str(video_path),
         target_species=args.target_species,
+        success_species_contains=args.success_species_contains,
         stop_confidence=args.stop_confidence,
         time_budget_s=args.time_budget_minutes * 60.0,
         results_dir=args.results_dir,
@@ -131,12 +185,19 @@ def main() -> int:
     result = runner.run()
 
     best = result["best_trial"]
+    baseline = runner.trials[0].tuned_params
+    best_values = best["tuned_params"]
+    diff_lines = _format_diff_lines(baseline, best_values)
+
     print(json.dumps(result, indent=2))
+    _prompt_apply_config_updates(config_path, raw_config, best_values, diff_lines)
     logger.info(
-        "Best trial %s: %s %.1f%%, top result=%s %.1f%%, stop_reason=%s",
+        "Best trial %s: %s %.1f%%, success=%s %.1f%%, top result=%s %.1f%%, stop_reason=%s",
         best["trial_index"],
         best["target_species"],
         best["target_confidence"] * 100.0,
+        best["success_species"] or "none",
+        best["success_confidence"] * 100.0,
         best["top_species"],
         best["top_confidence"] * 100.0,
         result["stop_reason"],

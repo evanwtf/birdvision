@@ -126,6 +126,10 @@
   color: #6a7667;
   line-height: 1.4;
 }
+.asset-note-warning {
+  color: #8a5a00;
+  font-weight: 600;
+}
 .jobs-list { list-style: none; }
 .jobs-list li {
   display: flex;
@@ -344,6 +348,7 @@ function renderReview() {
     const gps = formatGps(asset);
     if (gps) notes.push(`GPS: ${escapeHtml(gps)}`);
     if (asset.metadata_error) notes.push(`Metadata issue: ${escapeHtml(asset.metadata_error)}`);
+    if (asset.resolution_warning) notes.push(`<span class="asset-note-warning">${escapeHtml(asset.resolution_warning)}</span>`);
 
     return `
       <div class="asset-card">

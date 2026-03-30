@@ -49,6 +49,44 @@
   line-height: 1.5;
   margin-bottom: 0.75rem;
 }
+.video-gallery {
+  margin: 1rem 0 1.25rem;
+}
+.video-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+.video-gallery-card {
+  border: 1.5px solid #d4e6d0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f9fcf8;
+}
+.video-gallery-card img {
+  width: 100%;
+  display: block;
+  background: #edf3eb;
+}
+.video-gallery-meta {
+  padding: 0.7rem 0.8rem 0.8rem;
+  font-size: 0.84rem;
+  color: #556252;
+  line-height: 1.45;
+}
+.video-gallery-meta strong {
+  color: #1f2c1c;
+}
+.warning-banner {
+  border: 1.5px solid #efd48f;
+  background: #fff8df;
+  color: #6f5200;
+  border-radius: 10px;
+  padding: 0.85rem 0.95rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  margin: 0.9rem 0 1rem;
+}
 .nerd-toggle {
   margin-top: 1rem;
   border-top: 1px solid #e5eee2;
@@ -157,6 +195,11 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
 .bbox-overlay-label b {
   color: #9f1010;
   margin-right: 0.35rem;
+}
+@media (max-width: 720px) {
+  .video-gallery-grid {
+    grid-template-columns: 1fr;
+  }
 }
 {% endblock %}
 
@@ -349,6 +392,38 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
     <p class="meta">
       {{ result.tracks | length }} track(s) &nbsp;·&nbsp; {{ result.frames_processed }} frames &nbsp;·&nbsp; {{ "%.1f"|format(result.fps) }} fps
     </p>
+    {% endif %}
+
+    {% if result.resolution_warning %}
+    <div class="warning-banner">{{ result.resolution_warning }}</div>
+    {% endif %}
+
+    {% if result.frame_gallery %}
+    <div class="video-gallery">
+      <h2>Representative Frames</h2>
+      <div class="video-gallery-grid">
+        {% for frame in result.frame_gallery %}
+        <div class="video-gallery-card">
+          <img src="/jobs/{{ job.id }}/crops/{{ frame.file }}" alt="video frame {{ loop.index }}">
+          <div class="video-gallery-meta">
+            <strong>
+              {% if frame.timestamp_s is not none %}
+              {{ "%.1f"|format(frame.timestamp_s) }}s
+              {% else %}
+              Frame {{ frame.frame }}
+              {% endif %}
+            </strong>
+            {% if frame.species %}
+            <br>{{ frame.species }}
+            {% endif %}
+            {% if frame.track_id %}
+            <br>Track #{{ frame.track_id }}
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
     {% endif %}
 
     {% if result.video_predictions %}

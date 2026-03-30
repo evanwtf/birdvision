@@ -158,6 +158,11 @@ class AssetStore:
             "camera_info": record["camera_info"],
             "metadata_status": "partial" if record["metadata_error"] else "ok",
             "metadata_error": record["metadata_error"],
+            "resolution_warning": resolution_warning_text(
+                media_type=media_type,
+                width=record["width"],
+                height=record["height"],
+            ),
             "duplicate": duplicate,
             "duplicate_status": "existing" if duplicate else "new",
             "canonical_path": str(stored_path),
@@ -619,6 +624,11 @@ def build_job_asset(indexed: dict[str, Any], original_filename: Optional[str]) -
         "recorded_at": indexed.get("recorded_at"),
         "latitude": indexed.get("latitude"),
         "longitude": indexed.get("longitude"),
+        "resolution_warning": resolution_warning_text(
+            media_type=indexed["media_type"],
+            width=indexed.get("width"),
+            height=indexed.get("height"),
+        ),
     }
 
 
@@ -672,4 +682,25 @@ def first_value(server_value: Any, client_metadata: Optional[dict[str, Any]], ke
         return server_value
     if client_metadata and client_metadata.get(key) is not None:
         return client_metadata[key]
+    return None
+
+
+def resolution_warning_text(
+    *,
+    media_type: Optional[str],
+    width: Optional[int],
+    height: Optional[int],
+) -> Optional[str]:
+    if width is None or height is None:
+        return None
+    long_edge = max(width, height)
+    short_edge = min(width, height)
+    if media_type == "video" and (long_edge < 1280 or short_edge < 720):
+        return (
+            "Low-resolution video can reduce bird detection recall, especially for small or distant birds."
+        )
+    if media_type == "image" and (long_edge < 1600 or short_edge < 900):
+        return (
+            "Low-resolution photos can reduce bird detection recall, especially for small or distant birds."
+        )
     return None

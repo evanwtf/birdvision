@@ -108,6 +108,8 @@ class TrialResult:
     target_confidence: float
     raw_target_confidence: float
     target_rank: Optional[int]
+    success_species: Optional[str]
+    success_confidence: float
     top_species: Optional[str]
     top_confidence: float
     reached_target: bool
@@ -123,6 +125,7 @@ class SingleVideoTuningRunner:
         config: dict,
         video_path: str,
         target_species: str,
+        success_species_contains: Optional[str] = None,
         stop_confidence: float,
         time_budget_s: float,
         results_dir: Optional[str] = None,
@@ -132,6 +135,7 @@ class SingleVideoTuningRunner:
         self.base_config = copy.deepcopy(config)
         self.video_path = str(Path(video_path))
         self.target_species = target_species
+        self.success_species_contains = success_species_contains
         self.stop_confidence = stop_confidence
         self.time_budget_s = max(0.0, time_budget_s)
         self.max_trials = max_trials
@@ -149,6 +153,9 @@ class SingleVideoTuningRunner:
         pipeline_config = copy.deepcopy(self.base_config)
         pipeline_config.setdefault("output", {})["results_dir"] = str(self.run_dir / "bootstrap")
         self.pipeline = BirdIdentificationPipeline(pipeline_config)
+        self.pipeline.verbose_runtime_logs = False
+        self.pipeline.print_video_summary = False
+        self.pipeline.compact_log_paths = True
         species_file = self.base_config.get("species", {}).get("list_file")
         self.pipeline.load_species(species_file)
 
@@ -193,11 +200,28 @@ class SingleVideoTuningRunner:
                 )
         return 0.0, 0.0, None
 
+    def _lookup_success_metrics(self, summary: dict) -> tuple[Optional[str], float]:
+        if not self.success_species_contains:
+            return self.target_species, self._lookup_target_metrics(summary)[0]
+
+        predictions = summary.get("video_predictions", [])
+        needle = self.success_species_contains.lower()
+        best_species = None
+        best_confidence = 0.0
+        for prediction in predictions:
+            species = str(prediction.get("species", ""))
+            confidence = float(prediction.get("presence_probability", 0.0))
+            if needle in species.lower() and confidence > best_confidence:
+                best_species = species
+                best_confidence = confidence
+        return best_species, best_confidence
+
     def _record_summary(self, best_trial: Optional[TrialResult]) -> None:
         payload = {
             "run_id": self.run_id,
             "video_path": self.video_path,
             "target_species": self.target_species,
+            "success_species_contains": self.success_species_contains,
             "stop_confidence": self.stop_confidence,
             "time_budget_s": round(self.time_budget_s, 2),
             "elapsed_s": round(self._elapsed_s(), 2),
@@ -230,6 +254,7 @@ class SingleVideoTuningRunner:
                 result_stem=Path(self.video_path).stem,
             )
             target_confidence, raw_target_confidence, target_rank = self._lookup_target_metrics(summary)
+            success_species, success_confidence = self._lookup_success_metrics(summary)
             video_predictions = summary.get("video_predictions", [])
             top_prediction = video_predictions[0] if video_predictions else {}
             results_json = trial_dir / f"{Path(self.video_path).stem}_results.json"
@@ -243,11 +268,24 @@ class SingleVideoTuningRunner:
                 target_confidence=round(target_confidence, 4),
                 raw_target_confidence=round(raw_target_confidence, 4),
                 target_rank=target_rank,
+                success_species=success_species,
+                success_confidence=round(success_confidence, 4),
                 top_species=top_prediction.get("species"),
                 top_confidence=round(float(top_prediction.get("presence_probability", 0.0)), 4),
-                reached_target=target_confidence >= self.stop_confidence,
+                reached_target=success_confidence >= self.stop_confidence,
                 changed_params=self._changed_params(trial_config),
                 tuned_params=_summarize_params(trial_config),
+            )
+            logger.info(
+                "Trial %03d result: target=%s %.1f%% (rank=%s), success=%s %.1f%%, top=%s %.1f%%",
+                trial_index,
+                self.target_species,
+                trial.target_confidence * 100.0,
+                trial.target_rank if trial.target_rank is not None else "-",
+                trial.success_species or "none",
+                trial.success_confidence * 100.0,
+                trial.top_species or "none",
+                trial.top_confidence * 100.0,
             )
         except Exception as exc:
             trial = TrialResult(
@@ -260,6 +298,8 @@ class SingleVideoTuningRunner:
                 target_confidence=0.0,
                 raw_target_confidence=0.0,
                 target_rank=None,
+                success_species=None,
+                success_confidence=0.0,
                 top_species=None,
                 top_confidence=0.0,
                 reached_target=False,
@@ -382,6 +422,9 @@ class SingleVideoTuningRunner:
             "run_id": self.run_id,
             "run_dir": str(self.run_dir),
             "summary_path": str(self.summary_path),
+            "target_species": self.target_species,
+            "success_species_contains": self.success_species_contains,
+            "stop_confidence": self.stop_confidence,
             "stop_reason": self.stop_reason,
             "elapsed_s": round(self._elapsed_s(), 2),
             "trial_count": len(self.trials),
