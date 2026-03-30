@@ -125,7 +125,7 @@
           {% for pred in track.averaged_predictions %}
           <li>
             <span class="rank">{{ loop.index }}</span>
-            <span class="species">{{ pred.species }}</span>
+            <a class="species" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
             <div class="prob-bar-wrap">
               <div class="prob-bar" style="width:{{ [pred.probability * 100, 100] | min | int }}%"></div>
             </div>
