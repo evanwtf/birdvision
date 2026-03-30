@@ -44,8 +44,31 @@ def main():
     from src.webapp import create_app
     app = create_app(config, templates_dir=templates_dir, config_path=config_path)
 
+    log_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "%(asctime)s %(name)s %(levelname)s %(message)s",
+                "datefmt": "%H:%M:%S",
+            }
+        },
+        "handlers": {
+            "default": {
+                "class": "logging.StreamHandler",
+                "formatter": "default",
+                "stream": "ext://sys.stdout",
+            }
+        },
+        "loggers": {
+            "uvicorn":        {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.error":  {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
+        },
+    }
+
     logger.info(f"Starting BirdVision web server on http://{args.host}:{args.port}")
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(app, host=args.host, port=args.port, log_config=log_config)
 
 
 if __name__ == "__main__":
