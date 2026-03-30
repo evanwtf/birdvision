@@ -5,7 +5,9 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
+import secrets
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -18,7 +20,13 @@ import yaml
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.datastructures import UploadFile as StarletteUploadFile
+
+try:
+    from authlib.integrations.starlette_client import OAuth
+except ImportError:  # pragma: no cover - keeps app importable until deps are installed
+    OAuth = None
 
 from .pipeline import BirdIdentificationPipeline
 from .video_metadata import VideoMetadata, inspect_media
@@ -27,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".wmv"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
+GOOGLE_SERVER_METADATA_URL = "https://accounts.google.com/.well-known/openid-configuration"
 
 
 @dataclass
@@ -97,6 +106,16 @@ class Job:
             date_prefix = date_str[:10]
             return f"{date_prefix}: {species_text}"
         return species_text
+
+
+@dataclass(frozen=True)
+class AuthSettings:
+    enabled: bool
+    debug_mode: bool
+    google_client_id: Optional[str]
+    google_client_secret: Optional[str]
+    session_secret: Optional[str]
+    allowed_emails: set[str]
 
 
 class AssetStore:
@@ -230,6 +249,21 @@ _executor = ThreadPoolExecutor(max_workers=1)
 def create_app(config: dict, templates_dir: str = "templates", config_path: Optional[Path] = None) -> FastAPI:
     app = FastAPI(title="BirdVision")
     templates = Jinja2Templates(directory=templates_dir)
+    initial_auth_settings = build_auth_settings(config)
+    if initial_auth_settings.debug_mode:
+        logger.warning("Webapp debug mode is enabled; auth gating is disabled.")
+    elif not initial_auth_settings.enabled and any((
+        initial_auth_settings.google_client_id,
+        initial_auth_settings.google_client_secret,
+        initial_auth_settings.session_secret,
+    )):
+        logger.warning("Auth configuration is incomplete; authentication routes and upload gating are disabled.")
+
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=initial_auth_settings.session_secret or secrets.token_hex(32),
+        same_site="lax",
+    )
 
     upload_dir = Path(config.get("webapp", {}).get("upload_dir", "videos"))
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -238,6 +272,19 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
     asset_store = AssetStore(upload_dir)
 
     pipeline: Optional[BirdIdentificationPipeline] = None
+
+    def current_config() -> dict[str, Any]:
+        return load_runtime_config(config, config_path)
+
+    def current_auth_settings() -> AuthSettings:
+        return build_auth_settings(current_config())
+
+    def render_template(request: Request, template_name: str, context: dict[str, Any]) -> HTMLResponse:
+        merged = {
+            **context,
+            **build_template_auth_context(request, current_auth_settings()),
+        }
+        return templates.TemplateResponse(request, template_name, merged)
 
     @app.on_event("startup")
     async def startup():
@@ -258,12 +305,58 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
         recent = list(reversed(list(_jobs.values())))[:20]
-        return templates.TemplateResponse(request, "index.html", {
+        return render_template(request, "index.html", {
             "jobs": recent,
         })
 
+    @app.get("/login")
+    async def login(request: Request):
+        settings = current_auth_settings()
+        if not settings.enabled:
+            return RedirectResponse("/", status_code=303)
+        try:
+            google = build_google_oauth_client(settings)
+        except RuntimeError as exc:
+            return HTMLResponse(str(exc), status_code=500)
+        redirect_uri = str(request.url_for("auth_callback"))
+        return await google.authorize_redirect(request, redirect_uri)
+
+    @app.get("/auth/callback")
+    async def auth_callback(request: Request):
+        settings = current_auth_settings()
+        if not settings.enabled:
+            return RedirectResponse("/", status_code=303)
+        try:
+            google = build_google_oauth_client(settings)
+        except RuntimeError as exc:
+            return HTMLResponse(str(exc), status_code=500)
+        token = await google.authorize_access_token(request)
+        user_info = token.get("userinfo")
+        if not user_info:
+            try:
+                user_info = await google.parse_id_token(request, token)
+            except Exception as exc:
+                logger.warning(f"Could not parse Google ID token: {exc}")
+                user_info = None
+
+        email = normalize_email((user_info or {}).get("email"))
+        if not email:
+            return HTMLResponse("Google login did not return an email address.", status_code=400)
+
+        request.session.clear()
+        request.session["email"] = email
+        return RedirectResponse("/", status_code=303)
+
+    @app.get("/logout")
+    async def logout(request: Request):
+        request.session.clear()
+        return RedirectResponse("/", status_code=303)
+
     @app.post("/api/uploads/inspect")
     async def inspect_upload_candidates(request: Request):
+        auth_response = require_upload_access(request, current_auth_settings())
+        if auth_response is not None:
+            return auth_response
         files, client_metadata = await _parse_upload_form(request)
         if not files:
             return JSONResponse({"error": "No file uploaded"}, status_code=400)
@@ -277,6 +370,9 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
 
     @app.post("/api/uploads/finalize")
     async def finalize_upload(request: Request):
+        auth_response = require_upload_access(request, current_auth_settings())
+        if auth_response is not None:
+            return auth_response
         payload = await request.json()
         selected_assets = payload.get("assets") or []
         if not isinstance(selected_assets, list):
@@ -310,6 +406,9 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
 
     @app.post("/upload")
     async def upload(request: Request):
+        auth_response = require_upload_access(request, current_auth_settings())
+        if auth_response is not None:
+            return auth_response
         files, client_metadata = await _parse_upload_form(request)
         if not files:
             return HTMLResponse("No file uploaded", status_code=400)
@@ -350,12 +449,15 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         job = _jobs.get(job_id)
         if job is None:
             return HTMLResponse("Job not found", status_code=404)
-        return templates.TemplateResponse(request, "job.html", {
+        return render_template(request, "job.html", {
             "job": job,
         })
 
     @app.post("/jobs/{job_id}/reprocess")
-    async def reprocess(job_id: str):
+    async def reprocess(request: Request, job_id: str):
+        auth_response = require_upload_access(request, current_auth_settings())
+        if auth_response is not None:
+            return auth_response
         old_job = _jobs.get(job_id)
         if old_job is None:
             return HTMLResponse("Job not found", status_code=404)
@@ -462,6 +564,128 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         return FileResponse(photo_path)
 
     return app
+
+
+def load_runtime_config(initial_config: dict[str, Any], config_path: Optional[Path]) -> dict[str, Any]:
+    if config_path and config_path.exists():
+        try:
+            return yaml.safe_load(config_path.read_text()) or {}
+        except Exception as exc:
+            logger.warning(f"Could not reload config from {config_path}: {exc}")
+    return initial_config
+
+
+def build_auth_settings(config: dict[str, Any]) -> AuthSettings:
+    auth_config = config.get("auth", {})
+    if not isinstance(auth_config, dict):
+        auth_config = {}
+    debug_mode = debug_mode_enabled(config)
+
+    google_client_id = normalize_secret(os.getenv("GOOGLE_CLIENT_ID")) or normalize_secret(auth_config.get("google_client_id"))
+    google_client_secret = normalize_secret(os.getenv("GOOGLE_CLIENT_SECRET")) or normalize_secret(auth_config.get("google_client_secret"))
+    session_secret = normalize_secret(os.getenv("SESSION_SECRET")) or normalize_secret(auth_config.get("session_secret"))
+
+    raw_allowed_emails = auth_config.get("allowed_emails", [])
+    if not isinstance(raw_allowed_emails, list):
+        raw_allowed_emails = []
+    allowed_emails = {
+        email for email in (normalize_email(item) for item in raw_allowed_emails)
+        if email
+    }
+
+    return AuthSettings(
+        enabled=(not debug_mode) and bool(google_client_id and google_client_secret and session_secret),
+        debug_mode=debug_mode,
+        google_client_id=google_client_id,
+        google_client_secret=google_client_secret,
+        session_secret=session_secret,
+        allowed_emails=allowed_emails,
+    )
+
+
+def debug_mode_enabled(config: dict[str, Any]) -> bool:
+    env_value = os.getenv("BIRDVISION_DEBUG")
+    if env_value is not None:
+        return parse_bool(env_value)
+    webapp_config = config.get("webapp", {})
+    if not isinstance(webapp_config, dict):
+        return False
+    return parse_bool(webapp_config.get("debug", False))
+
+
+def parse_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "debug"}
+    return bool(value)
+
+
+def normalize_secret(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def normalize_email(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip().lower()
+    return stripped or None
+
+
+def current_user_email(request: Request) -> Optional[str]:
+    return normalize_email(request.session.get("email"))
+
+
+def can_upload_email(email: Optional[str], settings: AuthSettings) -> bool:
+    if not settings.enabled:
+        return True
+    return bool(email and email in settings.allowed_emails)
+
+
+def build_template_auth_context(request: Request, settings: AuthSettings) -> dict[str, Any]:
+    email = current_user_email(request)
+    return {
+        "auth_enabled": settings.enabled,
+        "user_email": email,
+        "can_upload": can_upload_email(email, settings),
+    }
+
+
+def require_upload_access(request: Request, settings: AuthSettings) -> Optional[JSONResponse | RedirectResponse]:
+    if not settings.enabled:
+        return None
+
+    email = current_user_email(request)
+    is_api = request.url.path.startswith("/api/")
+
+    if not email:
+        if is_api:
+            return JSONResponse({"error": "Authentication required."}, status_code=401)
+        return RedirectResponse("/login", status_code=303)
+
+    if email not in settings.allowed_emails:
+        if is_api:
+            return JSONResponse({"error": "Signed-in user is not authorized to upload."}, status_code=403)
+        return RedirectResponse("/", status_code=303)
+
+    return None
+
+
+def build_google_oauth_client(settings: AuthSettings):
+    if OAuth is None:
+        raise RuntimeError("Auth dependencies are not installed. Run `uv sync` to install authlib.")
+    oauth = OAuth()
+    oauth.register(
+        name="google",
+        client_id=settings.google_client_id,
+        client_secret=settings.google_client_secret,
+        server_metadata_url=GOOGLE_SERVER_METADATA_URL,
+        client_kwargs={"scope": "openid email profile"},
+    )
+    return oauth.create_client("google")
 
 
 def _load_existing_jobs(results_dir: Path):

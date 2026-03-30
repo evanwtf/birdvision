@@ -29,6 +29,14 @@ photos and view results with species predictions, confidence scores, annotated
 image/video artifacts, and links to Cornell All About Birds for each candidate
 species.
 
+If you want Google OAuth login for uploads, export secrets before `docker compose up`:
+
+```bash
+export GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
+export GOOGLE_CLIENT_SECRET="your-client-secret"
+export SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+```
+
 Managed uploaded media, the asset index, and any legacy uploads persist in
 `./videos/` on the host. Results persist in `./results/`.
 Model weights are cached in `./models/` and reused across restarts.
@@ -38,6 +46,7 @@ Model weights are cached in `./models/` and reused across restarts.
 ```bash
 uv sync
 uv run scripts/serve.py          # web UI on :3587
+uv run scripts/serve.py --debug  # local debug mode, auth bypassed
 uv run scripts/identify_videos.py videos/   # CLI batch mode
 uv run scripts/tune_single_video.py   # single-video tuner
 ```
@@ -84,6 +93,27 @@ next job, but model/device changes still require a restart. Key settings:
 | `tracker.min_confidence_to_report` | `0.6` | Override min_frames for high-confidence single detections |
 | `scoring.center_weight_strength` | `2.0` | How much to favor center-frame detections (0 = off) |
 | `metadata.ebird_fips` | `US-NY-059` | Fallback county for eBird priors when GPS is unavailable |
+| `webapp.debug` | `false` | Local/debug bypass for auth checks on upload and reprocess endpoints |
+| `auth.allowed_emails` | `[]` | Signed-in Google accounts allowed to upload and reprocess jobs |
+
+Google OAuth client ID, client secret, and session secret can live either in
+`config.yaml` or the `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and
+`SESSION_SECRET` environment variables. Environment variables take precedence so
+you can keep secrets out of git. Changes to `auth.allowed_emails` are picked up
+without restart; changing OAuth credentials or the session secret still
+requires restarting the web server.
+
+For local work, set `webapp.debug: true`, run `uv run scripts/serve.py --debug`,
+or export `BIRDVISION_DEBUG=1` to bypass auth entirely.
+
+## Google OAuth Setup
+
+Uploads and job reprocessing can be gated behind Google sign-in plus an email
+whitelist. Browsing the job list and results pages stays public.
+
+Full setup guide: [docs/google_oauth_setup.md](docs/google_oauth_setup.md).
+That doc covers creating the Google Cloud OAuth client, setting the callback
+URI, generating `SESSION_SECRET`, and wiring the values into BirdVision.
 
 ## Results display
 

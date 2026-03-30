@@ -29,6 +29,11 @@ def main():
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=3587)
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Run the web UI in local debug mode with auth bypassed.",
+    )
     args = parser.parse_args()
 
     config = {}
@@ -38,6 +43,10 @@ def main():
             config = yaml.safe_load(f) or {}
     else:
         logger.warning(f"Config not found: {args.config} — using defaults")
+
+    if args.debug:
+        config.setdefault("webapp", {})["debug"] = True
+        logger.warning("Starting with webapp.debug=true; auth will not be required.")
 
     templates_dir = str(Path(__file__).parent.parent / "templates")
 

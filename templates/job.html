@@ -219,10 +219,14 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
     <span style="font-size:0.95rem; font-weight:600">{{ job.filename }}</span>
   </div>
 
-  {% if job.status in ('done', 'error') %}
+  {% if job.status in ('done', 'error') and can_upload %}
   <form method="post" action="/jobs/{{ job.id }}/reprocess" style="margin-bottom:1rem">
     <button class="btn btn-secondary" type="submit">↺ Reprocess</button>
   </form>
+  {% elif job.status in ('done', 'error') and auth_enabled and user_email %}
+  <p class="meta">Signed in as {{ user_email }}, but this account is not authorized to upload or reprocess jobs.</p>
+  {% elif job.status in ('done', 'error') and auth_enabled %}
+  <p class="meta"><a href="/login">Sign in with Google</a> to upload or reprocess jobs.</p>
   {% endif %}
 
   {% if job.status == 'error' %}

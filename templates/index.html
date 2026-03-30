@@ -187,6 +187,7 @@
 {% block content %}
 <div class="card">
   <h2>Upload Video or Photos</h2>
+  {% if can_upload %}
   <form method="post" action="/upload" enctype="multipart/form-data" id="upload-form">
     <div class="upload-area" id="drop-zone" style="position:relative;">
       <input type="file" name="file" id="file-input" accept="video/*,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.heic,.webp" multiple required>
@@ -210,6 +211,15 @@
     </div>
     <button class="btn" type="submit" id="submit-btn" disabled>Inspect Files First</button>
   </form>
+  {% elif auth_enabled and user_email %}
+  <div class="message message-error" style="margin-bottom:0">
+    You are signed in as <strong>{{ user_email }}</strong> but not authorized to upload. Contact the admin to request access.
+  </div>
+  {% elif auth_enabled %}
+  <div class="message message-info" style="margin-bottom:0">
+    Sign in to upload media. <a href="/login">Sign in with Google</a>.
+  </div>
+  {% endif %}
 </div>
 
 {% if jobs %}
@@ -233,6 +243,7 @@
 </div>
 {% endif %}
 
+{% if can_upload %}
 <script>
 const input = document.getElementById('file-input');
 const label = document.getElementById('file-label');
@@ -577,4 +588,5 @@ zone.addEventListener('drop', (e) => {
   }
 });
 </script>
+{% endif %}
 {% endblock %}

@@ -29,4 +29,5 @@ data/ebird_priors.db
 
 # Misc
 .DS_Store
+.env
 *.log

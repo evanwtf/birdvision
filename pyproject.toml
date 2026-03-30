@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Bird species identification from video using local computer vision models"
 requires-python = ">=3.12"
 dependencies = [
+    "authlib>=1.6.0",
     "fastapi>=0.135.2",
+    "httpx>=0.28.1",
     "jinja2>=3.1.6",
     "numpy>=1.24.0",
     "open-clip-torch>=2.20.0",

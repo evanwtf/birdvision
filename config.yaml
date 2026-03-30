@@ -34,3 +34,10 @@ output:
   results_dir: /data/results
 webapp:
   upload_dir: /data/videos
+  debug: false
+auth:
+  google_client_id: ""
+  google_client_secret: ""
+  session_secret: ""
+  # Add uploader emails here once auth is enabled.
+  allowed_emails: []
