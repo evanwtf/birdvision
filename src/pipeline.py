@@ -44,7 +44,8 @@ class BirdIdentificationPipeline:
         )
 
         self.classify_every_n = cls.get("classify_every_n_frames", 15)
-        self.min_frames_to_report = trk.get("min_frames_to_report", 5)
+        self.min_frames_to_report = trk.get("min_frames_to_report", 3)
+        self.min_confidence_to_report = trk.get("min_confidence_to_report", 0.6)
         self.prompt_template = sp.get("prompt_template", "a photo of a {species}")
         self.results_dir = config.get("output", {}).get("results_dir", "results/")
 
@@ -81,10 +82,15 @@ class BirdIdentificationPipeline:
             logger.info(f"Config reload: tracker.iou_threshold {self.tracker.iou_threshold} → {new_iou}")
             self.tracker.iou_threshold = new_iou
 
-        new_min_frames = trk.get("min_frames_to_report", 5)
+        new_min_frames = trk.get("min_frames_to_report", 3)
         if self.min_frames_to_report != new_min_frames:
             logger.info(f"Config reload: min_frames_to_report {self.min_frames_to_report} → {new_min_frames}")
             self.min_frames_to_report = new_min_frames
+
+        new_min_conf = trk.get("min_confidence_to_report", 0.6)
+        if self.min_confidence_to_report != new_min_conf:
+            logger.info(f"Config reload: min_confidence_to_report {self.min_confidence_to_report} → {new_min_conf}")
+            self.min_confidence_to_report = new_min_conf
 
         new_lat = meta.get("latitude")
         new_lon = meta.get("longitude")
@@ -218,9 +224,10 @@ class BirdIdentificationPipeline:
         # Build per-track summaries using averaged predictions
         track_summaries = []
         for tid, track in {**self.tracker.completed_tracks, **self.tracker.tracks}.items():
-            if track.frame_count < self.min_frames_to_report:
-                continue
             best = track.best_prediction
+            top_conf = best[0][1] if best else 0.0
+            if track.frame_count < self.min_frames_to_report and top_conf < self.min_confidence_to_report:
+                continue
             if best:
                 track_summaries.append({
                     "track_id": tid,
