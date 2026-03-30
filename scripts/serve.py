@@ -42,7 +42,7 @@ def main():
     templates_dir = str(Path(__file__).parent.parent / "templates")
 
     from src.webapp import create_app
-    app = create_app(config, templates_dir=templates_dir)
+    app = create_app(config, templates_dir=templates_dir, config_path=config_path)
 
     logger.info(f"Starting BirdVision web server on http://{args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port)

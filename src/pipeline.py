@@ -48,6 +48,62 @@ class BirdIdentificationPipeline:
         self.prompt_template = sp.get("prompt_template", "a photo of a {species}")
         self.results_dir = config.get("output", {}).get("results_dir", "results/")
 
+    def apply_config(self, config: dict):
+        """Hot-reload mutable settings from config. Model/device changes require restart."""
+        det = config.get("detector", {})
+        cls = config.get("classifier", {})
+        trk = config.get("tracker", {})
+        meta = config.get("metadata", {})
+        sp = config.get("species", {})
+
+        new_confidence = det.get("confidence", 0.3)
+        if self.detector.confidence != new_confidence:
+            logger.info(f"Config reload: detector.confidence {self.detector.confidence} → {new_confidence}")
+            self.detector.confidence = new_confidence
+
+        new_top_k = cls.get("top_k", 5)
+        if self.classifier.top_k != new_top_k:
+            logger.info(f"Config reload: classifier.top_k {self.classifier.top_k} → {new_top_k}")
+            self.classifier.top_k = new_top_k
+
+        new_classify_every_n = cls.get("classify_every_n_frames", 15)
+        if self.classify_every_n != new_classify_every_n:
+            logger.info(f"Config reload: classify_every_n {self.classify_every_n} → {new_classify_every_n}")
+            self.classify_every_n = new_classify_every_n
+
+        new_max_disappeared = trk.get("max_disappeared", 30)
+        if self.tracker.max_disappeared != new_max_disappeared:
+            logger.info(f"Config reload: tracker.max_disappeared {self.tracker.max_disappeared} → {new_max_disappeared}")
+            self.tracker.max_disappeared = new_max_disappeared
+
+        new_iou = trk.get("iou_threshold", 0.3)
+        if self.tracker.iou_threshold != new_iou:
+            logger.info(f"Config reload: tracker.iou_threshold {self.tracker.iou_threshold} → {new_iou}")
+            self.tracker.iou_threshold = new_iou
+
+        new_min_frames = trk.get("min_frames_to_report", 5)
+        if self.min_frames_to_report != new_min_frames:
+            logger.info(f"Config reload: min_frames_to_report {self.min_frames_to_report} → {new_min_frames}")
+            self.min_frames_to_report = new_min_frames
+
+        new_lat = meta.get("latitude")
+        new_lon = meta.get("longitude")
+        if new_lat != self.prior.latitude or new_lon != self.prior.longitude:
+            logger.info(f"Config reload: location {new_lat}, {new_lon}")
+            self.prior = MetadataPrior(latitude=new_lat, longitude=new_lon)
+
+        new_results_dir = config.get("output", {}).get("results_dir", "results/")
+        if self.results_dir != new_results_dir:
+            logger.info(f"Config reload: results_dir {self.results_dir} → {new_results_dir}")
+            self.results_dir = new_results_dir
+
+        new_species_file = sp.get("list_file")
+        new_prompt = sp.get("prompt_template", "a photo of a {species}")
+        if new_prompt != self.prompt_template:
+            logger.info(f"Config reload: prompt_template changed, re-computing embeddings")
+            self.prompt_template = new_prompt
+            self.load_species(new_species_file)
+
     def load_species(self, species_file: Optional[str]):
         if species_file and os.path.exists(species_file):
             with open(species_file) as f:

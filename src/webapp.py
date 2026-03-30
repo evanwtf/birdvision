@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
+
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -45,7 +46,7 @@ _executor = ThreadPoolExecutor(max_workers=1)
 # App factory
 # ---------------------------------------------------------------------------
 
-def create_app(config: dict, templates_dir: str = "templates") -> FastAPI:
+def create_app(config: dict, templates_dir: str = "templates", config_path: Optional[Path] = None) -> FastAPI:
     app = FastAPI(title="BirdVision")
     templates = Jinja2Templates(directory=templates_dir)
 
@@ -239,6 +240,11 @@ async def _worker(loop: asyncio.AbstractEventLoop, pipeline: BirdIdentificationP
         job.status = "running"
         logger.info(f"Processing job {job.id}: {job.filename}")
         try:
+            if config_path and config_path.exists():
+                fresh_config = yaml.safe_load(config_path.read_text()) or {}
+                await loop.run_in_executor(_executor, lambda: pipeline.apply_config(fresh_config))
+                logger.info("Config reloaded.")
+
             result = await loop.run_in_executor(
                 _executor,
                 lambda: pipeline.process_video(
