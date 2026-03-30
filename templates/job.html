@@ -403,6 +403,12 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
     <div class="warning-banner">{{ result.resolution_warning }}</div>
     {% endif %}
 
+    <div style="margin:1rem 0;">
+      <video controls playsinline preload="metadata" style="width:100%; border-radius:8px;">
+        <source src="/jobs/{{ job.id }}/video">
+      </video>
+    </div>
+
     {# ── 1. Aggregate score (top) ─────────────────────────────── #}
     {% if result.video_predictions %}
     <div class="video-summary">

@@ -434,6 +434,20 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             return HTMLResponse("Not found", status_code=404)
         return FileResponse(crop_path, media_type="image/jpeg")
 
+    @app.get("/jobs/{job_id}/video")
+    async def serve_video(job_id: str):
+        job = _jobs.get(job_id)
+        if job is None or job.media_type == "images":
+            return HTMLResponse("Not found", status_code=404)
+        video_path = None
+        if job.assets:
+            video_path = job.assets[0].get("stored_path")
+        elif job.result and job.result.get("video"):
+            video_path = job.result["video"]
+        if not video_path or not Path(video_path).exists():
+            return HTMLResponse("Video file not found", status_code=404)
+        return FileResponse(video_path)
+
     return app
 
 
