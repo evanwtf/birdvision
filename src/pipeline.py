@@ -174,6 +174,32 @@ class BirdIdentificationPipeline:
             return None
         return frame[y1:y2, x1:x2]
 
+    def _build_video_predictions(self, track_predictions: List[List[Tuple[str, float]]]) -> List[dict]:
+        """Aggregate track-level predictions into a video-level presence summary."""
+        species_scores: Dict[str, float] = {}
+        supporting_tracks: Dict[str, int] = {}
+
+        for preds in track_predictions:
+            seen_species = set()
+            for species, prob in preds[:5]:
+                species_scores[species] = max(species_scores.get(species, 0.0), prob)
+                if species not in seen_species:
+                    supporting_tracks[species] = supporting_tracks.get(species, 0) + 1
+                    seen_species.add(species)
+
+        ranked = sorted(
+            species_scores.items(),
+            key=lambda item: (-item[1], -supporting_tracks[item[0]], item[0]),
+        )
+        return [
+            {
+                "species": species,
+                "presence_probability": round(prob, 4),
+                "supporting_tracks": supporting_tracks[species],
+            }
+            for species, prob in ranked[:5]
+        ]
+
     def process_video(
         self,
         video_path: str,
@@ -306,6 +332,7 @@ class BirdIdentificationPipeline:
 
         # Build per-track summaries using averaged predictions
         track_summaries = []
+        video_track_predictions: List[List[Tuple[str, float]]] = []
         for tid, track in {**self.tracker.completed_tracks, **self.tracker.tracks}.items():
             best = track.best_prediction
             top_conf = best[0][1] if best else 0.0
@@ -314,6 +341,7 @@ class BirdIdentificationPipeline:
             if best:
                 raw = track.best_raw_prediction
                 explanation = self._build_explanation(best, raw, video_date)
+                video_track_predictions.append(best)
                 track_summaries.append({
                     "track_id": tid,
                     "frames_tracked": track.frame_count,
@@ -329,6 +357,7 @@ class BirdIdentificationPipeline:
                 })
 
         duration_s = frame_idx / fps if fps else 0
+        video_predictions = self._build_video_predictions(video_track_predictions)
         summary = {
             "video": str(video_path),
             "date": video_date.isoformat() if video_date else None,
@@ -344,6 +373,7 @@ class BirdIdentificationPipeline:
             },
             "frames_processed": frame_idx,
             "fps": fps,
+            "video_predictions": video_predictions,
             "tracks": track_summaries,
             "all_events": [e for events in track_events.values() for e in events],
         }
@@ -433,7 +463,14 @@ class BirdIdentificationPipeline:
         print(f"\n{'='*60}")
         print(f"Video: {Path(summary['video']).name}")
         print(f"Frames processed: {summary['frames_processed']}")
-        print(f"Tracks found: {len(summary['tracks'])}")
+        if summary.get("video_predictions"):
+            print("Likely birds in this video:")
+            for rank, p in enumerate(summary["video_predictions"], 1):
+                print(f"  {rank}. {p['species']:<35} {p['presence_probability']:.1%}")
+        else:
+            print("Likely birds in this video: none")
+        print()
+        print(f"Tracking details (nerd stuff): {len(summary['tracks'])} track(s)")
         print()
         for t in summary["tracks"]:
             print(f"  Track #{t['track_id']} ({t['frames_tracked']} frames, "

@@ -33,6 +33,36 @@
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .meta { font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; }
+.video-summary {
+  border: 1.5px solid #cfe2c8;
+  background: #f6fbf4;
+  border-radius: 10px;
+  padding: 1rem;
+  margin: 1rem 0 1.25rem;
+}
+.video-summary h2 {
+  margin-bottom: 0.5rem;
+}
+.video-summary-copy {
+  color: #445244;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  margin-bottom: 0.75rem;
+}
+.nerd-toggle {
+  margin-top: 1rem;
+  border-top: 1px solid #e5eee2;
+  padding-top: 1rem;
+}
+.nerd-toggle summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #2d5a27;
+  margin-bottom: 0.75rem;
+}
+.nerd-toggle[open] summary {
+  margin-bottom: 1rem;
+}
 .track {
   border: 1.5px solid #d4e6d0;
   border-radius: 10px;
@@ -124,35 +154,60 @@
     </p>
     {% endif %}
 
-    {% if result.tracks %}
-      {% for track in result.tracks %}
-      <div class="track">
-        <div class="track-header">
-          {% if track.crop %}
-          <img class="track-crop" src="/jobs/{{ job.id }}/crops/{{ track.crop }}" alt="crop">
-          {% endif %}
-          <div>
-            <strong>Track #{{ track.track_id }}</strong><br>
-            {{ track.frames_tracked }} frames &nbsp;·&nbsp; {{ track.classifications_made }} classifications
+    {% if result.video_predictions %}
+    <div class="video-summary">
+      <h2>Likely Birds In This Video</h2>
+      <p class="video-summary-copy">
+        This summary rolls up all track fragments into a video-level view. The percentages below mean
+        “how strong is the evidence that this species appears somewhere in the video?”
+      </p>
+      <ul class="predictions" style="padding:0;">
+        {% for pred in result.video_predictions %}
+        <li>
+          <span class="rank">{{ loop.index }}</span>
+          <a class="species" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
+          <div class="prob-bar-wrap">
+            <div class="prob-bar" style="width:{{ [pred.presence_probability * 100, 100] | min | int }}%"></div>
           </div>
-        </div>
-        {% if track.explanation %}
-        <p class="explanation">{{ track.explanation }}</p>
-        {% endif %}
-        <ul class="predictions">
-          {% for pred in track.averaged_predictions %}
-          <li>
-            <span class="rank">{{ loop.index }}</span>
-            <a class="species" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
-            <div class="prob-bar-wrap">
-              <div class="prob-bar" style="width:{{ [pred.probability * 100, 100] | min | int }}%"></div>
+          <span class="prob-label">{{ "%.1f"|format(pred.presence_probability * 100) }}%</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% if result.tracks %}
+      <details class="nerd-toggle">
+        <summary>Nerd stuff: track details ({{ result.tracks | length }} track fragment{% if result.tracks|length != 1 %}s{% endif %})</summary>
+        {% for track in result.tracks %}
+        <div class="track">
+          <div class="track-header">
+            {% if track.crop %}
+            <img class="track-crop" src="/jobs/{{ job.id }}/crops/{{ track.crop }}" alt="crop">
+            {% endif %}
+            <div>
+              <strong>Track #{{ track.track_id }}</strong><br>
+              {{ track.frames_tracked }} frames &nbsp;·&nbsp; {{ track.classifications_made }} classifications
             </div>
-            <span class="prob-label">{{ "%.1f"|format(pred.probability * 100) }}%</span>
-          </li>
-          {% endfor %}
-        </ul>
-      </div>
-      {% endfor %}
+          </div>
+          {% if track.explanation %}
+          <p class="explanation">{{ track.explanation }}</p>
+          {% endif %}
+          <ul class="predictions">
+            {% for pred in track.averaged_predictions %}
+            <li>
+              <span class="rank">{{ loop.index }}</span>
+              <a class="species" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
+              <div class="prob-bar-wrap">
+                <div class="prob-bar" style="width:{{ [pred.probability * 100, 100] | min | int }}%"></div>
+              </div>
+              <span class="prob-label">{{ "%.1f"|format(pred.probability * 100) }}%</span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endfor %}
+      </details>
     {% else %}
       <p style="color:#666; font-size:0.9rem">No birds detected in this video.</p>
     {% endif %}
