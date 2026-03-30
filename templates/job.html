@@ -133,43 +133,119 @@
 
   {% elif job.status == 'done' and job.result %}
     {% set result = job.result %}
+
+    {% if result.type == 'images' %}
+    {# ── Image job ─────────────────────────────────────────────── #}
+    <p class=”meta”>
+      {{ result.image_info.count }} photo{% if result.image_info.count != 1 %}s{% endif %}
+      {% if result.date %}&nbsp;·&nbsp; {{ result.date[:10] }}{% endif %}
+      {% if job.video_meta and job.video_meta.has_gps %}
+        &nbsp;·&nbsp;
+        <a href=”{{ job.video_meta.osm_url }}” target=”_blank” rel=”noopener”>
+          📍 {{ “%.4f”|format(job.video_meta.latitude) }}, {{ “%.4f”|format(job.video_meta.longitude) }}
+        </a>
+      {% endif %}
+    </p>
+
+    {% if result.species_summary %}
+    <div class=”video-summary”>
+      <h2>Likely Birds</h2>
+      <p class=”video-summary-copy”>
+        Species identified across all uploaded photos.
+      </p>
+      <ul class=”predictions” style=”padding:0;”>
+        {% for pred in result.species_summary %}
+        <li>
+          <span class=”rank”>{{ loop.index }}</span>
+          <a class=”species” href=”https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/” target=”_blank” rel=”noopener”>{{ pred.species }}</a>
+          <div class=”prob-bar-wrap”>
+            <div class=”prob-bar” style=”width:{{ [pred.probability * 100, 100] | min | int }}%”></div>
+          </div>
+          <span class=”prob-label”>{{ “%.1f”|format(pred.probability * 100) }}%</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {% set total_det = result.images | sum(attribute='detections', default=[]) %}
+    {% if result.images %}
+      <details class=”nerd-toggle”>
+        <summary>Nerd stuff: per-image details ({{ result.images | length }} image{% if result.images|length != 1 %}s{% endif %})</summary>
+        {% for img in result.images %}
+        <div class=”track”>
+          <div class=”track-header”>
+            <strong>{{ img.filename }}</strong>
+          </div>
+          {% if img.detections %}
+            {% for det in img.detections %}
+            <div style=”display:flex; align-items:flex-start; gap:0.75rem; padding:0.5rem 1rem; {% if not loop.last %}border-bottom:1px solid #f0f4f0;{% endif %}”>
+              {% if det.crop_file %}
+              <img class=”track-crop” src=”/jobs/{{ job.id }}/crops/{{ det.crop_file }}” alt=”crop”>
+              {% endif %}
+              <ul class=”predictions” style=”flex:1; padding:0; margin:0;”>
+                {% for pred in det.species %}
+                <li>
+                  <span class=”rank”>{{ loop.index }}</span>
+                  <a class=”species” href=”https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/” target=”_blank” rel=”noopener”>{{ pred.species }}</a>
+                  <div class=”prob-bar-wrap”>
+                    <div class=”prob-bar” style=”width:{{ [pred.probability * 100, 100] | min | int }}%”></div>
+                  </div>
+                  <span class=”prob-label”>{{ “%.1f”|format(pred.probability * 100) }}%</span>
+                </li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endfor %}
+          {% else %}
+            <p style=”color:#888; font-size:0.85rem; padding:0.5rem 1rem;”>No birds detected in this image.</p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </details>
+    {% else %}
+      <p style=”color:#666; font-size:0.9rem”>No birds detected.</p>
+    {% endif %}
+
+    {% else %}
+    {# ── Video job (existing) ──────────────────────────────────── #}
     {% if result.video_info %}{% set vi = result.video_info %}
-    <p class="meta">
+    <p class=”meta”>
       {{ vi.width }}×{{ vi.height }}
-      &nbsp;·&nbsp; {{ "%.1f"|format(vi.fps) }} fps
-      &nbsp;·&nbsp; {{ "%.1f"|format(vi.duration_s) }}s
+      &nbsp;·&nbsp; {{ “%.1f”|format(vi.fps) }} fps
+      &nbsp;·&nbsp; {{ “%.1f”|format(vi.duration_s) }}s
       &nbsp;·&nbsp; {{ vi.frames_processed }} frames
       {% if result.date %}&nbsp;·&nbsp; {{ result.date[:10] }}{% endif %}
       {% if job.video_meta and job.video_meta.has_gps %}
         &nbsp;·&nbsp;
-        <a href="{{ job.video_meta.osm_url }}" target="_blank" rel="noopener">
-          📍 {{ "%.4f"|format(job.video_meta.latitude) }}, {{ "%.4f"|format(job.video_meta.longitude) }}
+        <a href=”{{ job.video_meta.osm_url }}” target=”_blank” rel=”noopener”>
+          📍 {{ “%.4f”|format(job.video_meta.latitude) }}, {{ “%.4f”|format(job.video_meta.longitude) }}
         </a>
       {% endif %}
     </p>
-    <p class="meta">{{ result.tracks | length }} track(s) found</p>
+    <p class=”meta”>{{ result.tracks | length }} track(s) found</p>
     {% else %}
-    <p class="meta">
-      {{ result.tracks | length }} track(s) &nbsp;·&nbsp; {{ result.frames_processed }} frames &nbsp;·&nbsp; {{ "%.1f"|format(result.fps) }} fps
+    <p class=”meta”>
+      {{ result.tracks | length }} track(s) &nbsp;·&nbsp; {{ result.frames_processed }} frames &nbsp;·&nbsp; {{ “%.1f”|format(result.fps) }} fps
     </p>
     {% endif %}
 
     {% if result.video_predictions %}
-    <div class="video-summary">
+    <div class=”video-summary”>
       <h2>Likely Birds In This Video</h2>
-      <p class="video-summary-copy">
+      <p class=”video-summary-copy”>
         This summary rolls up all track fragments into a video-level view. The percentages below mean
         “how strong is the evidence that this species appears somewhere in the video?”
       </p>
-      <ul class="predictions" style="padding:0;">
+      <ul class=”predictions” style=”padding:0;”>
         {% for pred in result.video_predictions %}
         <li>
-          <span class="rank">{{ loop.index }}</span>
-          <a class="species" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
-          <div class="prob-bar-wrap">
-            <div class="prob-bar" style="width:{{ [pred.presence_probability * 100, 100] | min | int }}%"></div>
+          <span class=”rank”>{{ loop.index }}</span>
+          <a class=”species” href=”https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/” target=”_blank” rel=”noopener”>{{ pred.species }}</a>
+          <div class=”prob-bar-wrap”>
+            <div class=”prob-bar” style=”width:{{ [pred.presence_probability * 100, 100] | min | int }}%”></div>
           </div>
-          <span class="prob-label">{{ "%.1f"|format(pred.presence_probability * 100) }}%</span>
+          <span class=”prob-label”>{{ “%.1f”|format(pred.presence_probability * 100) }}%</span>
         </li>
         {% endfor %}
       </ul>
@@ -177,13 +253,13 @@
     {% endif %}
 
     {% if result.tracks %}
-      <details class="nerd-toggle">
+      <details class=”nerd-toggle”>
         <summary>Nerd stuff: track details ({{ result.tracks | length }} track fragment{% if result.tracks|length != 1 %}s{% endif %})</summary>
         {% for track in result.tracks %}
-        <div class="track">
-          <div class="track-header">
+        <div class=”track”>
+          <div class=”track-header”>
             {% if track.crop %}
-            <img class="track-crop" src="/jobs/{{ job.id }}/crops/{{ track.crop }}" alt="crop">
+            <img class=”track-crop” src=”/jobs/{{ job.id }}/crops/{{ track.crop }}” alt=”crop”>
             {% endif %}
             <div>
               <strong>Track #{{ track.track_id }}</strong><br>
@@ -191,17 +267,17 @@
             </div>
           </div>
           {% if track.explanation %}
-          <p class="explanation">{{ track.explanation }}</p>
+          <p class=”explanation”>{{ track.explanation }}</p>
           {% endif %}
-          <ul class="predictions">
+          <ul class=”predictions”>
             {% for pred in track.averaged_predictions %}
             <li>
-              <span class="rank">{{ loop.index }}</span>
-              <a class="species" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
-              <div class="prob-bar-wrap">
-                <div class="prob-bar" style="width:{{ [pred.probability * 100, 100] | min | int }}%"></div>
+              <span class=”rank”>{{ loop.index }}</span>
+              <a class=”species” href=”https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/” target=”_blank” rel=”noopener”>{{ pred.species }}</a>
+              <div class=”prob-bar-wrap”>
+                <div class=”prob-bar” style=”width:{{ [pred.probability * 100, 100] | min | int }}%”></div>
               </div>
-              <span class="prob-label">{{ "%.1f"|format(pred.probability * 100) }}%</span>
+              <span class=”prob-label”>{{ “%.1f”|format(pred.probability * 100) }}%</span>
             </li>
             {% endfor %}
           </ul>
@@ -209,7 +285,8 @@
         {% endfor %}
       </details>
     {% else %}
-      <p style="color:#666; font-size:0.9rem">No birds detected in this video.</p>
+      <p style=”color:#666; font-size:0.9rem”>No birds detected in this video.</p>
+    {% endif %}
     {% endif %}
 
   {% elif job.status == 'pending' %}

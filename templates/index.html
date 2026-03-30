@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}BirdVision — Upload{% endblock %}
-{% block header_sub %}Upload a video{% endblock %}
+{% block header_sub %}Upload a video or photos{% endblock %}
 
 {% block extra_style %}
 .upload-area {
@@ -69,13 +69,13 @@
 
 {% block content %}
 <div class="card">
-  <h2>Upload Video</h2>
+  <h2>Upload Video or Photos</h2>
   <form method="post" action="/upload" enctype="multipart/form-data" id="upload-form">
     <div class="upload-area" id="drop-zone" style="position:relative;">
-      <input type="file" name="file" id="file-input" accept="video/*" required>
+      <input type="file" name="file" id="file-input" accept="video/*,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.heic,.webp" multiple required>
       <div class="icon">📹</div>
-      <div class="label" id="file-label">Tap to choose a video</div>
-      <div class="hint">mp4, mov, mkv, avi …</div>
+      <div class="label" id="file-label">Tap to choose a video or photos</div>
+      <div class="hint">video (mp4, mov, mkv) or photos (jpg, png, heic, webp)</div>
     </div>
     <div class="date-row">
       <label for="date-input">Recording date (optional — improves seasonal accuracy)</label>
@@ -101,7 +101,7 @@
 </div>
 {% else %}
 <div class="card">
-  <p class="empty">No jobs yet — upload a video to get started.</p>
+  <p class="empty">No jobs yet — upload a video or photos to get started.</p>
 </div>
 {% endif %}
 
@@ -112,7 +112,8 @@ const form  = document.getElementById('upload-form');
 const btn   = document.getElementById('submit-btn');
 
 input.addEventListener('change', () => {
-  if (input.files.length) label.textContent = input.files[0].name;
+  if (input.files.length === 1) label.textContent = input.files[0].name;
+  else if (input.files.length > 1) label.textContent = input.files.length + ' files selected';
 });
 form.addEventListener('submit', () => {
   btn.textContent = 'Uploading…';
@@ -127,7 +128,7 @@ zone.addEventListener('drop', e => {
   const dt = e.dataTransfer;
   if (dt.files.length) {
     input.files = dt.files;
-    label.textContent = dt.files[0].name;
+    label.textContent = dt.files.length === 1 ? dt.files[0].name : dt.files.length + ' files selected';
   }
 });
 </script>

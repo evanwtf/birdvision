@@ -477,6 +477,149 @@ class BirdIdentificationPipeline:
             f"Visual and location data agree on {top_final}."
         )
 
+    def process_images(
+        self,
+        image_paths: list[str],
+        *,
+        video_date: Optional[datetime] = None,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+        job_id: Optional[str] = None,
+    ) -> dict:
+        """
+        Classify birds in one or more photos. Returns a summary dict and writes
+        a JSON results file.  No tracker is used — each image is independent.
+        """
+        if latitude is not None and longitude is not None:
+            self.prior = MetadataPrior(
+                latitude=latitude,
+                longitude=longitude,
+                db_path=self.prior._con and self.prior._con.execute("PRAGMA database_list").fetchone()[2],
+                fips=self.prior._fips,
+            )
+
+        stem = job_id or Path(image_paths[0]).stem
+        crops_dir = Path(self.results_dir) / (stem + "_crops")
+        crops_dir.mkdir(parents=True, exist_ok=True)
+
+        all_species_scores: Dict[str, float] = {}
+        image_results = []
+
+        for img_idx, img_path in enumerate(image_paths):
+            frame = cv2.imread(img_path)
+            if frame is None:
+                logger.warning(f"Cannot read image: {img_path}")
+                image_results.append({
+                    "filename": Path(img_path).name,
+                    "detections": [],
+                })
+                continue
+
+            detections = self.detector.detect(frame)
+            logger.info(f"{Path(img_path).name}: {len(detections)} detection(s)")
+
+            crops = []
+            crop_indices = []  # which detection index each crop came from
+            for det_idx, det in enumerate(detections):
+                crop = self._expanded_crop(frame, det.bbox)
+                if crop is not None:
+                    crops.append(crop)
+                    crop_indices.append(det_idx)
+
+            det_results = []
+            if crops:
+                batch_preds = self.classifier.classify_batch(crops)
+                for i, (preds, crop) in enumerate(zip(batch_preds, crops)):
+                    raw_preds = preds[:]
+                    raw_top_conf = raw_preds[0][1] if raw_preds else 0.0
+
+                    if raw_top_conf < self.min_event_confidence:
+                        logger.info(
+                            f"  {Path(img_path).name} bird#{crop_indices[i]} skipped "
+                            f"low-confidence ({raw_top_conf:.1%})"
+                        )
+                        continue
+
+                    preds = self.prior.apply(preds, dt=video_date)
+
+                    crop_file = f"img{img_idx}_bird{crop_indices[i]}.jpg"
+                    cv2.imwrite(str(crops_dir / crop_file), crop)
+
+                    for species, prob in preds[:5]:
+                        all_species_scores[species] = max(
+                            all_species_scores.get(species, 0.0), prob
+                        )
+
+                    det_idx = crop_indices[i]
+                    det_results.append({
+                        "bbox": [float(x) for x in detections[det_idx].bbox],
+                        "species": [
+                            {"species": s, "probability": round(p, 4)}
+                            for s, p in preds[:5]
+                        ],
+                        "raw_species": [
+                            {"species": s, "probability": round(p, 4)}
+                            for s, p in raw_preds[:5]
+                        ],
+                        "crop_file": crop_file,
+                    })
+
+            image_results.append({
+                "filename": Path(img_path).name,
+                "detections": det_results,
+            })
+
+        ranked = sorted(all_species_scores.items(), key=lambda x: -x[1])
+        species_summary = [
+            {"species": s, "probability": round(p, 4)}
+            for s, p in ranked[:5]
+        ]
+
+        summary = {
+            "type": "images",
+            "date": video_date.isoformat() if video_date else None,
+            "latitude": latitude,
+            "longitude": longitude,
+            "image_info": {
+                "count": len(image_paths),
+                "filenames": [Path(p).name for p in image_paths],
+            },
+            "species_summary": species_summary,
+            "images": image_results,
+        }
+
+        Path(self.results_dir).mkdir(parents=True, exist_ok=True)
+        out_path = Path(self.results_dir) / (stem + "_results.json")
+        with open(out_path, "w") as f:
+            json.dump(summary, f, indent=2)
+        logger.info(f"Results written to {out_path}")
+
+        self._print_image_summary(summary)
+        return summary
+
+    def _print_image_summary(self, summary: dict):
+        total_det = sum(len(img["detections"]) for img in summary["images"])
+        logger.info("")
+        logger.info("=" * 60)
+        logger.info(
+            f"Images: {summary['image_info']['count']} | "
+            f"Birds detected: {total_det}"
+        )
+        if summary["species_summary"]:
+            logger.info("Likely birds:")
+            for rank, p in enumerate(summary["species_summary"], 1):
+                logger.info(f"  {rank}. {p['species']:<35} {p['probability']:.1%}")
+        else:
+            logger.info("No birds detected.")
+        for img in summary["images"]:
+            n = len(img["detections"])
+            logger.info(f"  {img['filename']}: {n} bird(s)")
+            for det in img["detections"]:
+                top = det["species"][0] if det["species"] else None
+                if top:
+                    logger.info(f"    → {top['species']} ({top['probability']:.1%})")
+        logger.info("=" * 60)
+
     def _log_event(self, event: dict):
         top = event["predictions"][0]
         others = ", ".join(
