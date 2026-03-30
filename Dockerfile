@@ -20,6 +20,8 @@ RUN uv sync --frozen
 # ── runtime ───────────────────────────────────────────────────────────────────
 FROM cgr.dev/chainguard/python:latest-dev AS runtime
 
+USER root
+
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # ffmpeg is needed by opencv for video decoding
