@@ -5,28 +5,219 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}BirdVision{% endblock %}</title>
   <style>
+    :root {
+      --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-display: inherit;
+      --page-bg: #f0f4f0;
+      --page-bg-alt: #e7efe7;
+      --page-glow: rgba(95, 145, 88, 0.18);
+      --text: #1a2a1a;
+      --muted: #556252;
+      --header-bg: #2d5a27;
+      --header-bg-alt: #23461f;
+      --header-text: #ffffff;
+      --surface: #ffffff;
+      --surface-strong: #ffffff;
+      --surface-soft: #f7faf6;
+      --surface-muted: #eef6ec;
+      --surface-border: #d6e4d2;
+      --line: #eef2ee;
+      --accent: #2d5a27;
+      --accent-strong: #1e3d1b;
+      --accent-contrast: #ffffff;
+      --link: #2d5a27;
+      --shadow: 0 10px 30px rgba(23, 43, 22, 0.08);
+      --status-pending-bg: #fff3cd;
+      --status-pending-text: #856404;
+      --status-running-bg: #cfe2ff;
+      --status-running-text: #084298;
+      --status-done-bg: #d1e7dd;
+      --status-done-text: #0a3622;
+      --status-error-bg: #f8d7da;
+      --status-error-text: #58151c;
+      --message-info-bg: #eef6ec;
+      --message-info-text: #35512f;
+      --message-error-bg: #f8d7da;
+      --message-error-text: #842029;
+      --message-warning-bg: #fff8df;
+      --message-warning-text: #6f5200;
+      --prob-bar-bg: #e8f0e6;
+      --bbox-label-bg: rgba(255, 250, 250, 0.96);
+    }
+    body[data-theme="birdy"] {
+      --font-body: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+      --font-display: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+      --page-bg: #e6ecde;
+      --page-bg-alt: #d8e0cd;
+      --page-glow: rgba(188, 143, 88, 0.28);
+      --text: #2f281c;
+      --muted: #6b6252;
+      --header-bg: #556b2f;
+      --header-bg-alt: #7f6a3a;
+      --header-text: #fff8e6;
+      --surface: #f8f3e7;
+      --surface-strong: #fdf8ef;
+      --surface-soft: #f3ecdd;
+      --surface-muted: #ece3ce;
+      --surface-border: #cbb88d;
+      --line: #ded2b5;
+      --accent: #6e4f23;
+      --accent-strong: #4d6a2b;
+      --accent-contrast: #fff7e8;
+      --link: #5f461d;
+      --shadow: 0 14px 36px rgba(74, 61, 32, 0.12);
+      --status-pending-bg: #efe0b0;
+      --status-pending-text: #6d5209;
+      --status-running-bg: #cddfcf;
+      --status-running-text: #2f5333;
+      --status-done-bg: #d6e3c3;
+      --status-done-text: #2f4d1f;
+      --status-error-bg: #efd2c8;
+      --status-error-text: #7a2f1f;
+      --message-info-bg: #ece3ce;
+      --message-info-text: #584728;
+      --message-error-bg: #efd2c8;
+      --message-error-text: #7a2f1f;
+      --message-warning-bg: #f2e5b9;
+      --message-warning-text: #76550f;
+      --prob-bar-bg: #ddd3bc;
+      --bbox-label-bg: rgba(252, 246, 232, 0.98);
+    }
+    body[data-theme="super-birdy"] {
+      --font-body: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+      --font-display: "Trebuchet MS", "Avenir Next", "Segoe UI", sans-serif;
+      --page-bg: #ffe35c;
+      --page-bg-alt: #ffd22a;
+      --page-glow: rgba(89, 180, 255, 0.34);
+      --text: #3a2500;
+      --muted: #7b5620;
+      --header-bg: #ff8f1c;
+      --header-bg-alt: #ff5f3b;
+      --header-text: #fffef5;
+      --surface: rgba(255, 248, 214, 0.94);
+      --surface-strong: rgba(255, 252, 236, 0.98);
+      --surface-soft: rgba(255, 240, 178, 0.88);
+      --surface-muted: rgba(255, 233, 141, 0.78);
+      --surface-border: #f2a327;
+      --line: rgba(206, 129, 15, 0.28);
+      --accent: #0077c8;
+      --accent-strong: #0057a6;
+      --accent-contrast: #fffef2;
+      --link: #0057a6;
+      --shadow: 0 18px 38px rgba(171, 109, 0, 0.16);
+      --status-pending-bg: #ffeaa0;
+      --status-pending-text: #7d5800;
+      --status-running-bg: #b9e6ff;
+      --status-running-text: #005d88;
+      --status-done-bg: #d6f2af;
+      --status-done-text: #356300;
+      --status-error-bg: #ffd1bc;
+      --status-error-text: #963200;
+      --message-info-bg: #fff1a8;
+      --message-info-text: #704800;
+      --message-error-bg: #ffd1bc;
+      --message-error-text: #963200;
+      --message-warning-bg: #ffe57d;
+      --message-warning-text: #7d5800;
+      --prob-bar-bg: rgba(0, 119, 200, 0.18);
+      --bbox-label-bg: rgba(255, 251, 227, 0.98);
+    }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f0f4f0;
-      color: #1a2a1a;
+      font-family: var(--font-body);
+      background:
+        radial-gradient(circle at top left, var(--page-glow), transparent 34rem),
+        linear-gradient(180deg, var(--page-bg), var(--page-bg-alt));
+      color: var(--text);
       min-height: 100vh;
+      position: relative;
+      overflow-x: hidden;
+    }
+    .theme-flight {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.35s ease;
+      z-index: 0;
+    }
+    .theme-flight span {
+      position: absolute;
+      display: block;
+      font-size: var(--size, 2.5rem);
+      left: var(--left, 0%);
+      top: var(--top, 0%);
+      animation:
+        bird-bob var(--duration, 8s) ease-in-out infinite,
+        bird-drift var(--drift-duration, 12s) ease-in-out infinite;
+      animation-delay: var(--delay, 0s);
+      filter: drop-shadow(0 6px 16px rgba(111, 68, 0, 0.18));
+      opacity: var(--opacity, 0.9);
+    }
+    body[data-theme="super-birdy"] .theme-flight {
+      opacity: 1;
+    }
+    body[data-theme="super-birdy"] .theme-flight::before,
+    body[data-theme="super-birdy"] .theme-flight::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(2px);
+      opacity: 0.35;
+    }
+    body[data-theme="super-birdy"] .theme-flight::before {
+      width: 18rem;
+      height: 18rem;
+      right: -4rem;
+      top: 5rem;
+      background: rgba(0, 119, 200, 0.18);
+    }
+    body[data-theme="super-birdy"] .theme-flight::after {
+      width: 12rem;
+      height: 12rem;
+      left: -2rem;
+      bottom: 8rem;
+      background: rgba(255, 94, 58, 0.22);
+    }
+    @keyframes bird-bob {
+      0%, 100% { transform: translate3d(0, 0, 0) rotate(-6deg) scale(1); }
+      25% { transform: translate3d(0.8rem, -1rem, 0) rotate(3deg) scale(1.04); }
+      50% { transform: translate3d(-0.5rem, -1.8rem, 0) rotate(-2deg) scale(0.98); }
+      75% { transform: translate3d(0.6rem, -0.7rem, 0) rotate(5deg) scale(1.03); }
+    }
+    @keyframes bird-drift {
+      0%, 100% { margin-left: 0; }
+      50% { margin-left: var(--drift, 1.6rem); }
     }
     header {
-      background: #2d5a27;
-      color: #fff;
+      background: linear-gradient(135deg, var(--header-bg), var(--header-bg-alt));
+      color: var(--header-text);
       padding: 1rem 1.5rem;
       display: flex;
       align-items: center;
       gap: 0.9rem;
       flex-wrap: wrap;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
+      position: relative;
+      z-index: 1;
     }
     .brand {
       display: flex;
       align-items: center;
       gap: 0.6rem;
     }
-    header h1 { font-size: 1.3rem; font-weight: 700; letter-spacing: 0.02em; }
+    .brand-mark {
+      font-size: 1.5rem;
+      line-height: 1;
+      filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.16));
+    }
+    header h1 {
+      font-size: 1.3rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      font-family: var(--font-display);
+    }
     .header-right {
       margin-left: auto;
       display: flex;
@@ -35,9 +226,39 @@
       flex-wrap: wrap;
       justify-content: flex-end;
     }
-    header .sub { font-size: 0.85rem; opacity: 0.75; }
+    header .sub { font-size: 0.85rem; opacity: 0.8; }
+    .theme-switcher {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      padding: 0.2rem;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.16);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      backdrop-filter: blur(8px);
+    }
+    .theme-link {
+      color: inherit;
+      text-decoration: none;
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.35rem 0.7rem;
+      border-radius: 999px;
+      opacity: 0.82;
+    }
+    .theme-link:hover {
+      opacity: 1;
+      background: rgba(255, 255, 255, 0.14);
+    }
+    .theme-link-active {
+      opacity: 1;
+      background: rgba(255, 255, 255, 0.94);
+      color: var(--accent);
+    }
     .auth-link {
-      color: #fff;
+      color: var(--header-text);
       text-decoration: none;
       font-size: 0.88rem;
       font-weight: 600;
@@ -52,21 +273,27 @@
       font-size: 0.82rem;
       opacity: 0.88;
     }
-    main { max-width: 700px; margin: 0 auto; padding: 1.5rem 1rem; }
+    main { max-width: 760px; margin: 0 auto; padding: 1.5rem 1rem 2rem; position: relative; z-index: 1; }
     .card {
-      background: #fff;
-      border-radius: 12px;
+      background: var(--surface);
+      border: 1px solid var(--surface-border);
+      border-radius: 16px;
       padding: 1.5rem;
       margin-bottom: 1.25rem;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      box-shadow: var(--shadow);
     }
-    h2 { font-size: 1.1rem; margin-bottom: 1rem; color: #2d5a27; }
+    h2 {
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+      color: var(--accent);
+      font-family: var(--font-display);
+    }
     .btn {
       display: inline-block;
-      background: #2d5a27;
-      color: #fff;
+      background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+      color: var(--accent-contrast);
       border: none;
-      border-radius: 8px;
+      border-radius: 10px;
       padding: 0.75rem 1.5rem;
       font-size: 1rem;
       font-weight: 600;
@@ -74,26 +301,57 @@
       text-decoration: none;
       width: 100%;
       text-align: center;
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
     }
-    .btn:active { background: #1e3d1b; }
+    .btn:hover { filter: brightness(1.03); }
+    .btn:active { transform: translateY(1px); }
     .btn-secondary {
       background: transparent;
-      color: #2d5a27;
-      border: 2px solid #2d5a27;
+      color: var(--accent);
+      border: 2px solid var(--accent);
+      box-shadow: none;
     }
-    a { color: #2d5a27; }
+    a { color: var(--link); }
+    @media (max-width: 720px) {
+      header {
+        padding: 1rem;
+      }
+      .header-right {
+        width: 100%;
+        margin-left: 0;
+        justify-content: flex-start;
+      }
+      .theme-switcher {
+        order: 1;
+      }
+    }
     {% block extra_style %}{% endblock %}
   </style>
   {% block head %}{% endblock %}
 </head>
-<body>
+<body data-theme="{{ active_theme }}">
+  <div class="theme-flight" aria-hidden="true">
+    <span style="--left: 6%; --top: 18%; --size: 3rem; --duration: 7.5s; --drift-duration: 12s; --drift: 1.2rem;">🐤</span>
+    <span style="--left: 18%; --top: 72%; --size: 2.6rem; --duration: 8.5s; --delay: -1.5s; --drift-duration: 10s; --drift: 2.2rem;">🐥</span>
+    <span style="--left: 29%; --top: 10%; --size: 2.2rem; --duration: 6.8s; --delay: -0.8s; --drift-duration: 9.5s; --drift: -1.4rem;">🐦</span>
+    <span style="--left: 44%; --top: 82%; --size: 3.2rem; --duration: 9.4s; --delay: -2.2s; --drift-duration: 14s; --drift: 2.6rem;">🐤</span>
+    <span style="--left: 58%; --top: 22%; --size: 2.9rem; --duration: 7.2s; --delay: -3s; --drift-duration: 11s; --drift: -2rem;">🐥</span>
+    <span style="--left: 70%; --top: 64%; --size: 2.4rem; --duration: 8.8s; --delay: -1.2s; --drift-duration: 12.5s; --drift: 1.8rem;">🐦</span>
+    <span style="--left: 82%; --top: 16%; --size: 3.4rem; --duration: 9.8s; --delay: -4.5s; --drift-duration: 15s; --drift: -2.8rem;">🐤</span>
+    <span style="--left: 88%; --top: 78%; --size: 2.5rem; --duration: 7.9s; --delay: -0.4s; --drift-duration: 10.8s; --drift: 1.5rem;">🐥</span>
+  </div>
   <header>
     <div class="brand">
-      <span style="font-size:1.5rem">🐦</span>
+      <span class="brand-mark">🐦</span>
       <h1><a href="/" style="color:inherit;text-decoration:none">BirdVision</a></h1>
     </div>
     <div class="header-right">
       <span class="sub">{% block header_sub %}{% endblock %}</span>
+      <nav class="theme-switcher" aria-label="Theme selector">
+        {% for theme in theme_options %}
+        <a class="theme-link{% if active_theme == theme.id %} theme-link-active{% endif %}" href="/theme/{{ theme.id }}?next={{ theme_return_to_encoded }}">{{ theme.label }}</a>
+        {% endfor %}
+      </nav>
       {% if auth_enabled %}
         {% if user_email %}
         <span class="auth-user">{{ user_email }}</span>

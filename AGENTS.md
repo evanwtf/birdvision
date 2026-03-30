@@ -31,12 +31,14 @@ src/
                       events by bbox proximity to frame center; applies adaptive
                       crop padding + confidence/crop-size gates; generates both
                       video-level species summaries and per-track explanations;
-                      for image jobs also emits per-photo summaries, annotated
-                      full-photo JPEGs, and browser overlay metadata
+                      for image jobs emits per-photo summaries, annotated
+                      full-photo JPEGs, and browser overlay metadata; for video
+                      jobs extracts annotated stills snapped to tracked frames
   video_metadata.py — ExifTool/OpenCV metadata helpers; extracts recording date,
-                      GPS, dimensions, and basic duration/fps data
+                      GPS, camera info, video codec, dimensions, and duration/fps
   webapp.py         — FastAPI web UI; content-addressed asset store + persisted
                       hash index; two-phase inspect/finalize upload flow;
+                      multi-video uploads split into one job per video;
                       in-memory job queue restored from results JSON on startup;
                       hot-reloads config before each job
 
@@ -70,11 +72,16 @@ data/
   video-level species summary; fragmented tracks remain available as debug detail
 - **Image jobs are photo-first** — the job page shows per-photo species tables,
   the original photo with overlaid detection boxes, and CSS overlay labels tied
-  to each classified box rather than only posting crop thumbnails
-- **Upload flow is inspect then finalize** — the upload page no longer starts
-  processing immediately; it first inspects each candidate asset, surfaces
-  duplicate status plus metadata, and then creates one job from the checked
-  subset
+  to each classified box; photos with no detections show the original in a
+  collapsed view
+- **Video jobs have annotated stills** — evenly-spaced stills (min(10,
+  duration/2)) are extracted and snapped to the nearest tracked frame within
+  +/-1s, then annotated with the same bounding box overlay as photos; the video
+  is also embedded as a player on the results page
+- **Upload flow is inspect then finalize** — the upload page inspects each
+  candidate asset, surfaces duplicate status plus metadata, and offers
+  Select All / Select None / Select New batch controls; multiple videos create
+  one job per video
 - **Managed uploads are content-addressed** — uploaded media are stored and
   reused by `sha256` under the webapp upload directory, with a persisted index;
   duplicate uploads reuse existing canonical files instead of creating copies
@@ -84,7 +91,14 @@ data/
   present, priors are only applied inside a rough Long Island bounding box using
   a virtual region averaged across Kings, Queens, Nassau, and Suffolk; outside
   that area the system stays visual-only
-- **Job state** is in-memory but reconstructed from results JSON on startup
+- **Job state** is in-memory but reconstructed from results JSON on startup;
+  the job listing auto-refreshes while any job is pending/running
+- **Job listing shows species** — completed jobs display date + top species
+  (e.g. "2024-02-03: Mourning Dove, Blue Jay, 2 others") instead of filename
+- **Recording date comes from media metadata** — EXIF/QuickTime dates are used
+  for seasonal eBird weighting; no manual date input in the upload form
+- **Video codec warning** — non-Safari-compatible codecs (VP9, AV1) are detected
+  at upload time and a warning is shown on the job page
 - **Config hot-reload** — config.yaml is re-read before each job; model/device
   changes still require restart
 - **Species name normalization** happens at eBird import time (NAME_OVERRIDES
@@ -131,8 +145,9 @@ Model path / model name / device changes still require restart.
 - **Preserve result filename conventions** used by startup reconstruction:
   - JSON pattern: `{job_id}_{original_stem}_results.json`
   - Video track crops: `<results_dir>/<video_stem>_crops/track_<track_id>.jpg`
-  - Image-job artifacts live under `<results_dir>/<job_id>_crops/` and now
+  - Image-job artifacts live under `<results_dir>/<job_id>_crops/` and
     include per-bird crops plus annotated full-photo JPEGs
+  - Video stills: `still_{idx}_{frame}_annotated.jpg` in the crops dir
 - **Jobs now reference explicit asset records**, not `{job_id}_filename`
   upload paths. Reprocess should reuse the same canonical asset descriptors.
 - **Webapp processing is intentionally serial** (`ThreadPoolExecutor(max_workers=1)`).
@@ -147,10 +162,8 @@ Repo: https://github.com/evandhoffman/birdvision (private)
 
 ## What's not done yet
 
-- Broader eBird region coverage and more generic GPS → place naming are still
+- Broader eBird region coverage and more generic GPS -> place naming are still
   open; GPS-driven priors currently only recognize rough Long Island coverage
 - Live camera feed support (currently batch/upload only)
-- Results persistence across container restarts beyond JSON reconstruction
-  (no database; in-memory only)
 - Bird-specific classifier replacement/evaluation is still open work; see GitHub
   issues for the current backlog rather than relying on this file

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}{{ job.filename }} — BirdVision{% endblock %}
-{% block header_sub %}<a href="/" style="color:rgba(255,255,255,0.8);text-decoration:none">← Upload</a>{% endblock %}
+{% block header_sub %}<a class="header-back-link" href="/">← Upload</a>{% endblock %}
 
 {% block extra_style %}
 .status-bar {
@@ -19,23 +19,88 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.badge-pending  { background: #fff3cd; color: #856404; }
-.badge-running  { background: #cfe2ff; color: #084298; }
-.badge-done     { background: #d1e7dd; color: #0a3622; }
-.badge-error    { background: #f8d7da; color: #58151c; }
+.badge-pending  { background: var(--status-pending-bg); color: var(--status-pending-text); }
+.badge-running  { background: var(--status-running-bg); color: var(--status-running-text); }
+.badge-done     { background: var(--status-done-bg); color: var(--status-done-text); }
+.badge-error    { background: var(--status-error-bg); color: var(--status-error-text); }
 .spinner {
   display: inline-block;
   width: 1rem; height: 1rem;
-  border: 2px solid #cfe2ff;
-  border-top-color: #084298;
+  border: 2px solid var(--status-running-bg);
+  border-top-color: var(--status-running-text);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.meta { font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; }
+.header-back-link { color: rgba(255, 255, 255, 0.82); text-decoration: none; }
+.header-back-link:hover { color: #fff; }
+.job-title { font-size: 0.95rem; font-weight: 600; }
+.meta { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.5rem; }
+.meta-inline {
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.meta-link {
+  color: var(--muted);
+  text-decoration: none;
+}
+.meta-link:hover {
+  color: var(--accent);
+}
+.section-pad-top { padding: 0.85rem 1rem 0; }
+.align-right { text-align: right; }
+.species-link { color: inherit; text-decoration: none; }
+.prob-strong { font-weight: 600; }
+.detection-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+.detection-row + .detection-row {
+  border-top: 1px solid var(--line);
+}
+.detection-box-label {
+  width: 4.5rem;
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--accent);
+  padding-top: 0.45rem;
+}
+.compact-predictions {
+  flex: 1;
+  padding: 0;
+  margin: 0;
+}
+.nodetect-toggle {
+  padding: 0.75rem 1rem;
+}
+.nodetect-toggle summary {
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.plain-photo {
+  width: 100%;
+  border-radius: 6px;
+  margin-top: 0.5rem;
+}
+.empty-copy {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.video-wrap { margin: 1rem 0; }
+.video-player { width: 100%; border-radius: 8px; }
+.still-frame-note {
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
 .video-summary {
-  border: 1.5px solid #cfe2c8;
-  background: #f6fbf4;
+  border: 1.5px solid var(--surface-border);
+  background: var(--surface-soft);
   border-radius: 10px;
   padding: 1rem;
   margin: 1rem 0 1.25rem;
@@ -44,7 +109,7 @@
   margin-bottom: 0.5rem;
 }
 .video-summary-copy {
-  color: #445244;
+  color: var(--muted);
   font-size: 0.92rem;
   line-height: 1.5;
   margin-bottom: 0.75rem;
@@ -58,29 +123,29 @@
   gap: 0.9rem;
 }
 .video-gallery-card {
-  border: 1.5px solid #d4e6d0;
+  border: 1.5px solid var(--surface-border);
   border-radius: 10px;
   overflow: hidden;
-  background: #f9fcf8;
+  background: var(--surface-soft);
 }
 .video-gallery-card img {
   width: 100%;
   display: block;
-  background: #edf3eb;
+  background: var(--surface-muted);
 }
 .video-gallery-meta {
   padding: 0.7rem 0.8rem 0.8rem;
   font-size: 0.84rem;
-  color: #556252;
+  color: var(--muted);
   line-height: 1.45;
 }
 .video-gallery-meta strong {
-  color: #1f2c1c;
+  color: var(--text);
 }
 .warning-banner {
-  border: 1.5px solid #efd48f;
-  background: #fff8df;
-  color: #6f5200;
+  border: 1.5px solid var(--status-pending-bg);
+  background: var(--message-warning-bg);
+  color: var(--message-warning-text);
   border-radius: 10px;
   padding: 0.85rem 0.95rem;
   font-size: 0.9rem;
@@ -89,40 +154,41 @@
 }
 .nerd-toggle {
   margin-top: 1rem;
-  border-top: 1px solid #e5eee2;
+  border-top: 1px solid var(--line);
   padding-top: 1rem;
 }
 .nerd-toggle summary {
   cursor: pointer;
   font-weight: 600;
-  color: #2d5a27;
+  color: var(--accent);
   margin-bottom: 0.75rem;
 }
 .nerd-toggle[open] summary {
   margin-bottom: 1rem;
 }
 .track {
-  border: 1.5px solid #d4e6d0;
+  border: 1.5px solid var(--surface-border);
   border-radius: 10px;
   margin-bottom: 1rem;
   overflow: hidden;
+  background: var(--surface-strong);
 }
 .track-header {
-  background: #f0f7ee;
+  background: var(--surface-muted);
   padding: 0.6rem 1rem;
   font-size: 0.85rem;
-  color: #555;
+  color: var(--muted);
   display: flex;
   align-items: center;
   gap: 0.75rem;
 }
-.track-header strong { color: #1a2a1a; font-size: 1rem; }
+.track-header strong { color: var(--text); font-size: 1rem; }
 .track-crop {
   width: 64px;
   height: 64px;
   object-fit: cover;
   border-radius: 6px;
-  border: 1px solid #c8d8c4;
+  border: 1px solid var(--surface-border);
   flex-shrink: 0;
 }
 .predictions { list-style: none; padding: 0.5rem 1rem; }
@@ -131,39 +197,39 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.45rem 0;
-  border-bottom: 1px solid #f0f4f0;
+  border-bottom: 1px solid var(--line);
   font-size: 0.95rem;
 }
 .predictions li:last-child { border-bottom: none; }
-.rank { font-weight: 700; color: #2d5a27; width: 1.2rem; flex-shrink: 0; }
+.rank { font-weight: 700; color: var(--accent); width: 1.2rem; flex-shrink: 0; }
 .species { flex: 1; }
-.prob-bar-wrap { width: 80px; flex-shrink: 0; background: #e8f0e6; border-radius: 4px; height: 6px; }
-.prob-bar { background: #2d5a27; height: 6px; border-radius: 4px; }
-.prob-label { width: 3.5rem; text-align: right; font-size: 0.82rem; color: #555; flex-shrink: 0; }
-.explanation { font-size: 0.85rem; color: #555; font-style: italic; padding: 0.5rem 1rem 0.25rem; line-height: 1.5; }
-.error-msg { color: #842029; background: #f8d7da; border-radius: 8px; padding: 1rem; font-size: 0.9rem; }
+.prob-bar-wrap { width: 80px; flex-shrink: 0; background: var(--prob-bar-bg); border-radius: 4px; height: 6px; }
+.prob-bar { background: var(--accent); height: 6px; border-radius: 4px; }
+.prob-label { width: 3.5rem; text-align: right; font-size: 0.82rem; color: var(--muted); flex-shrink: 0; }
+.explanation { font-size: 0.85rem; color: var(--muted); font-style: italic; padding: 0.5rem 1rem 0.25rem; line-height: 1.5; }
+.error-msg { color: var(--message-error-text); background: var(--message-error-bg); border-radius: 8px; padding: 1rem; font-size: 0.9rem; }
 .pred-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
-.pred-table th { text-align: left; font-size: 0.78rem; color: #888; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.4rem 0.5rem; border-bottom: 2px solid #d4e6d0; }
-.pred-table td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #f0f4f0; }
+.pred-table th { text-align: left; font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 0.4rem 0.5rem; border-bottom: 2px solid var(--surface-border); }
+.pred-table td { padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--line); }
 .pred-table tr:last-child td { border-bottom: none; }
 .pred-table .species-cell { font-weight: 500; }
-.pred-table .prob-cell { text-align: right; font-size: 0.85rem; color: #555; width: 5.5rem; }
-.pred-table .rank-cell { font-weight: 700; color: #2d5a27; width: 1.5rem; }
+.pred-table .prob-cell { text-align: right; font-size: 0.85rem; color: var(--muted); width: 5.5rem; }
+.pred-table .rank-cell { font-weight: 700; color: var(--accent); width: 1.5rem; }
 tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
-.pred-low-group > summary { cursor: pointer; color: #bbb; font-size: 0.8rem; padding: 0.3rem 0.5rem; list-style: none; display: block; }
+.pred-low-group > summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; padding: 0.3rem 0.5rem; list-style: none; display: block; opacity: 0.75; }
 .pred-low-group > summary::-webkit-details-marker { display: none; }
 .annotated-photo {
   width: 100%;
   display: block;
-  border-top: 1px solid #eef3ec;
-  border-bottom: 1px solid #eef3ec;
-  background: #f7faf6;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
 }
 .annotated-photo-wrap {
   position: relative;
-  border-top: 1px solid #eef3ec;
-  border-bottom: 1px solid #eef3ec;
-  background: #f7faf6;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
 }
 .annotated-photo-wrap .annotated-photo {
   border: 0;
@@ -180,8 +246,8 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
   top: -2.1rem;
   left: -3px;
   max-width: min(18rem, 80vw);
-  background: rgba(255, 250, 250, 0.96);
-  color: #202020;
+  background: var(--bbox-label-bg);
+  color: var(--text);
   border: 2px solid rgba(220, 48, 48, 0.95);
   border-radius: 0.45rem;
   padding: 0.28rem 0.5rem;
@@ -216,7 +282,7 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
     <span class="spinner"></span>
     {% endif %}
     <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
-    <span style="font-size:0.95rem; font-weight:600">{{ job.filename }}</span>
+    <span class="job-title">{{ job.filename }}</span>
   </div>
 
   {% if job.status in ('done', 'error') and can_upload %}
@@ -246,12 +312,12 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
           <div>
             <strong>{{ img.filename }}</strong>
             {% if img.date or img.latitude or img.camera or img.ebird_region is not none %}
-            <br><span style="font-weight:400; font-size:0.8rem; color:#888;">
+            <br><span class="meta-inline">
               {% set sep = joiner(" · ") %}
               {% if img.date %}{{ sep() }}{{ img.date[:10] }}{% if img.date|length > 10 %} {{ img.date[11:16] }}{% endif %}{% endif %}
               {% if img.camera %}{{ sep() }}{{ img.camera }}{% endif %}
               {% if img.latitude and img.longitude %}
-                {{ sep() }}<a href="https://www.openstreetmap.org/?mlat={{ img.latitude }}&mlon={{ img.longitude }}#map=15/{{ img.latitude }}/{{ img.longitude }}" target="_blank" rel="noopener" style="color:#888;">
+                {{ sep() }}<a class="meta-link" href="https://www.openstreetmap.org/?mlat={{ img.latitude }}&mlon={{ img.longitude }}#map=15/{{ img.latitude }}/{{ img.longitude }}" target="_blank" rel="noopener">
                   📍 {{ "%.4f"|format(img.latitude) }}, {{ "%.4f"|format(img.longitude) }}
                 </a>
               {% endif %}
@@ -265,14 +331,14 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
           </div>
         </div>
         {% if img.species_summary %}
-        <div style="padding:0.85rem 1rem 0;">
+        <div class="section-pad-top">
           <table class="pred-table">
             <thead>
               <tr>
                 <th></th>
                 <th>Species</th>
-                <th style="text-align:right">Visual</th>
-                <th style="text-align:right">+ eBird</th>
+                <th class="align-right">Visual</th>
+                <th class="align-right">+ eBird</th>
               </tr>
             </thead>
             <tbody>
@@ -280,10 +346,10 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
               <tr{% if pred.probability < 0.15 %} class="pred-dim"{% endif %}>
                 <td class="rank-cell">{% if pred.probability >= 0.90 %}⭐{% else %}{{ loop.index }}{% endif %}</td>
                 <td class="species-cell">
-                  <a href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">{{ pred.species }}</a>
+                  <a class="species-link" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
                 </td>
                 <td class="prob-cell">{{ "%.1f"|format(pred.get("raw_probability", 0) * 100) }}%</td>
-                <td class="prob-cell" style="font-weight:600;">{{ "%.1f"|format(pred.probability * 100) }}%</td>
+                <td class="prob-cell prob-strong">{{ "%.1f"|format(pred.probability * 100) }}%</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -298,10 +364,10 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
                 <tr class="pred-dim">
                   <td class="rank-cell">{{ loop.index }}</td>
                   <td class="species-cell">
-                    <a href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">{{ pred.species }}</a>
+                    <a class="species-link" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
                   </td>
                   <td class="prob-cell">{{ "%.1f"|format(pred.get("raw_probability", 0) * 100) }}%</td>
-                  <td class="prob-cell" style="font-weight:600;">{{ "%.1f"|format(pred.probability * 100) }}%</td>
+                  <td class="prob-cell prob-strong">{{ "%.1f"|format(pred.probability * 100) }}%</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -330,11 +396,11 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
         {% endif %}
         {% if img.detections %}
           {% for det in img.detections %}
-          <div style="display:flex; align-items:flex-start; gap:0.75rem; padding:0.75rem 1rem; {% if not loop.last %}border-bottom:1px solid #f0f4f0;{% endif %}">
-            <div style="width:4.5rem; flex-shrink:0; font-size:0.82rem; font-weight:700; color:#2d5a27; padding-top:0.45rem;">
+          <div class="detection-row">
+            <div class="detection-box-label">
               Box {{ det.detection_index }}
             </div>
-            <ul class="predictions" style="flex:1; padding:0; margin:0;">
+            <ul class="predictions compact-predictions">
               {% for pred in det.species | selectattr("probability", "ge", 0.02) %}
               <li{% if pred.probability < 0.15 %} class="pred-dim"{% endif %}>
                 <span class="rank">{% if pred.probability >= 0.90 %}⭐{% else %}{{ loop.index }}{% endif %}</span>
@@ -348,9 +414,9 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
             </ul>
             {% set low_preds = det.species | selectattr("probability", "lt", 0.02) | list %}
             {% if low_preds %}
-            <details class="pred-low-group" style="flex:1">
+            <details class="pred-low-group compact-predictions">
               <summary>… {{ low_preds | length }} more</summary>
-              <ul class="predictions" style="padding:0; margin:0;">
+              <ul class="predictions compact-predictions">
                 {% for pred in low_preds %}
                 <li class="pred-dim">
                   <span class="rank">{{ loop.index }}</span>
@@ -367,15 +433,15 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
           </div>
           {% endfor %}
         {% else %}
-          <details style="padding:0.75rem 1rem;">
-            <summary style="color:#888; font-size:0.85rem; cursor:pointer;">No birds detected — click to view image</summary>
-            <img src="/jobs/{{ job.id }}/photo/{{ loop.index0 }}" alt="{{ img.filename }}" style="width:100%; border-radius:6px; margin-top:0.5rem;">
+          <details class="nodetect-toggle">
+            <summary>No birds detected — click to view image</summary>
+            <img class="plain-photo" src="/jobs/{{ job.id }}/photo/{{ loop.index0 }}" alt="{{ img.filename }}">
           </details>
         {% endif %}
       </div>
       {% endfor %}
     {% else %}
-      <p style="color:#666; font-size:0.9rem">No birds detected.</p>
+      <p class="empty-copy">No birds detected.</p>
     {% endif %}
 
     {% else %}
@@ -394,7 +460,7 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
       {% if result.date %}{{ sep() }}{{ result.date[:10] }}{% if result.date|length > 10 %} {{ result.date[11:16] }}{% endif %}{% endif %}
       {% if job.video_meta and job.video_meta.camera_info %}{{ sep() }}{{ job.video_meta.camera_info }}{% endif %}
       {% if job.video_meta and job.video_meta.has_gps %}
-        {{ sep() }}<a href="{{ job.video_meta.osm_url }}" target="_blank" rel="noopener" style="color:#888;">
+        {{ sep() }}<a class="meta-link" href="{{ job.video_meta.osm_url }}" target="_blank" rel="noopener">
           📍 {{ "%.4f"|format(job.video_meta.latitude) }}, {{ "%.4f"|format(job.video_meta.longitude) }}
         </a>
       {% endif %}
@@ -410,8 +476,8 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
     <div class="warning-banner">{{ result.resolution_warning }}</div>
     {% endif %}
 
-    <div style="margin:1rem 0;">
-      <video controls playsinline preload="metadata" style="width:100%; border-radius:8px;">
+    <div class="video-wrap">
+      <video class="video-player" controls playsinline preload="metadata">
         <source src="/jobs/{{ job.id }}/video">
       </video>
       {% if job.assets and job.assets[0].get("video_codec") and job.assets[0].get("video_codec") not in ("avc1", "hvc1", "hev1") %}
@@ -428,8 +494,8 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
           <tr>
             <th></th>
             <th>Species</th>
-            <th style="text-align:right">Visual</th>
-            <th style="text-align:right">+ eBird</th>
+            <th class="align-right">Visual</th>
+            <th class="align-right">+ eBird</th>
           </tr>
         </thead>
         <tbody>
@@ -437,10 +503,10 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
           <tr{% if pred.presence_probability < 0.15 %} class="pred-dim"{% endif %}>
             <td class="rank-cell">{% if pred.presence_probability >= 0.90 %}⭐{% else %}{{ loop.index }}{% endif %}</td>
             <td class="species-cell">
-              <a href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">{{ pred.species }}</a>
+              <a class="species-link" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
             </td>
             <td class="prob-cell">{{ "%.1f"|format(pred.get("raw_presence_probability", 0) * 100) }}%</td>
-            <td class="prob-cell" style="font-weight:600;">{{ "%.1f"|format(pred.presence_probability * 100) }}%</td>
+            <td class="prob-cell prob-strong">{{ "%.1f"|format(pred.presence_probability * 100) }}%</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -455,10 +521,10 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
             <tr class="pred-dim">
               <td class="rank-cell">{{ loop.index }}</td>
               <td class="species-cell">
-                <a href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">{{ pred.species }}</a>
+                <a class="species-link" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
               </td>
               <td class="prob-cell">{{ "%.1f"|format(pred.get("raw_presence_probability", 0) * 100) }}%</td>
-              <td class="prob-cell" style="font-weight:600;">{{ "%.1f"|format(pred.presence_probability * 100) }}%</td>
+              <td class="prob-cell prob-strong">{{ "%.1f"|format(pred.presence_probability * 100) }}%</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -558,7 +624,7 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
         <div class="track-header">
           <div>
             <strong>{{ "%.1f"|format(still.timestamp_s) }}s</strong>
-            <span style="font-weight:400; font-size:0.8rem; color:#888;"> &middot; frame {{ still.frame }}</span>
+            <span class="still-frame-note"> &middot; frame {{ still.frame }}</span>
           </div>
         </div>
         {% if still.annotated_file %}
@@ -581,11 +647,11 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
         {% endif %}
         {% if still.detections %}
           {% for det in still.detections %}
-          <div style="display:flex; align-items:flex-start; gap:0.75rem; padding:0.75rem 1rem; {% if not loop.last %}border-bottom:1px solid #f0f4f0;{% endif %}">
-            <div style="width:4.5rem; flex-shrink:0; font-size:0.82rem; font-weight:700; color:#2d5a27; padding-top:0.45rem;">
+          <div class="detection-row">
+            <div class="detection-box-label">
               Box {{ det.detection_index }}
             </div>
-            <ul class="predictions" style="flex:1; padding:0; margin:0;">
+            <ul class="predictions compact-predictions">
               {% for pred in det.species | selectattr("probability", "ge", 0.02) %}
               <li{% if pred.probability < 0.15 %} class="pred-dim"{% endif %}>
                 <span class="rank">{% if pred.probability >= 0.90 %}⭐{% else %}{{ loop.index }}{% endif %}</span>
@@ -606,15 +672,15 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
     {% endif %}
 
     {% if not result.tracks and not result.video_stills %}
-      <p style="color:#666; font-size:0.9rem">No birds detected in this video.</p>
+      <p class="empty-copy">No birds detected in this video.</p>
     {% endif %}
     {% endif %}
 
   {% elif job.status == 'pending' %}
-    <p style="color:#666; font-size:0.9rem">Waiting in queue… page refreshes automatically.</p>
+    <p class="empty-copy">Waiting in queue… page refreshes automatically.</p>
 
   {% elif job.status == 'running' %}
-    <p style="color:#666; font-size:0.9rem">Processing… page refreshes automatically.</p>
+    <p class="empty-copy">Processing… page refreshes automatically.</p>
   {% endif %}
 </div>
 {% endblock %}

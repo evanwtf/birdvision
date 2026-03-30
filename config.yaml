@@ -36,8 +36,12 @@ webapp:
   upload_dir: /data/videos
   debug: false
 auth:
-  google_client_id: ""
-  google_client_secret: ""
-  session_secret: ""
+  google_client_id: "REDACTED_OAUTH_CLIENT_ID"
+  google_client_secret: "REDACTED_OAUTH_SECRET"
+  redirect_uri: "https://birdvision.example.com/auth/callback"
+  session_secret: "REDACTED_SESSION_SECRET"
   # Add uploader emails here once auth is enabled.
-  allowed_emails: []
+  allowed_emails:
+    - evandhoffman@gmail.com
+    - uploader1@example.com
+    - uploader2@example.com

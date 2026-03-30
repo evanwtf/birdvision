@@ -13,7 +13,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Optional
+from urllib.parse import quote
 
 import yaml
 
@@ -32,10 +34,19 @@ from .pipeline import BirdIdentificationPipeline
 from .video_metadata import VideoMetadata, inspect_media
 
 logger = logging.getLogger(__name__)
+access_logger = logging.getLogger("birdvision.access")
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".wmv"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
 GOOGLE_SERVER_METADATA_URL = "https://accounts.google.com/.well-known/openid-configuration"
+THEME_COOKIE_NAME = "birdvision_theme"
+THEME_OPTIONS = (
+    {"id": "default", "label": "Default"},
+    {"id": "birdy", "label": "Birdy"},
+    {"id": "super-birdy", "label": "Super Birdy"},
+)
+DEFAULT_THEME_ID = "default"
+VALID_THEME_IDS = {theme["id"] for theme in THEME_OPTIONS}
 
 
 @dataclass
@@ -114,6 +125,7 @@ class AuthSettings:
     debug_mode: bool
     google_client_id: Optional[str]
     google_client_secret: Optional[str]
+    redirect_uri: Optional[str]
     session_secret: Optional[str]
     allowed_emails: set[str]
 
@@ -283,8 +295,46 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         merged = {
             **context,
             **build_template_auth_context(request, current_auth_settings()),
+            **build_template_theme_context(request),
         }
         return templates.TemplateResponse(request, template_name, merged)
+
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        started_at = perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = (perf_counter() - started_at) * 1000
+            proxy_ip, real_ip, forwarded_for, x_real_ip = extract_request_ips(request)
+            access_logger.exception(
+                "request_failed method=%s path=%s status=500 duration_ms=%.1f proxy_ip=%s real_ip=%s x_forwarded_for=%s x_real_ip=%s email=%s",
+                request.method,
+                request.url.path,
+                duration_ms,
+                proxy_ip,
+                real_ip,
+                forwarded_for,
+                x_real_ip,
+                safe_current_user_email(request),
+            )
+            raise
+
+        duration_ms = (perf_counter() - started_at) * 1000
+        proxy_ip, real_ip, forwarded_for, x_real_ip = extract_request_ips(request)
+        access_logger.info(
+            "request method=%s path=%s status=%s duration_ms=%.1f proxy_ip=%s real_ip=%s x_forwarded_for=%s x_real_ip=%s email=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+            proxy_ip,
+            real_ip,
+            forwarded_for,
+            x_real_ip,
+            safe_current_user_email(request),
+        )
+        return response
 
     @app.on_event("startup")
     async def startup():
@@ -318,7 +368,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             google = build_google_oauth_client(settings)
         except RuntimeError as exc:
             return HTMLResponse(str(exc), status_code=500)
-        redirect_uri = str(request.url_for("auth_callback"))
+        redirect_uri = settings.redirect_uri or str(request.url_for("auth_callback"))
         return await google.authorize_redirect(request, redirect_uri)
 
     @app.get("/auth/callback")
@@ -351,6 +401,22 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
     async def logout(request: Request):
         request.session.clear()
         return RedirectResponse("/", status_code=303)
+
+    @app.get("/theme/{theme_name}")
+    async def set_theme(request: Request, theme_name: str, next: str = "/"):
+        redirect_to = next if next.startswith("/") else "/"
+        normalized_theme = normalize_theme(theme_name)
+        response = RedirectResponse(redirect_to, status_code=303)
+        if normalized_theme == DEFAULT_THEME_ID:
+            response.delete_cookie(THEME_COOKIE_NAME)
+        else:
+            response.set_cookie(
+                THEME_COOKIE_NAME,
+                normalized_theme,
+                max_age=60 * 60 * 24 * 365,
+                samesite="lax",
+            )
+        return response
 
     @app.post("/api/uploads/inspect")
     async def inspect_upload_candidates(request: Request):
@@ -583,6 +649,7 @@ def build_auth_settings(config: dict[str, Any]) -> AuthSettings:
 
     google_client_id = normalize_secret(os.getenv("GOOGLE_CLIENT_ID")) or normalize_secret(auth_config.get("google_client_id"))
     google_client_secret = normalize_secret(os.getenv("GOOGLE_CLIENT_SECRET")) or normalize_secret(auth_config.get("google_client_secret"))
+    redirect_uri = normalize_secret(os.getenv("GOOGLE_REDIRECT_URI")) or normalize_secret(auth_config.get("redirect_uri"))
     session_secret = normalize_secret(os.getenv("SESSION_SECRET")) or normalize_secret(auth_config.get("session_secret"))
 
     raw_allowed_emails = auth_config.get("allowed_emails", [])
@@ -598,6 +665,7 @@ def build_auth_settings(config: dict[str, Any]) -> AuthSettings:
         debug_mode=debug_mode,
         google_client_id=google_client_id,
         google_client_secret=google_client_secret,
+        redirect_uri=redirect_uri,
         session_secret=session_secret,
         allowed_emails=allowed_emails,
     )
@@ -639,10 +707,65 @@ def current_user_email(request: Request) -> Optional[str]:
     return normalize_email(request.session.get("email"))
 
 
+def safe_current_user_email(request: Request) -> str:
+    session = request.scope.get("session")
+    if not isinstance(session, dict):
+        return "-"
+    return normalize_email(session.get("email")) or "-"
+
+
+def split_forwarded_for(value: Optional[str]) -> list[str]:
+    if not value:
+        return []
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def extract_request_ips(request: Request) -> tuple[str, str, str, str]:
+    proxy_ip = request.client.host if request.client else "-"
+    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
+    x_real_ip = request.headers.get("x-real-ip", "").strip()
+    forwarded_chain = split_forwarded_for(forwarded_for)
+    real_ip = x_real_ip or (forwarded_chain[0] if forwarded_chain else proxy_ip)
+    return (
+        proxy_ip,
+        real_ip or "-",
+        forwarded_for or "-",
+        x_real_ip or "-",
+    )
+
+
 def can_upload_email(email: Optional[str], settings: AuthSettings) -> bool:
     if not settings.enabled:
         return True
     return bool(email and email in settings.allowed_emails)
+
+
+def normalize_theme(value: Any) -> str:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in VALID_THEME_IDS:
+            return normalized
+    return DEFAULT_THEME_ID
+
+
+def current_theme(request: Request) -> str:
+    return normalize_theme(request.cookies.get(THEME_COOKIE_NAME))
+
+
+def current_path_with_query(request: Request) -> str:
+    path = request.url.path or "/"
+    if request.url.query:
+        return f"{path}?{request.url.query}"
+    return path
+
+
+def build_template_theme_context(request: Request) -> dict[str, Any]:
+    return {
+        "active_theme": current_theme(request),
+        "theme_options": THEME_OPTIONS,
+        "theme_return_to": current_path_with_query(request),
+        "theme_return_to_encoded": quote(current_path_with_query(request), safe="/"),
+    }
 
 
 def build_template_auth_context(request: Request, settings: AuthSettings) -> dict[str, Any]:
