@@ -10,9 +10,9 @@ classifier:
   classify_every_n_frames: 15
 
 tracker:
-  max_disappeared: 30
-  iou_threshold: 0.3
-  min_frames_to_report: 3
+  max_disappeared: 90
+  iou_threshold: 0.2
+  min_frames_to_report: 8
   min_confidence_to_report: 0.6
 
 metadata:
