@@ -44,6 +44,7 @@ class BirdIdentificationPipeline:
         )
 
         self.classify_every_n = cls.get("classify_every_n_frames", 15)
+        self.min_frames_to_report = trk.get("min_frames_to_report", 5)
         self.prompt_template = sp.get("prompt_template", "a photo of a {species}")
         self.results_dir = config.get("output", {}).get("results_dir", "results/")
 
@@ -161,6 +162,8 @@ class BirdIdentificationPipeline:
         # Build per-track summaries using averaged predictions
         track_summaries = []
         for tid, track in {**self.tracker.completed_tracks, **self.tracker.tracks}.items():
+            if track.frame_count < self.min_frames_to_report:
+                continue
             best = track.best_prediction
             if best:
                 track_summaries.append({
