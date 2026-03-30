@@ -29,11 +29,11 @@ RUN apk add --no-cache ffmpeg
 
 WORKDIR /app
 
-COPY --from=builder /app /app
+COPY --from=builder --chown=nonroot:nonroot /app /app
 
 # Writable directories for input videos, results, and model cache
 RUN mkdir -p /data/videos /data/results /data/models && \
-    chown -R nonroot:nonroot /data /app
+    chown -R nonroot:nonroot /data
 
 VOLUME ["/data/videos", "/data/results", "/data/models"]
 
