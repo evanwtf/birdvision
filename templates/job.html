@@ -142,7 +142,7 @@
       {% if job.video_meta and job.video_meta.has_gps %}
         &nbsp;·&nbsp;
         <a href=”{{ job.video_meta.osm_url }}” target=”_blank” rel=”noopener”>
-          📍 {{ “%.4f”|format(job.video_meta.latitude) }}, {{ “%.4f”|format(job.video_meta.longitude) }}
+          📍 {{ "%.4f"|format(job.video_meta.latitude) }}, {{ "%.4f"|format(job.video_meta.longitude) }}
         </a>
       {% endif %}
     </p>
