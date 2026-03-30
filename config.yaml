@@ -1,5 +1,5 @@
 detector:
-  model: yolov8n.pt
+  model: /data/models/yolov8n.pt
   confidence: 0.3
   device: cuda
 
