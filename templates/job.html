@@ -72,6 +72,7 @@
 .prob-bar-wrap { width: 80px; flex-shrink: 0; background: #e8f0e6; border-radius: 4px; height: 6px; }
 .prob-bar { background: #2d5a27; height: 6px; border-radius: 4px; }
 .prob-label { width: 3.5rem; text-align: right; font-size: 0.82rem; color: #555; flex-shrink: 0; }
+.explanation { font-size: 0.85rem; color: #555; font-style: italic; padding: 0.5rem 1rem 0.25rem; line-height: 1.5; }
 .error-msg { color: #842029; background: #f8d7da; border-radius: 8px; padding: 1rem; font-size: 0.9rem; }
 {% endblock %}
 
@@ -135,6 +136,9 @@
             {{ track.frames_tracked }} frames &nbsp;·&nbsp; {{ track.classifications_made }} classifications
           </div>
         </div>
+        {% if track.explanation %}
+        <p class="explanation">{{ track.explanation }}</p>
+        {% endif %}
         <ul class="predictions">
           {% for pred in track.averaged_predictions %}
           <li>

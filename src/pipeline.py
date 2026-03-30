@@ -203,6 +203,7 @@ class BirdIdentificationPipeline:
                 if to_classify_crops:
                     batch_results = self.classifier.classify_batch(to_classify_crops)
                     for tid, preds, crop in zip(to_classify_ids, batch_results, to_classify_crops):
+                        raw_preds = preds[:]  # save pre-prior visual scores
                         preds = self.prior.apply(preds, dt=video_date)
 
                         # Weight by proximity to frame center (Gaussian falloff)
@@ -215,6 +216,7 @@ class BirdIdentificationPipeline:
                         center_weight = float(np.exp(-dist_sq * self.center_weight_strength))
 
                         tracks[tid].prediction_history.append(preds)
+                        tracks[tid].raw_prediction_history.append(raw_preds)
                         tracks[tid].prediction_weights.append(center_weight)
                         tracks[tid].last_classified_frame = frame_idx
 
@@ -256,6 +258,8 @@ class BirdIdentificationPipeline:
             if track.frame_count < self.min_frames_to_report and top_conf < self.min_confidence_to_report:
                 continue
             if best:
+                raw = track.best_raw_prediction
+                explanation = self._build_explanation(best, raw, video_date)
                 track_summaries.append({
                     "track_id": tid,
                     "frames_tracked": track.frame_count,
@@ -263,6 +267,10 @@ class BirdIdentificationPipeline:
                     "averaged_predictions": [
                         {"species": s, "probability": round(p, 4)} for s, p in best[:5]
                     ],
+                    "raw_predictions": [
+                        {"species": s, "probability": round(p, 4)} for s, p in raw[:5]
+                    ] if raw else [],
+                    "explanation": explanation,
                     "crop": saved_crops.get(tid),
                 })
 
@@ -295,6 +303,65 @@ class BirdIdentificationPipeline:
 
         self._print_summary(summary)
         return summary
+
+    def _build_explanation(
+        self,
+        best: List[Tuple[str, float]],
+        raw: Optional[List[Tuple[str, float]]],
+        video_date: Optional[datetime],
+    ) -> str:
+        if not raw:
+            return ""
+
+        top_final = best[0][0] if best else "Unknown"
+        raw_top3 = raw[:3]
+
+        # Visual summary
+        visual_parts = [f"{s} ({p:.0%})" for s, p in raw_top3]
+        visual_str = ", ".join(visual_parts[:-1]) + f", or {visual_parts[-1]}" if len(visual_parts) > 1 else visual_parts[0]
+
+        if not hasattr(self.prior, '_con') or self.prior._con is None or video_date is None:
+            return f"Visually resembles {visual_str}. No location/date priors applied."
+
+        # Get eBird frequencies for the raw top candidates
+        raw_species = [s for s, _ in raw_top3]
+        priors = self.prior.get_priors(raw_species, dt=video_date)
+
+        month_name = video_date.strftime("%B")
+        county = "this area"
+        try:
+            row = self.prior._con.execute(
+                "SELECT name FROM counties WHERE fips = ?", (self.prior._fips,)
+            ).fetchone()
+            if row:
+                county = row[0]
+        except Exception:
+            pass
+
+        prior_parts = [f"{s}: {priors.get(s, 0):.1%}" for s, _ in raw_top3]
+        prior_str = ", ".join(prior_parts)
+
+        # Check if priors meaningfully changed the ranking
+        raw_top = raw_top3[0][0]
+        if raw_top != top_final:
+            # Find how much more likely top_final is vs raw_top visually
+            raw_final_prob = next((p for s, p in raw_top3 if s == top_final), None)
+            raw_top_freq = priors.get(raw_top, 0.01)
+            final_freq = priors.get(top_final, 0.01)
+            if raw_top_freq > 0 and final_freq > raw_top_freq:
+                ratio = final_freq / raw_top_freq
+                return (
+                    f"Visually resembles {visual_str}. "
+                    f"In {county} in {month_name}, eBird frequency — {prior_str}. "
+                    f"{top_final} is {ratio:.0f}× more likely than {raw_top} "
+                    f"for this location and time of year."
+                )
+
+        return (
+            f"Visually resembles {visual_str}. "
+            f"In {county} in {month_name}, eBird frequency — {prior_str}. "
+            f"Visual and location data agree on {top_final}."
+        )
 
     def _log_event(self, event: dict):
         top = event["predictions"][0]

@@ -12,9 +12,25 @@ class Track:
     disappeared: int = 0
     frame_count: int = 0
     last_classified_frame: int = -9999
-    # Accumulated predictions: list of (species, prob) lists, one per classification event
+    # Weighted (post-prior) predictions, one list per classification event
     prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
-    prediction_weights: List[float] = field(default_factory=list)  # one weight per event
+    prediction_weights: List[float] = field(default_factory=list)
+    # Raw visual predictions (pre-prior), parallel to prediction_history
+    raw_prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
+
+    @property
+    def best_raw_prediction(self) -> Optional[List[Tuple[str, float]]]:
+        """Weighted average of raw visual scores (before eBird priors)."""
+        if not self.raw_prediction_history:
+            return None
+        weights = self.prediction_weights if self.prediction_weights else [1.0] * len(self.raw_prediction_history)
+        total_weight = sum(weights)
+        scores: Dict[str, float] = {}
+        for preds, w in zip(self.raw_prediction_history, weights):
+            for species, prob in preds:
+                scores[species] = scores.get(species, 0.0) + prob * w
+        averaged = [(s, p / total_weight) for s, p in scores.items()]
+        return sorted(averaged, key=lambda x: -x[1])
 
     @property
     def best_prediction(self) -> Optional[List[Tuple[str, float]]]:
