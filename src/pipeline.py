@@ -48,6 +48,8 @@ class BirdIdentificationPipeline:
 
         self.classify_every_n = cls.get("classify_every_n_frames", 15)
         self.crop_padding_ratio = cls.get("crop_padding_ratio", 0.12)
+        self.crop_padding_ratio_min = cls.get("crop_padding_ratio_min", 0.04)
+        self.crop_closeup_area_ratio = cls.get("crop_closeup_area_ratio", 0.10)
         self.min_crop_area = cls.get("min_crop_area", 2500)
         self.min_event_confidence = cls.get("min_event_confidence", 0.25)
         self.min_frames_to_report = trk.get("min_frames_to_report", 3)
@@ -83,6 +85,22 @@ class BirdIdentificationPipeline:
         if self.crop_padding_ratio != new_crop_padding_ratio:
             logger.info(f"Config reload: crop_padding_ratio {self.crop_padding_ratio} → {new_crop_padding_ratio}")
             self.crop_padding_ratio = new_crop_padding_ratio
+
+        new_crop_padding_ratio_min = cls.get("crop_padding_ratio_min", 0.04)
+        if self.crop_padding_ratio_min != new_crop_padding_ratio_min:
+            logger.info(
+                f"Config reload: crop_padding_ratio_min {self.crop_padding_ratio_min} → "
+                f"{new_crop_padding_ratio_min}"
+            )
+            self.crop_padding_ratio_min = new_crop_padding_ratio_min
+
+        new_crop_closeup_area_ratio = cls.get("crop_closeup_area_ratio", 0.10)
+        if self.crop_closeup_area_ratio != new_crop_closeup_area_ratio:
+            logger.info(
+                f"Config reload: crop_closeup_area_ratio {self.crop_closeup_area_ratio} → "
+                f"{new_crop_closeup_area_ratio}"
+            )
+            self.crop_closeup_area_ratio = new_crop_closeup_area_ratio
 
         new_min_crop_area = cls.get("min_crop_area", 2500)
         if self.min_crop_area != new_min_crop_area:
@@ -161,11 +179,23 @@ class BirdIdentificationPipeline:
     def _expanded_crop(self, frame: np.ndarray, bbox: np.ndarray) -> Optional[np.ndarray]:
         box_w = max(0, int(bbox[2] - bbox[0]))
         box_h = max(0, int(bbox[3] - bbox[1]))
-        if box_w * box_h < self.min_crop_area:
+        box_area = box_w * box_h
+        if box_area < self.min_crop_area:
             return None
 
-        pad_x = int(round(box_w * self.crop_padding_ratio))
-        pad_y = int(round(box_h * self.crop_padding_ratio))
+        frame_area = max(1, frame.shape[0] * frame.shape[1])
+        area_ratio = box_area / frame_area
+
+        max_padding = self.crop_padding_ratio
+        min_padding = min(self.crop_padding_ratio_min, max_padding)
+        if self.crop_closeup_area_ratio > 0:
+            closeup_progress = min(area_ratio / self.crop_closeup_area_ratio, 1.0)
+        else:
+            closeup_progress = 0.0
+        padding_ratio = max_padding - (max_padding - min_padding) * closeup_progress
+
+        pad_x = int(round(box_w * padding_ratio))
+        pad_y = int(round(box_h * padding_ratio))
         x1 = max(0, int(bbox[0]) - pad_x)
         y1 = max(0, int(bbox[1]) - pad_y)
         x2 = min(frame.shape[1], int(bbox[2]) + pad_x)

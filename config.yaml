@@ -9,6 +9,8 @@ classifier:
   top_k: 5
   classify_every_n_frames: 15
   crop_padding_ratio: 0.12
+  crop_padding_ratio_min: 0.04
+  crop_closeup_area_ratio: 0.10
   min_crop_area: 2500
   min_event_confidence: 0.30
 
