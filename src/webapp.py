@@ -73,7 +73,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             _executor, lambda: _init_pipeline(config)
         )
         logger.info("Pipeline ready.")
-        asyncio.create_task(_worker(loop, pipeline))
+        asyncio.create_task(_worker(loop, pipeline, config_path))
 
     # ── routes ───────────────────────────────────────────────────────────────
 
@@ -233,7 +233,7 @@ def _init_pipeline(config: dict) -> BirdIdentificationPipeline:
     return p
 
 
-async def _worker(loop: asyncio.AbstractEventLoop, pipeline: BirdIdentificationPipeline):
+async def _worker(loop: asyncio.AbstractEventLoop, pipeline: BirdIdentificationPipeline, config_path: Optional[Path] = None):
     """Process jobs from the queue one at a time in a thread-pool executor."""
     while True:
         job, video_path, video_date, video_meta = await _queue.get()
