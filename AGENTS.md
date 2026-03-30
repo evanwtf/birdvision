@@ -85,6 +85,26 @@ data/
 | `metadata.ebird_fips` | `US-NY-059` | Nassau County |
 | `metadata.ebird_db` | `/app/data/ebird_priors.db` | Built at image build time |
 
+## Codex-specific workflow notes
+
+- **No automated test suite is currently checked in** (`tests/` is absent).
+  Prefer focused smoke checks:
+  - `uv run scripts/import_ebird_barchart.py ebird_data/ --db /tmp/ebird_priors.db`
+  - `uv run scripts/serve.py --config config.yaml --port 3587`
+  - `uv run scripts/identify_videos.py <video-or-dir> --config config.yaml`
+- **Pipeline startup is heavyweight**: model init/download happens at runtime
+  (BioCLIP + YOLO). Avoid unnecessary full end-to-end runs for small edits.
+- **Default `config.yaml` targets container paths** (`/data/...`). For local uv
+  runs, use local path overrides (`videos/`, `results/`, `data/ebird_priors.db`)
+  or an alternate config file.
+- **Preserve result filename conventions** used by startup reconstruction:
+  - JSON pattern: `{job_id}_{original_stem}_results.json`
+  - Crops: `<results_dir>/<video_stem>_crops/track_<track_id>.jpg`
+- **Webapp processing is intentionally serial** (`ThreadPoolExecutor(max_workers=1)`).
+  Changing concurrency affects queue behavior and GPU memory pressure.
+- **Keep generated artifacts out of commits**: model weights, `results/`,
+  `videos/`, and generated `data/ebird_priors.db` are intentionally gitignored.
+
 ## GitHub
 
 Repo: https://github.com/evandhoffman/birdvision (private)
