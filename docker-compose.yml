@@ -1,0 +1,14 @@
+services:
+  birdvision:
+    build: .
+    image: birdvision:latest
+    runtime: nvidia          # requires nvidia-container-toolkit
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - ./videos:/data/videos:ro       # drop video files here
+      - ./results:/data/results        # JSON results written here
+      - ./models:/data/models          # cached model weights (survives rebuilds)
+    command: ["/data/videos", "--config", "/app/config.yaml"]
+    stop_grace_period: 30s

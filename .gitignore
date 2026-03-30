@@ -19,6 +19,7 @@ build/
 videos/
 results/
 output/
+models/
 
 # Claude Code local settings
 .claude/

@@ -14,11 +14,29 @@ Models download automatically on first run (~600 MB BioCLIP + ~6 MB YOLOv8n).
 
 ## Setup
 
+### Local (uv)
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync
+uv run scripts/identify_videos.py videos/
 ```
+
+### Docker
+
+Requires [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+
+```bash
+# Build
+docker compose build
+
+# Drop videos into ./videos/, then run
+docker compose run --rm birdvision
+
+# With a recording date
+docker compose run --rm birdvision /data/videos --date 2026-04-15
+```
+
+Models are cached in `./models/` on the host and reused across runs.
 
 Requires CUDA. Tested on RTX 3080 Ti.
 
@@ -26,10 +44,10 @@ Requires CUDA. Tested on RTX 3080 Ti.
 
 ```bash
 # Process a directory of videos
-python scripts/identify_videos.py videos/
+uv run scripts/identify_videos.py videos/
 
 # With a recording date (improves seasonal priors)
-python scripts/identify_videos.py videos/ --date 2026-04-15
+uv run scripts/identify_videos.py videos/ --date 2026-04-15
 ```
 
 Results are written as JSON to `results/<videoname>_results.json`.

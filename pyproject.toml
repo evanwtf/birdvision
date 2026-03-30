@@ -1,0 +1,16 @@
+[project]
+name = "birdvision"
+version = "0.1.0"
+description = "Bird species identification from video using YOLOv8 + BioCLIP"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.24.0",
+    "open-clip-torch>=2.20.0",
+    "opencv-python>=4.8.0",
+    "pillow>=10.0.0",
+    "pyyaml>=6.0.3",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "tqdm>=4.65.0",
+    "ultralytics>=8.4.31",
+]
