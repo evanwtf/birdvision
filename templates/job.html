@@ -44,8 +44,19 @@
   padding: 0.6rem 1rem;
   font-size: 0.85rem;
   color: #555;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 .track-header strong { color: #1a2a1a; font-size: 1rem; }
+.track-crop {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #c8d8c4;
+  flex-shrink: 0;
+}
 .predictions { list-style: none; padding: 0.5rem 1rem; }
 .predictions li {
   display: flex;
@@ -96,9 +107,13 @@
       {% for track in result.tracks %}
       <div class="track">
         <div class="track-header">
-          <strong>Track #{{ track.track_id }}</strong>
-          &nbsp; {{ track.frames_tracked }} frames &nbsp;·&nbsp;
-          {{ track.classifications_made }} classifications
+          {% if track.crop %}
+          <img class="track-crop" src="/jobs/{{ job.id }}/crops/{{ track.crop }}" alt="crop">
+          {% endif %}
+          <div>
+            <strong>Track #{{ track.track_id }}</strong><br>
+            {{ track.frames_tracked }} frames &nbsp;·&nbsp; {{ track.classifications_made }} classifications
+          </div>
         </div>
         <ul class="predictions">
           {% for pred in track.averaged_predictions %}

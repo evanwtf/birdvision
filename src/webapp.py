@@ -12,7 +12,7 @@ from typing import Optional
 
 import yaml
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from .pipeline import BirdIdentificationPipeline
@@ -47,6 +47,8 @@ def create_app(config: dict, templates_dir: str = "templates") -> FastAPI:
 
     upload_dir = Path(config.get("webapp", {}).get("upload_dir", "videos"))
     upload_dir.mkdir(parents=True, exist_ok=True)
+    results_dir = Path(config.get("output", {}).get("results_dir", "results"))
+    results_dir.mkdir(parents=True, exist_ok=True)
 
     pipeline: Optional[BirdIdentificationPipeline] = None
 
@@ -110,6 +112,17 @@ def create_app(config: dict, templates_dir: str = "templates") -> FastAPI:
         return templates.TemplateResponse(request, "job.html", {
             "job": job,
         })
+
+    @app.get("/jobs/{job_id}/crops/{filename}")
+    async def serve_crop(job_id: str, filename: str):
+        job = _jobs.get(job_id)
+        if job is None or job.result is None:
+            return HTMLResponse("Not found", status_code=404)
+        video_stem = Path(job.result["video"]).stem
+        crop_path = results_dir / f"{video_stem}_crops" / filename
+        if not crop_path.exists():
+            return HTMLResponse("Not found", status_code=404)
+        return FileResponse(crop_path, media_type="image/jpeg")
 
     return app
 

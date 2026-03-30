@@ -78,6 +78,8 @@ class BirdIdentificationPipeline:
         frame_idx = 0
         # track_id -> list of per-event dicts
         track_events: Dict[int, List[dict]] = {}
+        # track_id -> best crop (highest top-1 confidence seen so far)
+        best_crops: Dict[int, Tuple[np.ndarray, float]] = {}  # tid -> (crop_bgr, confidence)
 
         try:
             while True:
@@ -111,10 +113,14 @@ class BirdIdentificationPipeline:
 
                 if to_classify_crops:
                     batch_results = self.classifier.classify_batch(to_classify_crops)
-                    for tid, preds in zip(to_classify_ids, batch_results):
+                    for tid, preds, crop in zip(to_classify_ids, batch_results, to_classify_crops):
                         preds = self.prior.apply(preds, dt=video_date)
                         tracks[tid].prediction_history.append(preds)
                         tracks[tid].last_classified_frame = frame_idx
+
+                        top_conf = preds[0][1] if preds else 0.0
+                        if top_conf > best_crops.get(tid, (None, -1.0))[1]:
+                            best_crops[tid] = (crop.copy(), top_conf)
 
                         timestamp_s = frame_idx / fps
                         event = {
@@ -133,6 +139,15 @@ class BirdIdentificationPipeline:
         finally:
             cap.release()
 
+        # Save best crop per track
+        crops_dir = Path(self.results_dir) / (Path(video_path).stem + "_crops")
+        crops_dir.mkdir(parents=True, exist_ok=True)
+        saved_crops: Dict[int, str] = {}
+        for tid, (crop_bgr, _) in best_crops.items():
+            crop_path = crops_dir / f"track_{tid}.jpg"
+            cv2.imwrite(str(crop_path), crop_bgr)
+            saved_crops[tid] = crop_path.name
+
         # Build per-track summaries using averaged predictions
         track_summaries = []
         for tid, track in {**self.tracker.completed_tracks, **self.tracker.tracks}.items():
@@ -145,6 +160,7 @@ class BirdIdentificationPipeline:
                     "averaged_predictions": [
                         {"species": s, "probability": round(p, 4)} for s, p in best[:5]
                     ],
+                    "crop": saved_crops.get(tid),
                 })
 
         summary = {
