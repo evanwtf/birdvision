@@ -14,7 +14,6 @@ COPY src/ ./src/
 COPY scripts/ ./scripts/
 COPY templates/ ./templates/
 COPY data/ ./data/
-COPY config.yaml ./
 RUN uv sync --frozen
 
 # ── runtime ───────────────────────────────────────────────────────────────────
