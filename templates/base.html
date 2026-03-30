@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}BirdVision{% endblock %}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f0f4f0;
+      color: #1a2a1a;
+      min-height: 100vh;
+    }
+    header {
+      background: #2d5a27;
+      color: #fff;
+      padding: 1rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    header h1 { font-size: 1.3rem; font-weight: 700; letter-spacing: 0.02em; }
+    header .sub { font-size: 0.85rem; opacity: 0.75; margin-left: auto; }
+    main { max-width: 700px; margin: 0 auto; padding: 1.5rem 1rem; }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    h2 { font-size: 1.1rem; margin-bottom: 1rem; color: #2d5a27; }
+    .btn {
+      display: inline-block;
+      background: #2d5a27;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 0.75rem 1.5rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      width: 100%;
+      text-align: center;
+    }
+    .btn:active { background: #1e3d1b; }
+    .btn-secondary {
+      background: transparent;
+      color: #2d5a27;
+      border: 2px solid #2d5a27;
+    }
+    a { color: #2d5a27; }
+    {% block extra_style %}{% endblock %}
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header>
+    <span style="font-size:1.5rem">🐦</span>
+    <h1><a href="/" style="color:inherit;text-decoration:none">BirdVision</a></h1>
+    <span class="sub">{% block header_sub %}{% endblock %}</span>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

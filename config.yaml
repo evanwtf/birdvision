@@ -22,5 +22,7 @@ species:
   prompt_template: "a photo of a {species}"
 
 output:
-  # Directory for per-video JSON result files
-  results_dir: results/
+  results_dir: /data/results
+
+webapp:
+  upload_dir: /data/videos

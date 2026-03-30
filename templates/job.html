@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block title %}{{ job.filename }} — BirdVision{% endblock %}
+{% block header_sub %}<a href="/" style="color:rgba(255,255,255,0.8);text-decoration:none">← Upload</a>{% endblock %}
+
+{% block extra_style %}
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+.badge {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.25rem 0.65rem;
+  border-radius: 99px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.badge-pending  { background: #fff3cd; color: #856404; }
+.badge-running  { background: #cfe2ff; color: #084298; }
+.badge-done     { background: #d1e7dd; color: #0a3622; }
+.badge-error    { background: #f8d7da; color: #58151c; }
+.spinner {
+  display: inline-block;
+  width: 1rem; height: 1rem;
+  border: 2px solid #cfe2ff;
+  border-top-color: #084298;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.meta { font-size: 0.85rem; color: #666; margin-bottom: 0.5rem; }
+.track {
+  border: 1.5px solid #d4e6d0;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+.track-header {
+  background: #f0f7ee;
+  padding: 0.6rem 1rem;
+  font-size: 0.85rem;
+  color: #555;
+}
+.track-header strong { color: #1a2a1a; font-size: 1rem; }
+.predictions { list-style: none; padding: 0.5rem 1rem; }
+.predictions li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid #f0f4f0;
+  font-size: 0.95rem;
+}
+.predictions li:last-child { border-bottom: none; }
+.rank { font-weight: 700; color: #2d5a27; width: 1.2rem; flex-shrink: 0; }
+.species { flex: 1; }
+.prob-bar-wrap { width: 80px; flex-shrink: 0; background: #e8f0e6; border-radius: 4px; height: 6px; }
+.prob-bar { background: #2d5a27; height: 6px; border-radius: 4px; }
+.prob-label { width: 3.5rem; text-align: right; font-size: 0.82rem; color: #555; flex-shrink: 0; }
+.error-msg { color: #842029; background: #f8d7da; border-radius: 8px; padding: 1rem; font-size: 0.9rem; }
+{% endblock %}
+
+{% block head %}
+{% if job.status in ('pending', 'running') %}
+<meta http-equiv="refresh" content="3">
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="status-bar">
+    {% if job.status in ('pending', 'running') %}
+    <span class="spinner"></span>
+    {% endif %}
+    <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+    <span style="font-size:0.95rem; font-weight:600">{{ job.filename }}</span>
+  </div>
+
+  {% if job.status == 'error' %}
+    <p class="error-msg">{{ job.error }}</p>
+
+  {% elif job.status == 'done' and job.result %}
+    {% set result = job.result %}
+    <p class="meta">
+      {{ result.tracks | length }} track(s) found &nbsp;·&nbsp;
+      {{ result.frames_processed }} frames &nbsp;·&nbsp;
+      {{ "%.1f"|format(result.fps) }} fps
+      {% if result.date %}&nbsp;·&nbsp; {{ result.date }}{% endif %}
+    </p>
+
+    {% if result.tracks %}
+      {% for track in result.tracks %}
+      <div class="track">
+        <div class="track-header">
+          <strong>Track #{{ track.track_id }}</strong>
+          &nbsp; {{ track.frames_tracked }} frames &nbsp;·&nbsp;
+          {{ track.classifications_made }} classifications
+        </div>
+        <ul class="predictions">
+          {% for pred in track.averaged_predictions %}
+          <li>
+            <span class="rank">{{ loop.index }}</span>
+            <span class="species">{{ pred.species }}</span>
+            <div class="prob-bar-wrap">
+              <div class="prob-bar" style="width:{{ [pred.probability * 100, 100] | min | int }}%"></div>
+            </div>
+            <span class="prob-label">{{ "%.1f"|format(pred.probability * 100) }}%</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+    {% else %}
+      <p style="color:#666; font-size:0.9rem">No birds detected in this video.</p>
+    {% endif %}
+
+  {% elif job.status == 'pending' %}
+    <p style="color:#666; font-size:0.9rem">Waiting in queue… page refreshes automatically.</p>
+
+  {% elif job.status == 'running' %}
+    <p style="color:#666; font-size:0.9rem">Processing… page refreshes automatically.</p>
+  {% endif %}
+</div>
+{% endblock %}

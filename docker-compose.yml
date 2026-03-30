@@ -1,14 +1,34 @@
 services:
-  birdvision:
+
+  # Web UI — upload videos and view results at http://localhost:3587
+  web:
     build: .
     image: birdvision:latest
-    runtime: nvidia          # requires nvidia-container-toolkit
+    runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     volumes:
-      - ./videos:/data/videos:ro       # drop video files here
+      - ./videos:/data/videos          # uploaded videos land here
       - ./results:/data/results        # JSON results written here
-      - ./models:/data/models          # cached model weights (survives rebuilds)
+      - ./models:/data/models          # cached model weights
+    ports:
+      - "3587:3587"
+    command: ["uv", "run", "scripts/serve.py", "--config", "/app/config.yaml"]
+    stop_grace_period: 30s
+
+  # CLI batch runner — drop videos in ./videos/ and run manually
+  birdvision:
+    build: .
+    image: birdvision:latest
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - ./videos:/data/videos:ro
+      - ./results:/data/results
+      - ./models:/data/models
     command: ["/data/videos", "--config", "/app/config.yaml"]
     stop_grace_period: 30s
+    profiles: ["cli"]    # only starts with: docker compose --profile cli run birdvision

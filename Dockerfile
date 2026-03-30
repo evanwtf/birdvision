@@ -12,6 +12,7 @@ RUN uv sync --frozen --no-install-project
 # Copy source and install the project itself
 COPY src/ ./src/
 COPY scripts/ ./scripts/
+COPY templates/ ./templates/
 COPY data/ ./data/
 COPY config.yaml ./
 RUN uv sync --frozen
@@ -41,5 +42,4 @@ ENV HF_HOME=/data/models \
     ULTRALYTICS_DIR=/data/models \
     PYTHONUNBUFFERED=1
 
-ENTRYPOINT ["uv", "run", "scripts/identify_videos.py"]
-CMD ["--help"]
+CMD ["uv", "run", "scripts/serve.py"]
