@@ -363,7 +363,10 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
           </div>
           {% endfor %}
         {% else %}
-          <p style="color:#888; font-size:0.85rem; padding:0.75rem 1rem;">No birds detected in this image.</p>
+          <details style="padding:0.75rem 1rem;">
+            <summary style="color:#888; font-size:0.85rem; cursor:pointer;">No birds detected — click to view image</summary>
+            <img src="/jobs/{{ job.id }}/photo/{{ loop.index0 }}" alt="{{ img.filename }}" style="width:100%; border-radius:6px; margin-top:0.5rem;">
+          </details>
         {% endif %}
       </div>
       {% endfor %}
