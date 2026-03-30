@@ -14,7 +14,7 @@ services:
       - ./models:/data/models          # cached model weights
     ports:
       - "3587:3587"
-    command: ["uv", "run", "scripts/serve.py", "--config", "/app/config.yaml"]
+    command: ["/usr/local/bin/uv", "run", "scripts/serve.py", "--config", "/app/config.yaml"]
     stop_grace_period: 30s
 
   # CLI batch runner — drop videos in ./videos/ and run manually
@@ -29,6 +29,6 @@ services:
       - ./videos:/data/videos:ro
       - ./results:/data/results
       - ./models:/data/models
-    command: ["/data/videos", "--config", "/app/config.yaml"]
+    command: ["/usr/local/bin/uv", "run", "scripts/identify_videos.py", "/data/videos", "--config", "/app/config.yaml"]
     stop_grace_period: 30s
     profiles: ["cli"]    # only starts with: docker compose --profile cli run birdvision

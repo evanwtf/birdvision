@@ -44,4 +44,5 @@ ENV HF_HOME=/data/models \
     ULTRALYTICS_DIR=/data/models \
     PYTHONUNBUFFERED=1
 
-CMD ["uv", "run", "scripts/serve.py"]
+ENTRYPOINT []
+CMD ["/usr/local/bin/uv", "run", "scripts/serve.py"]
