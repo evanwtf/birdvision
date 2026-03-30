@@ -5,16 +5,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# Install dependencies into a prefix uv can copy wholesale
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project
-
-# Copy source and install the project itself
-COPY src/ ./src/
-COPY scripts/ ./scripts/
-COPY templates/ ./templates/
-COPY data/ ./data/
-RUN uv sync --frozen
 
 # ── runtime ───────────────────────────────────────────────────────────────────
 FROM cgr.dev/chainguard/python:latest-dev AS runtime
@@ -28,7 +20,14 @@ RUN apk add --no-cache ffmpeg mesa-gl
 
 WORKDIR /app
 
-COPY --from=builder --chown=nonroot:nonroot /app /app
+# Copy venv separately so it stays cached across code changes
+COPY --from=builder --chown=nonroot:nonroot /app/.venv /app/.venv
+
+# Source files — changes here only re-export this small layer
+COPY --chown=nonroot:nonroot src/ ./src/
+COPY --chown=nonroot:nonroot scripts/ ./scripts/
+COPY --chown=nonroot:nonroot templates/ ./templates/
+COPY --chown=nonroot:nonroot data/ ./data/
 
 # Writable directories for input videos, results, and model cache
 RUN mkdir -p /data/videos /data/results /data/models && \
