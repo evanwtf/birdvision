@@ -3,6 +3,12 @@
 {% block title %}BirdVision — Upload{% endblock %}
 {% block header_sub %}Upload a video or photos{% endblock %}
 
+{% block head %}
+{% if jobs | selectattr("status", "in", ["pending", "running"]) | list %}
+<meta http-equiv="refresh" content="5">
+{% endif %}
+{% endblock %}
+
 {% block extra_style %}
 .upload-area {
   border: 2px dashed #a8c5a0;
