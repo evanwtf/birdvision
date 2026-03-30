@@ -71,8 +71,7 @@ def create_app(config: dict, templates_dir: str = "templates") -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request):
         recent = list(reversed(list(_jobs.values())))[:20]
-        return templates.TemplateResponse("index.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "index.html", {
             "jobs": recent,
             "today": date.today().isoformat(),
         })
@@ -108,8 +107,7 @@ def create_app(config: dict, templates_dir: str = "templates") -> FastAPI:
         job = _jobs.get(job_id)
         if job is None:
             return HTMLResponse("Job not found", status_code=404)
-        return templates.TemplateResponse("job.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "job.html", {
             "job": job,
         })
 
