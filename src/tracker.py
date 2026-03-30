@@ -49,6 +49,7 @@ class BirdTracker:
         self.iou_threshold = iou_threshold
         self.next_id = 0
         self.tracks: Dict[int, Track] = OrderedDict()
+        self.completed_tracks: Dict[int, Track] = {}  # pruned tracks, kept for summary
 
     def update(self, detections) -> Dict[int, Track]:
         """Update tracks with new detections. Returns all active tracks."""
@@ -104,7 +105,10 @@ class BirdTracker:
         self.next_id += 1
 
     def _prune(self):
-        self.tracks = {
-            k: v for k, v in self.tracks.items()
-            if v.disappeared <= self.max_disappeared
-        }
+        surviving = {}
+        for k, v in self.tracks.items():
+            if v.disappeared <= self.max_disappeared:
+                surviving[k] = v
+            else:
+                self.completed_tracks[k] = v
+        self.tracks = surviving

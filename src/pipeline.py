@@ -62,6 +62,9 @@ class BirdIdentificationPipeline:
         """
         Process a single video. Returns a summary dict and writes a JSON results file.
         """
+        self.tracker.tracks.clear()
+        self.tracker.completed_tracks.clear()
+
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
             raise RuntimeError(f"Cannot open video: {video_path}")
@@ -132,7 +135,7 @@ class BirdIdentificationPipeline:
 
         # Build per-track summaries using averaged predictions
         track_summaries = []
-        for tid, track in {**self.tracker.tracks}.items():
+        for tid, track in {**self.tracker.completed_tracks, **self.tracker.tracks}.items():
             best = track.best_prediction
             if best:
                 track_summaries.append({
