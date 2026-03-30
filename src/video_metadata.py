@@ -1,5 +1,5 @@
 """
-Extract date/time and GPS coordinates from video file metadata using ExifTool.
+Extract date/time, GPS coordinates, and basic media metadata using ExifTool.
 """
 import logging
 from dataclasses import dataclass
@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import cv2
 import exiftool
 
 logger = logging.getLogger(__name__)
@@ -57,11 +58,41 @@ class VideoMetadata:
         )
 
 
-def extract(video_path: str) -> VideoMetadata:
-    meta = VideoMetadata()
+@dataclass
+class MediaMetadata:
+    recorded_at: Optional[datetime] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    camera_make: Optional[str] = None
+    camera_model: Optional[str] = None
+    focal_length: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    duration_s: Optional[float] = None
+    fps: Optional[float] = None
+    metadata_error: Optional[str] = None
+
+    @property
+    def has_gps(self) -> bool:
+        return self.latitude is not None and self.longitude is not None
+
+    @property
+    def camera_info(self) -> Optional[str]:
+        return VideoMetadata(
+            recorded_at=self.recorded_at,
+            latitude=self.latitude,
+            longitude=self.longitude,
+            camera_make=self.camera_make,
+            camera_model=self.camera_model,
+            focal_length=self.focal_length,
+        ).camera_info
+
+
+def inspect_media(path: str) -> MediaMetadata:
+    meta = MediaMetadata()
     try:
         with exiftool.ExifToolHelper() as et:
-            tags = et.get_metadata(video_path)[0]
+            tags = et.get_metadata(path)[0]
 
         # Date — prefer QuickTime CreateDate, fall back to other fields
         for key in ("QuickTime:CreateDate", "EXIF:DateTimeOriginal", "File:FileModifyDate"):
@@ -95,6 +126,56 @@ def extract(video_path: str) -> VideoMetadata:
                 meta.focal_length = str(fl)
 
     except Exception as e:
-        logger.warning(f"Could not extract metadata from {Path(video_path).name}: {e}")
+        meta.metadata_error = str(e)
+        logger.warning(f"Could not extract metadata from {Path(path).name}: {e}")
+
+    suffix = Path(path).suffix.lower()
+    if suffix in {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".wmv"}:
+        _fill_video_tech_metadata(path, meta)
+    else:
+        _fill_image_dimensions(path, meta)
 
     return meta
+
+
+def _fill_video_tech_metadata(path: str, meta: MediaMetadata):
+    cap = cv2.VideoCapture(path)
+    try:
+        if not cap.isOpened():
+            return
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        frame_count = float(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
+        meta.width = width or None
+        meta.height = height or None
+        if fps > 0:
+            meta.fps = round(fps, 3)
+            if frame_count > 0:
+                meta.duration_s = round(frame_count / fps, 3)
+    except Exception as e:
+        logger.warning(f"Could not read video properties from {Path(path).name}: {e}")
+    finally:
+        cap.release()
+
+
+def _fill_image_dimensions(path: str, meta: MediaMetadata):
+    try:
+        frame = cv2.imread(path)
+        if frame is not None:
+            meta.height = int(frame.shape[0])
+            meta.width = int(frame.shape[1])
+    except Exception as e:
+        logger.warning(f"Could not read image dimensions from {Path(path).name}: {e}")
+
+
+def extract(video_path: str) -> VideoMetadata:
+    detailed = inspect_media(video_path)
+    return VideoMetadata(
+        recorded_at=detailed.recorded_at,
+        latitude=detailed.latitude,
+        longitude=detailed.longitude,
+        camera_make=detailed.camera_make,
+        camera_model=detailed.camera_model,
+        focal_length=detailed.focal_length,
+    )

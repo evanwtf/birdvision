@@ -22,13 +22,13 @@
   opacity: 0;
   width: 100%;
   height: 100%;
-  top: 0; left: 0;
+  top: 0;
+  left: 0;
   cursor: pointer;
 }
 .upload-area .icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
 .upload-area .label { font-size: 1rem; color: #555; }
 .upload-area .hint { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
-.filename { font-weight: 600; color: #2d5a27; word-break: break-all; }
 .date-row { margin-bottom: 1rem; }
 .date-row label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 0.4rem; }
 .date-row input[type=date] {
@@ -38,6 +38,93 @@
   border-radius: 8px;
   font-size: 1rem;
   background: #f8fcf7;
+}
+.review-wrap[hidden] { display: none; }
+.review-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.review-summary {
+  font-size: 0.9rem;
+  color: #5b6859;
+}
+.message {
+  border-radius: 9px;
+  padding: 0.8rem 0.9rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.9rem;
+}
+.message-error {
+  background: #f8d7da;
+  color: #842029;
+}
+.message-info {
+  background: #eef6ec;
+  color: #35512f;
+}
+.review-list {
+  display: grid;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+.asset-card {
+  border: 1.5px solid #d6e4d2;
+  border-radius: 10px;
+  padding: 0.9rem;
+}
+.asset-row {
+  display: flex;
+  gap: 0.8rem;
+  align-items: flex-start;
+}
+.asset-check {
+  margin-top: 0.15rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: #2d5a27;
+}
+.asset-main {
+  flex: 1;
+  min-width: 0;
+}
+.asset-name {
+  font-weight: 700;
+  color: #21301e;
+  word-break: break-word;
+}
+.asset-meta {
+  margin-top: 0.45rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+.meta-pill {
+  font-size: 0.78rem;
+  padding: 0.22rem 0.5rem;
+  border-radius: 99px;
+  background: #f1f5ef;
+  color: #4f5d4b;
+}
+.meta-pill-dup {
+  background: #fff1c8;
+  color: #7a5b00;
+}
+.meta-pill-new {
+  background: #dcefd8;
+  color: #24451e;
+}
+.meta-pill-error {
+  background: #fbe7e9;
+  color: #8a1f32;
+}
+.asset-note {
+  margin-top: 0.5rem;
+  font-size: 0.84rem;
+  color: #6a7667;
+  line-height: 1.4;
 }
 .jobs-list { list-style: none; }
 .jobs-list li {
@@ -64,9 +151,15 @@
 .badge-done     { background: #d1e7dd; color: #0a3622; }
 .badge-error    { background: #f8d7da; color: #58151c; }
 .job-name {
-  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  display: flex; justify-content: space-between; align-items: center;
-  text-decoration: none; color: inherit;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-decoration: none;
+  color: inherit;
 }
 .job-name:hover { color: #2d5a27; }
 .job-time { font-size: 0.78rem; color: #999; flex-shrink: 0; margin-left: 0.75rem; }
@@ -81,13 +174,22 @@
       <input type="file" name="file" id="file-input" accept="video/*,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.heic,.webp" multiple required>
       <div class="icon">📹</div>
       <div class="label" id="file-label">Tap to choose a video or photos</div>
-      <div class="hint">video (mp4, mov, mkv) or photos (jpg, png, heic, webp)</div>
+      <div class="hint">one video or a batch of photos</div>
     </div>
     <div class="date-row">
       <label for="date-input">Recording date (optional — improves seasonal accuracy)</label>
       <input type="date" name="date" id="date-input" value="{{ today }}">
     </div>
-    <button class="btn" type="submit" id="submit-btn">Identify Birds</button>
+    <div id="inspect-message" class="message message-info" hidden></div>
+    <div id="review-message" class="message message-error" hidden></div>
+    <div class="review-wrap" id="review-wrap" hidden>
+      <div class="review-head">
+        <h2 style="margin-bottom:0">Review Before Processing</h2>
+        <div class="review-summary" id="review-summary"></div>
+      </div>
+      <div class="review-list" id="review-list"></div>
+    </div>
+    <button class="btn" type="submit" id="submit-btn" disabled>Inspect Files First</button>
   </form>
 </div>
 
@@ -115,27 +217,317 @@
 <script>
 const input = document.getElementById('file-input');
 const label = document.getElementById('file-label');
-const form  = document.getElementById('upload-form');
-const btn   = document.getElementById('submit-btn');
-
-input.addEventListener('change', () => {
-  if (input.files.length === 1) label.textContent = input.files[0].name;
-  else if (input.files.length > 1) label.textContent = input.files.length + ' files selected';
-});
-form.addEventListener('submit', () => {
-  btn.textContent = 'Uploading…';
-  btn.disabled = true;
-});
+const form = document.getElementById('upload-form');
+const btn = document.getElementById('submit-btn');
 const zone = document.getElementById('drop-zone');
-zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+const reviewWrap = document.getElementById('review-wrap');
+const reviewList = document.getElementById('review-list');
+const reviewSummary = document.getElementById('review-summary');
+const reviewMessage = document.getElementById('review-message');
+const inspectMessage = document.getElementById('inspect-message');
+const dateInput = document.getElementById('date-input');
+
+const state = {
+  inspecting: false,
+  finalizing: false,
+  inspection: null,
+};
+
+function setHidden(el, hidden) {
+  el.hidden = hidden;
+}
+
+function formatBytes(bytes) {
+  if (bytes == null) return 'unknown size';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = Number(bytes);
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+function formatNumber(value, digits = 1) {
+  return value == null || Number.isNaN(Number(value)) ? null : Number(value).toFixed(digits);
+}
+
+function formatDate(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString();
+}
+
+function formatGps(asset) {
+  if (asset.latitude == null || asset.longitude == null) return null;
+  return `${Number(asset.latitude).toFixed(4)}, ${Number(asset.longitude).toFixed(4)}`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function updateButtonState() {
+  if (state.inspecting) {
+    btn.disabled = true;
+    btn.textContent = 'Inspecting…';
+    return;
+  }
+  if (state.finalizing) {
+    btn.disabled = true;
+    btn.textContent = 'Creating Job…';
+    return;
+  }
+  if (!state.inspection) {
+    btn.disabled = true;
+    btn.textContent = 'Inspect Files First';
+    return;
+  }
+  const selectedCount = state.inspection.assets.filter((asset) => asset.selected !== false).length;
+  const valid = state.inspection.batch && state.inspection.batch.valid;
+  btn.disabled = !valid || selectedCount === 0;
+  btn.textContent = selectedCount > 0 ? `Process ${selectedCount} Selected` : 'Select Assets to Process';
+}
+
+function updateReviewSummary() {
+  if (!state.inspection) {
+    reviewSummary.textContent = '';
+    return;
+  }
+  const total = state.inspection.assets.length;
+  const selected = state.inspection.assets.filter((asset) => asset.selected !== false).length;
+  const dupes = state.inspection.assets.filter((asset) => asset.duplicate).length;
+  reviewSummary.textContent = `${selected}/${total} selected${dupes ? ` · ${dupes} duplicate${dupes === 1 ? '' : 's'} will be reused` : ''}`;
+}
+
+function renderReview() {
+  const inspection = state.inspection;
+  if (!inspection) {
+    setHidden(reviewWrap, true);
+    setHidden(reviewMessage, true);
+    return;
+  }
+
+  setHidden(reviewWrap, false);
+  updateReviewSummary();
+
+  if (inspection.batch && !inspection.batch.valid) {
+    reviewMessage.textContent = inspection.batch.error;
+    reviewMessage.className = 'message message-error';
+    setHidden(reviewMessage, false);
+  } else {
+    setHidden(reviewMessage, true);
+  }
+
+  reviewList.innerHTML = inspection.assets.map((asset, index) => {
+    const meta = [];
+    meta.push(`<span class="meta-pill">${escapeHtml(asset.media_type)}</span>`);
+    meta.push(`<span class="meta-pill">${escapeHtml(formatBytes(asset.size_bytes))}</span>`);
+    if (asset.width && asset.height) meta.push(`<span class="meta-pill">${asset.width}×${asset.height}</span>`);
+    if (asset.duration_s != null) meta.push(`<span class="meta-pill">${escapeHtml(formatNumber(asset.duration_s, 1))}s</span>`);
+    if (asset.fps != null) meta.push(`<span class="meta-pill">${escapeHtml(formatNumber(asset.fps, 1))} fps</span>`);
+    meta.push(asset.duplicate
+      ? '<span class="meta-pill meta-pill-dup">duplicate: existing asset reused</span>'
+      : '<span class="meta-pill meta-pill-new">new asset</span>');
+    if (asset.metadata_status !== 'ok') meta.push('<span class="meta-pill meta-pill-error">metadata partial</span>');
+
+    const notes = [];
+    const recordedAt = formatDate(asset.recorded_at);
+    if (recordedAt) notes.push(`Date: ${escapeHtml(recordedAt)}`);
+    const gps = formatGps(asset);
+    if (gps) notes.push(`GPS: ${escapeHtml(gps)}`);
+    if (asset.metadata_error) notes.push(`Metadata issue: ${escapeHtml(asset.metadata_error)}`);
+
+    return `
+      <div class="asset-card">
+        <div class="asset-row">
+          <input class="asset-check" type="checkbox" data-index="${index}" ${asset.selected === false ? '' : 'checked'}>
+          <div class="asset-main">
+            <div class="asset-name">${escapeHtml(asset.original_filename)}</div>
+            <div class="asset-meta">${meta.join('')}</div>
+            ${notes.length ? `<div class="asset-note">${notes.join(' · ')}</div>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  reviewList.querySelectorAll('.asset-check').forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      const index = Number(checkbox.dataset.index);
+      state.inspection.assets[index].selected = checkbox.checked;
+      updateReviewSummary();
+      updateButtonState();
+    });
+  });
+
+  updateButtonState();
+}
+
+function extractVideoMetadata(file, url) {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      const width = video.videoWidth || null;
+      const height = video.videoHeight || null;
+      const duration = Number.isFinite(video.duration) ? video.duration : null;
+      URL.revokeObjectURL(url);
+      resolve({ width, height, duration_s: duration, fps: null });
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve({});
+    };
+    video.src = url;
+  });
+}
+
+function extractImageMetadata(file, url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve({ width: img.naturalWidth || null, height: img.naturalHeight || null });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve({});
+    };
+    img.src = url;
+  });
+}
+
+async function collectClientMetadata(file) {
+  const meta = {
+    name: file.name,
+    size_bytes: file.size,
+    content_type: file.type || null,
+    width: null,
+    height: null,
+    duration_s: null,
+    fps: null,
+    latitude: null,
+    longitude: null,
+  };
+  const url = URL.createObjectURL(file);
+  if (file.type.startsWith('video/')) {
+    Object.assign(meta, await extractVideoMetadata(file, url));
+  } else if (file.type.startsWith('image/')) {
+    Object.assign(meta, await extractImageMetadata(file, url));
+  } else {
+    URL.revokeObjectURL(url);
+  }
+  return meta;
+}
+
+async function inspectSelection() {
+  const files = Array.from(input.files || []);
+  state.inspection = null;
+  setHidden(reviewWrap, true);
+  setHidden(reviewMessage, true);
+
+  if (!files.length) {
+    label.textContent = 'Tap to choose a video or photos';
+    setHidden(inspectMessage, true);
+    updateButtonState();
+    return;
+  }
+
+  label.textContent = files.length === 1 ? files[0].name : `${files.length} files selected`;
+  state.inspecting = true;
+  inspectMessage.textContent = 'Inspecting files and checking for duplicates…';
+  inspectMessage.className = 'message message-info';
+  setHidden(inspectMessage, false);
+  updateButtonState();
+
+  try {
+    const clientMetadata = await Promise.all(files.map((file) => collectClientMetadata(file)));
+    const formData = new FormData();
+    files.forEach((file) => formData.append('file', file));
+    formData.append('client_metadata', JSON.stringify(clientMetadata));
+
+    const response = await fetch('/api/uploads/inspect', {
+      method: 'POST',
+      body: formData,
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || 'Inspection failed.');
+    }
+    payload.assets = (payload.assets || []).map((asset) => ({ ...asset, selected: true }));
+    state.inspection = payload;
+    inspectMessage.textContent = payload.batch && payload.batch.valid
+      ? 'Review the assets below, then process only the checked items.'
+      : 'Review the batch issue below before processing.';
+    renderReview();
+  } catch (error) {
+    inspectMessage.textContent = error.message || 'Inspection failed.';
+    inspectMessage.className = 'message message-error';
+    setHidden(inspectMessage, false);
+    updateButtonState();
+  } finally {
+    state.inspecting = false;
+    updateButtonState();
+  }
+}
+
+input.addEventListener('change', inspectSelection);
+
+form.addEventListener('submit', async (event) => {
+  if (!state.inspection) return;
+  event.preventDefault();
+
+  state.finalizing = true;
+  updateButtonState();
+  setHidden(reviewMessage, true);
+
+  try {
+    const response = await fetch('/api/uploads/finalize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        date: dateInput.value || null,
+        assets: state.inspection.assets.map((asset) => ({
+          sha256: asset.sha256,
+          original_filename: asset.original_filename,
+          selected: asset.selected !== false,
+        })),
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error || 'Could not create job.');
+    }
+    window.location.href = payload.redirect_url;
+  } catch (error) {
+    reviewMessage.textContent = error.message || 'Could not create job.';
+    setHidden(reviewMessage, false);
+  } finally {
+    state.finalizing = false;
+    updateButtonState();
+  }
+});
+
+zone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  zone.classList.add('dragover');
+});
 zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-zone.addEventListener('drop', e => {
+zone.addEventListener('drop', (e) => {
   e.preventDefault();
   zone.classList.remove('dragover');
   const dt = e.dataTransfer;
   if (dt.files.length) {
     input.files = dt.files;
-    label.textContent = dt.files.length === 1 ? dt.files[0].name : dt.files.length + ' files selected';
+    inspectSelection();
   }
 });
 </script>

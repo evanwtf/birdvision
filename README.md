@@ -29,7 +29,8 @@ photos and view results with species predictions, confidence scores, annotated
 image/video artifacts, and links to Cornell All About Birds for each candidate
 species.
 
-Videos and results persist in `./videos/` and `./results/` on the host.
+Managed uploaded media, the asset index, and any legacy uploads persist in
+`./videos/` on the host. Results persist in `./results/`.
 Model weights are cached in `./models/` and reused across restarts.
 
 ### Local (uv)
@@ -97,6 +98,25 @@ Photo jobs now emphasize the original photo rather than only crop thumbnails:
 Video jobs still use the older crop/track-detail workflow; follow-up issues are
 open to bring the same visualization improvements to video results.
 
+## Upload review and duplicate handling
+
+The web upload flow is now two-stage:
+
+1. choose files or drag-and-drop them onto the upload page
+2. BirdVision inspects each asset and shows a review list before processing
+3. deselect anything you do not want in the final batch
+4. submit only the checked assets as one job
+
+During inspection, BirdVision reports filename, filesize, media type, dimensions,
+and when available duration, framerate, GPS, and recorded date. The backend also
+computes a `sha256` for each upload and stores media in a content-addressed
+asset store under `videos/assets/`.
+
+If the same bytes were already uploaded before, BirdVision marks the item as a
+duplicate and transparently reuses the existing canonical file instead of
+writing another copy. Mixed image/video selections are rejected during review
+before the final submit step.
+
 ## CLI batch mode
 
 ```bash
@@ -108,5 +128,5 @@ docker compose --profile cli run birdvision \
   /data/videos --date 2026-04-15 --config /data/config.yaml
 ```
 
-Results are written as JSON to `results/<videoname>_results.json`.
+Results are written as JSON to `results/{job_id}_{display_stem}_results.json`.
 Image-job artifacts are saved under `results/<job_id>_crops/`.

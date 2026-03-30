@@ -33,9 +33,12 @@ src/
                       video-level species summaries and per-track explanations;
                       for image jobs also emits per-photo summaries, annotated
                       full-photo JPEGs, and browser overlay metadata
-  video_metadata.py — ExifTool wrapper; extracts recording date + GPS from video
-  webapp.py         — FastAPI web UI; in-memory job queue; restores completed jobs
-                      from results JSON on startup; hot-reloads config before each job
+  video_metadata.py — ExifTool/OpenCV metadata helpers; extracts recording date,
+                      GPS, dimensions, and basic duration/fps data
+  webapp.py         — FastAPI web UI; content-addressed asset store + persisted
+                      hash index; two-phase inspect/finalize upload flow;
+                      in-memory job queue restored from results JSON on startup;
+                      hot-reloads config before each job
 
 scripts/
   serve.py                    — uvicorn entry point for web UI (port 3587)
@@ -68,6 +71,13 @@ data/
 - **Image jobs are photo-first** — the job page shows per-photo species tables,
   the original photo with overlaid detection boxes, and CSS overlay labels tied
   to each classified box rather than only posting crop thumbnails
+- **Upload flow is inspect then finalize** — the upload page no longer starts
+  processing immediately; it first inspects each candidate asset, surfaces
+  duplicate status plus metadata, and then creates one job from the checked
+  subset
+- **Managed uploads are content-addressed** — uploaded media are stored and
+  reused by `sha256` under the webapp upload directory, with a persisted index;
+  duplicate uploads reuse existing canonical files instead of creating copies
 - **eBird priors** are multiplicative — visual prob × frequency, then renormalized;
   species with 0 frequency are floored at `zero_floor=0.01` (not zeroed out)
 - **Long Island-only eBird gating for GPS-driven jobs** — when photo/video GPS is
@@ -120,13 +130,16 @@ Model path / model name / device changes still require restart.
   or an alternate config file.
 - **Preserve result filename conventions** used by startup reconstruction:
   - JSON pattern: `{job_id}_{original_stem}_results.json`
-  - Crops: `<results_dir>/<video_stem>_crops/track_<track_id>.jpg`
+  - Video track crops: `<results_dir>/<video_stem>_crops/track_<track_id>.jpg`
   - Image-job artifacts live under `<results_dir>/<job_id>_crops/` and now
     include per-bird crops plus annotated full-photo JPEGs
+- **Jobs now reference explicit asset records**, not `{job_id}_filename`
+  upload paths. Reprocess should reuse the same canonical asset descriptors.
 - **Webapp processing is intentionally serial** (`ThreadPoolExecutor(max_workers=1)`).
   Changing concurrency affects queue behavior and GPU memory pressure.
 - **Keep generated artifacts out of commits**: model weights, `results/`,
-  `videos/`, and generated `data/ebird_priors.db` are intentionally gitignored.
+  `videos/` (including `videos/assets/` and `videos/asset_index.json`), and
+  generated `data/ebird_priors.db` are intentionally gitignored.
 
 ## GitHub
 

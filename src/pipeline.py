@@ -321,6 +321,10 @@ class BirdIdentificationPipeline:
         video_date: Optional[datetime] = None,
         latitude: Optional[float] = None,
         longitude: Optional[float] = None,
+        result_stem: Optional[str] = None,
+        source_filename: Optional[str] = None,
+        display_name: Optional[str] = None,
+        asset_records: Optional[list[dict]] = None,
     ) -> dict:
         """
         Process a single video. Returns a summary dict and writes a JSON results file.
@@ -483,9 +487,12 @@ class BirdIdentificationPipeline:
             p["raw_presence_probability"] = raw_lookup.get(p["species"], 0.0)
         summary = {
             "video": str(video_path),
+            "source_filename": source_filename or Path(video_path).name,
+            "display_name": display_name or source_filename or Path(video_path).name,
             "date": video_date.isoformat() if video_date else None,
             "latitude": latitude,
             "longitude": longitude,
+            "asset_records": asset_records or [],
             "video_info": {
                 "width": width,
                 "height": height,
@@ -503,7 +510,7 @@ class BirdIdentificationPipeline:
 
         # Write JSON results
         Path(self.results_dir).mkdir(parents=True, exist_ok=True)
-        out_path = Path(self.results_dir) / (Path(video_path).stem + "_results.json")
+        out_path = Path(self.results_dir) / ((result_stem or Path(video_path).stem) + "_results.json")
         with open(out_path, "w") as f:
             json.dump(summary, f, indent=2)
         logger.info(f"Results written to {out_path}")
@@ -572,10 +579,14 @@ class BirdIdentificationPipeline:
         self,
         image_paths: list[str],
         *,
+        source_filenames: Optional[list[str]] = None,
         video_date: Optional[datetime] = None,
         latitude: Optional[float] = None,
         longitude: Optional[float] = None,
         job_id: Optional[str] = None,
+        result_stem: Optional[str] = None,
+        display_name: Optional[str] = None,
+        asset_records: Optional[list[dict]] = None,
     ) -> dict:
         """
         Classify birds in one or more photos. Returns a summary dict and writes
@@ -589,13 +600,18 @@ class BirdIdentificationPipeline:
                 use_default_fips=False,
             )
 
-        stem = job_id or Path(image_paths[0]).stem
-        crops_dir = Path(self.results_dir) / (stem + "_crops")
+        stem = result_stem or job_id or Path(image_paths[0]).stem
+        crops_dir = Path(self.results_dir) / ((job_id or stem) + "_crops")
         crops_dir.mkdir(parents=True, exist_ok=True)
 
         image_results = []
 
         for img_idx, img_path in enumerate(image_paths):
+            source_filename = (
+                source_filenames[img_idx]
+                if source_filenames and img_idx < len(source_filenames)
+                else Path(img_path).name
+            )
             # Extract per-image EXIF metadata
             img_meta = extract_media_metadata(img_path)
             img_date = img_meta.recorded_at or video_date  # fall back to job-level date
@@ -610,7 +626,7 @@ class BirdIdentificationPipeline:
             if frame is None:
                 logger.warning(f"Cannot read image: {img_path}")
                 image_results.append({
-                    "filename": Path(img_path).name,
+                    "filename": source_filename,
                     "date": img_meta.recorded_at.isoformat() if img_meta.recorded_at else None,
                     "latitude": img_meta.latitude,
                     "longitude": img_meta.longitude,
@@ -625,7 +641,7 @@ class BirdIdentificationPipeline:
                 continue
 
             detections = self.detector.detect(frame)
-            logger.info(f"{Path(img_path).name}: {len(detections)} detection(s)")
+            logger.info(f"{source_filename}: {len(detections)} detection(s)")
 
             crops = []
             crop_indices = []  # which detection index each crop came from
@@ -646,7 +662,7 @@ class BirdIdentificationPipeline:
 
                     if raw_top_conf < self.min_event_confidence:
                         logger.info(
-                            f"  {Path(img_path).name} bird#{crop_indices[i]} skipped "
+                            f"  {source_filename} bird#{crop_indices[i]} skipped "
                             f"low-confidence ({raw_top_conf:.1%})"
                         )
                         continue
@@ -692,7 +708,7 @@ class BirdIdentificationPipeline:
                 cv2.imwrite(str(crops_dir / annotated_file), annotated)
 
             image_results.append({
-                "filename": Path(img_path).name,
+                "filename": source_filename,
                 "date": img_meta.recorded_at.isoformat() if img_meta.recorded_at else None,
                 "latitude": img_meta.latitude,
                 "longitude": img_meta.longitude,
@@ -707,12 +723,14 @@ class BirdIdentificationPipeline:
 
         summary = {
             "type": "images",
+            "display_name": display_name or (source_filenames[0] if source_filenames else Path(image_paths[0]).name),
             "date": video_date.isoformat() if video_date else None,
             "latitude": latitude,
             "longitude": longitude,
+            "asset_records": asset_records or [],
             "image_info": {
                 "count": len(image_paths),
-                "filenames": [Path(p).name for p in image_paths],
+                "filenames": source_filenames or [Path(p).name for p in image_paths],
             },
             "images": image_results,
         }
