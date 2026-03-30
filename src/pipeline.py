@@ -41,6 +41,8 @@ class BirdIdentificationPipeline:
         self.prior = MetadataPrior(
             latitude=meta.get("latitude"),
             longitude=meta.get("longitude"),
+            db_path=meta.get("ebird_db"),
+            fips=meta.get("ebird_fips"),
         )
 
         self.classify_every_n = cls.get("classify_every_n_frames", 15)
@@ -142,7 +144,12 @@ class BirdIdentificationPipeline:
 
         # Use per-video GPS if provided, otherwise fall back to config prior
         if latitude is not None and longitude is not None:
-            self.prior = MetadataPrior(latitude=latitude, longitude=longitude)
+            self.prior = MetadataPrior(
+                latitude=latitude,
+                longitude=longitude,
+                db_path=self.prior._con and self.prior._con.execute("PRAGMA database_list").fetchone()[2],
+                fips=self.prior._fips,
+            )
 
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():

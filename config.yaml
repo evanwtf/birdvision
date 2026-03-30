@@ -18,6 +18,8 @@ tracker:
 metadata:
   latitude: 40.7
   longitude: -73.5
+  ebird_db: /app/data/ebird_priors.db
+  ebird_fips: US-NY-059   # Nassau County — change to nearest county if needed
 
 scoring:
   # Weight classification events by proximity to frame center.

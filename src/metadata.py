@@ -1,56 +1,96 @@
 """
-Location and time-based prior probabilities over species.
+Location and time-based prior probabilities over species, backed by eBird
+bar chart data stored in a local SQLite database.
 
-Currently a stub returning uniform weights. Designed for drop-in replacement
-with eBird range map data: given lat/lon + date, eBird can return the probability
-of each species being present, which we multiply against the classifier output.
+The bar chart has 48 periods per year (4 per month). Given a date, we map
+to the nearest period and look up observed frequency for each species in
+the configured county (FIPS code). Frequency is used as a multiplier on
+the classifier's raw probabilities and then re-normalized.
 
-eBird API docs: https://documenter.getpostman.com/view/664302/S1ENwy59
+Species with zero eBird frequency are floored at `zero_floor` so the model
+can still surface genuinely rare birds that the observer might be lucky enough
+to see.
 """
 
 import logging
+import sqlite3
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-SEASON_MONTHS = {
-    "spring": {3, 4, 5},
-    "summer": {6, 7, 8},
-    "fall":   {9, 10, 11},
-    "winter": {12, 1, 2},
-}
+# 48 periods/year: period = (month-1)*4 + (day-1)//(days_in_month//4)
+# Simpler approximation: period = day_of_year / (365/48)
+_PERIODS_PER_YEAR = 48
 
 
-def get_season(dt: datetime) -> str:
-    for season, months in SEASON_MONTHS.items():
-        if dt.month in months:
-            return season
-    return "unknown"
+def _date_to_period(dt: datetime) -> int:
+    day_of_year = dt.timetuple().tm_yday  # 1-365
+    period = int((day_of_year - 1) / (365.0 / _PERIODS_PER_YEAR))
+    return min(period, _PERIODS_PER_YEAR - 1)
 
 
 class MetadataPrior:
-    def __init__(self, latitude: Optional[float] = None, longitude: Optional[float] = None):
+    def __init__(
+        self,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+        db_path: Optional[str] = None,
+        fips: Optional[str] = None,
+        zero_floor: float = 0.01,
+    ):
         self.latitude = latitude
         self.longitude = longitude
-        if latitude and longitude:
-            logger.info(f"Location prior: {latitude:.4f}, {longitude:.4f}")
-        else:
-            logger.info("No location set — using uniform species priors.")
+        self.zero_floor = zero_floor
+        self._con: Optional[sqlite3.Connection] = None
+        self._fips: Optional[str] = fips
 
-    def get_priors(self, species_names: List[str], dt: Optional[datetime] = None) -> Dict[str, float]:
-        """
-        Returns species_name -> probability multiplier (1.0 = neutral).
-        TODO: replace with eBird API call using self.latitude/longitude + dt.
-        """
-        return {s: 1.0 for s in species_names}
+        if db_path and Path(db_path).exists():
+            self._con = sqlite3.connect(db_path, check_same_thread=False)
+            if not fips:
+                # Default to Nassau County — closest to configured location
+                self._fips = "US-NY-059"
+            counties = self._con.execute("SELECT fips, name FROM counties").fetchall()
+            logger.info(
+                f"eBird priors loaded from {db_path} "
+                f"({len(counties)} counties, using {self._fips})"
+            )
+        else:
+            if db_path:
+                logger.warning(f"eBird DB not found at {db_path} — using uniform priors")
+            else:
+                logger.info("No eBird DB configured — using uniform priors")
+
+    def get_priors(
+        self, species_names: List[str], dt: Optional[datetime] = None
+    ) -> Dict[str, float]:
+        if self._con is None or dt is None:
+            return {s: 1.0 for s in species_names}
+
+        period = _date_to_period(dt)
+
+        placeholders = ",".join("?" * len(species_names))
+        rows = self._con.execute(
+            f"""
+            SELECT species, freq FROM barchart
+            WHERE fips = ? AND period = ? AND species IN ({placeholders})
+            """,
+            [self._fips, period, *species_names],
+        ).fetchall()
+
+        freq_map = {row[0]: row[1] for row in rows}
+        return {
+            s: max(freq_map.get(s, 0.0), self.zero_floor)
+            for s in species_names
+        }
 
     def apply(
         self,
         predictions: List[Tuple[str, float]],
         dt: Optional[datetime] = None,
     ) -> List[Tuple[str, float]]:
-        """Re-weight and re-normalize predictions using location/time priors."""
+        """Re-weight and re-normalize predictions using eBird location/time priors."""
         species = [s for s, _ in predictions]
         priors = self.get_priors(species, dt)
         adjusted = [(s, p * priors.get(s, 1.0)) for s, p in predictions]

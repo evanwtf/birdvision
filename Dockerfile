@@ -28,6 +28,12 @@ COPY --chown=nonroot:nonroot src/ ./src/
 COPY --chown=nonroot:nonroot scripts/ ./scripts/
 COPY --chown=nonroot:nonroot templates/ ./templates/
 COPY --chown=nonroot:nonroot data/ ./data/
+COPY --chown=nonroot:nonroot ebird_data/ ./ebird_data/
+
+# Build eBird priors DB from source data
+USER nonroot
+RUN /usr/local/bin/uv run scripts/import_ebird_barchart.py ebird_data/ --db data/ebird_priors.db
+USER root
 
 # Writable directories for input videos, results, and model cache
 RUN mkdir -p /data/videos /data/results /data/models && \
