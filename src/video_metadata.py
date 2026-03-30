@@ -70,6 +70,7 @@ class MediaMetadata:
     height: Optional[int] = None
     duration_s: Optional[float] = None
     fps: Optional[float] = None
+    video_codec: Optional[str] = None
     metadata_error: Optional[str] = None
 
     @property
@@ -149,6 +150,9 @@ def _fill_video_tech_metadata(path: str, meta: MediaMetadata):
         frame_count = float(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
         meta.width = width or None
         meta.height = height or None
+        fourcc = int(cap.get(cv2.CAP_PROP_FOURCC) or 0)
+        if fourcc:
+            meta.video_codec = "".join(chr((fourcc >> 8 * i) & 0xFF) for i in range(4))
         if fps > 0:
             meta.fps = round(fps, 3)
             if frame_count > 0:

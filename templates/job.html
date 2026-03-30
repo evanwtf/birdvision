@@ -407,6 +407,9 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
       <video controls playsinline preload="metadata" style="width:100%; border-radius:8px;">
         <source src="/jobs/{{ job.id }}/video">
       </video>
+      {% if job.assets and job.assets[0].get("video_codec") and job.assets[0].get("video_codec") not in ("avc1", "hvc1", "hev1") %}
+      <p class="meta" style="margin-top:0.4rem;">Video uses {{ job.assets[0]["video_codec"] }} codec, which may not play in Safari. Try Chrome or Firefox.</p>
+      {% endif %}
     </div>
 
     {# ── 1. Aggregate score (top) ─────────────────────────────── #}

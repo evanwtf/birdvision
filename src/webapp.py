@@ -174,6 +174,7 @@ class AssetStore:
             "latitude": first_value(inspected.latitude, client_metadata, "latitude"),
             "longitude": first_value(inspected.longitude, client_metadata, "longitude"),
             "camera_info": inspected.camera_info,
+            "video_codec": inspected.video_codec,
             "metadata_error": inspected.metadata_error,
             "original_names": sorted({
                 safe_name,
@@ -714,6 +715,7 @@ def build_job_asset(indexed: dict[str, Any], original_filename: Optional[str]) -
         "recorded_at": indexed.get("recorded_at"),
         "latitude": indexed.get("latitude"),
         "longitude": indexed.get("longitude"),
+        "video_codec": indexed.get("video_codec"),
         "resolution_warning": resolution_warning_text(
             media_type=indexed["media_type"],
             width=indexed.get("width"),
