@@ -29,16 +29,6 @@
 .upload-area .icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
 .upload-area .label { font-size: 1rem; color: #555; }
 .upload-area .hint { font-size: 0.8rem; color: #888; margin-top: 0.25rem; }
-.date-row { margin-bottom: 1rem; }
-.date-row label { display: block; font-size: 0.85rem; color: #555; margin-bottom: 0.4rem; }
-.date-row input[type=date] {
-  width: 100%;
-  padding: 0.65rem 0.75rem;
-  border: 1.5px solid #c8d8c4;
-  border-radius: 8px;
-  font-size: 1rem;
-  background: #f8fcf7;
-}
 .review-wrap[hidden] { display: none; }
 .review-head {
   display: flex;
@@ -180,10 +170,6 @@
       <div class="label" id="file-label">Tap to choose a video or photos</div>
       <div class="hint">one video or a batch of photos</div>
     </div>
-    <div class="date-row">
-      <label for="date-input">Recording date (optional — improves seasonal accuracy)</label>
-      <input type="date" name="date" id="date-input" value="{{ today }}">
-    </div>
     <div id="inspect-message" class="message message-info" hidden></div>
     <div id="review-message" class="message message-error" hidden></div>
     <div class="review-wrap" id="review-wrap" hidden>
@@ -229,7 +215,6 @@ const reviewList = document.getElementById('review-list');
 const reviewSummary = document.getElementById('review-summary');
 const reviewMessage = document.getElementById('review-message');
 const inspectMessage = document.getElementById('inspect-message');
-const dateInput = document.getElementById('date-input');
 
 const state = {
   inspecting: false,
@@ -294,10 +279,18 @@ function updateButtonState() {
     btn.textContent = 'Inspect Files First';
     return;
   }
-  const selectedCount = state.inspection.assets.filter((asset) => asset.selected !== false).length;
+  const selected = state.inspection.assets.filter((asset) => asset.selected !== false);
+  const selectedCount = selected.length;
   const valid = state.inspection.batch && state.inspection.batch.valid;
   btn.disabled = !valid || selectedCount === 0;
-  btn.textContent = selectedCount > 0 ? `Process ${selectedCount} Selected` : 'Select Assets to Process';
+  const selectedVideos = selected.filter((a) => a.media_type === 'video').length;
+  if (selectedCount === 0) {
+    btn.textContent = 'Select Assets to Process';
+  } else if (selectedVideos > 1) {
+    btn.textContent = `Process ${selectedVideos} Videos (${selectedVideos} jobs)`;
+  } else {
+    btn.textContent = `Process ${selectedCount} Selected`;
+  }
 }
 
 function updateReviewSummary() {
@@ -469,9 +462,14 @@ async function inspectSelection() {
     }
     payload.assets = (payload.assets || []).map((asset) => ({ ...asset, selected: true }));
     state.inspection = payload;
-    inspectMessage.textContent = payload.batch && payload.batch.valid
-      ? 'Review the assets below, then process only the checked items.'
-      : 'Review the batch issue below before processing.';
+    const videoCount = (payload.assets || []).filter((a) => a.media_type === 'video').length;
+    if (payload.batch && payload.batch.valid) {
+      inspectMessage.textContent = videoCount > 1
+        ? `Review the assets below. Each video will be processed as a separate job (${videoCount} jobs).`
+        : 'Review the assets below, then process only the checked items.';
+    } else {
+      inspectMessage.textContent = 'Review the batch issue below before processing.';
+    }
     renderReview();
   } catch (error) {
     inspectMessage.textContent = error.message || 'Inspection failed.';
@@ -499,7 +497,6 @@ form.addEventListener('submit', async (event) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        date: dateInput.value || null,
         assets: state.inspection.assets.map((asset) => ({
           sha256: asset.sha256,
           original_filename: asset.original_filename,

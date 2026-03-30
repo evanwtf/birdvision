@@ -9,13 +9,13 @@ import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 import yaml
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.datastructures import UploadFile as StarletteUploadFile
@@ -259,7 +259,6 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         recent = list(reversed(list(_jobs.values())))[:20]
         return templates.TemplateResponse(request, "index.html", {
             "jobs": recent,
-            "today": date.today().isoformat(),
         })
 
     @app.post("/api/uploads/inspect")
@@ -282,23 +281,34 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         if not isinstance(selected_assets, list):
             return JSONResponse({"error": "Invalid asset selection"}, status_code=400)
 
-        job = await _create_job_from_selection(
-            selected_assets=selected_assets,
-            date_str=payload.get("date"),
-            asset_store=asset_store,
-        )
-        if isinstance(job, JSONResponse):
-            return job
+        # Split multiple videos into one job per video
+        groups = _split_asset_groups(selected_assets, asset_store)
 
-        _jobs[job.id] = job
-        await _queue.put(job)
+        created_jobs: list[Job] = []
+        for group in groups:
+            job = await _create_job_from_selection(
+                selected_assets=group,
+                asset_store=asset_store,
+            )
+            if isinstance(job, JSONResponse):
+                return job
+            _jobs[job.id] = job
+            await _queue.put(job)
+            created_jobs.append(job)
+
+        if len(created_jobs) == 1:
+            return JSONResponse({
+                "job_id": created_jobs[0].id,
+                "redirect_url": f"/jobs/{created_jobs[0].id}",
+            })
         return JSONResponse({
-            "job_id": job.id,
-            "redirect_url": f"/jobs/{job.id}",
+            "job_id": created_jobs[0].id,
+            "redirect_url": "/",
+            "jobs_created": len(created_jobs),
         })
 
     @app.post("/upload")
-    async def upload(request: Request, date_str: Optional[str] = Form(None, alias="date")):
+    async def upload(request: Request):
         files, client_metadata = await _parse_upload_form(request)
         if not files:
             return HTMLResponse("No file uploaded", status_code=400)
@@ -316,17 +326,23 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             }
             for asset in inspected_assets
         ]
-        job = await _create_job_from_selection(
-            selected_assets=selected_assets,
-            date_str=date_str,
-            asset_store=asset_store,
-        )
-        if isinstance(job, JSONResponse):
-            return HTMLResponse(job.body.decode(), status_code=job.status_code)
 
-        _jobs[job.id] = job
-        await _queue.put(job)
-        return RedirectResponse(f"/jobs/{job.id}", status_code=303)
+        groups = _split_asset_groups(selected_assets, asset_store)
+        created_jobs: list[Job] = []
+        for group in groups:
+            job = await _create_job_from_selection(
+                selected_assets=group,
+                asset_store=asset_store,
+            )
+            if isinstance(job, JSONResponse):
+                return HTMLResponse(job.body.decode(), status_code=job.status_code)
+            _jobs[job.id] = job
+            await _queue.put(job)
+            created_jobs.append(job)
+
+        if len(created_jobs) == 1:
+            return RedirectResponse(f"/jobs/{created_jobs[0].id}", status_code=303)
+        return RedirectResponse("/", status_code=303)
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     async def job_detail(request: Request, job_id: str):
@@ -356,7 +372,6 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             ]
             new_job = await _create_job_from_selection(
                 selected_assets=selected_assets,
-                date_str=old_job.selected_date.isoformat()[:10] if old_job.selected_date else None,
                 asset_store=asset_store,
             )
             if isinstance(new_job, JSONResponse):
@@ -396,7 +411,6 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
 
         new_job = await _create_job_from_selection(
             selected_assets=selected_assets,
-            date_str=old_job.selected_date.isoformat()[:10] if old_job.selected_date else None,
             asset_store=asset_store,
         )
         if isinstance(new_job, JSONResponse):
@@ -581,7 +595,6 @@ async def _inspect_files(
 async def _create_job_from_selection(
     *,
     selected_assets: list[dict[str, Any]],
-    date_str: Optional[str],
     asset_store: AssetStore,
 ) -> Job | JSONResponse:
     chosen = [asset for asset in selected_assets if asset.get("selected", True)]
@@ -609,7 +622,7 @@ async def _create_job_from_selection(
     job.assets = resolved_assets
     job.image_paths = [asset["stored_path"] for asset in resolved_assets if asset["media_type"] == "image"]
     job.video_meta = build_video_meta_from_asset(resolved_assets[0])
-    job.selected_date = parse_date(date_str) or (
+    job.selected_date = (
         datetime.fromisoformat(resolved_assets[0]["recorded_at"])
         if resolved_assets[0].get("recorded_at") else None
     )
@@ -630,13 +643,31 @@ def validate_asset_batch(assets: list[dict[str, Any]]) -> dict[str, Any]:
             "media_type": None,
         }
     media_type = next(iter(media_types))
-    if media_type == "video" and len(assets) > 1:
-        return {
-            "valid": False,
-            "error": "BirdVision currently supports one video per job or a batch of photos.",
-            "media_type": media_type,
-        }
     return {"valid": True, "error": None, "media_type": media_type}
+
+
+def _split_asset_groups(
+    selected_assets: list[dict[str, Any]],
+    asset_store: AssetStore,
+) -> list[list[dict[str, Any]]]:
+    """Split selected assets into job groups: one job per video, all images in one job."""
+    videos = []
+    images = []
+    for asset in selected_assets:
+        if not asset.get("selected", True):
+            continue
+        indexed = asset_store.get(asset.get("sha256", ""))
+        if indexed and indexed.get("media_type") == "video":
+            videos.append(asset)
+        else:
+            images.append(asset)
+
+    groups: list[list[dict[str, Any]]] = []
+    for video in videos:
+        groups.append([video])
+    if images:
+        groups.append(images)
+    return groups
 
 
 def classify_media_type(filename: str, content_type: Optional[str]) -> str:
@@ -693,15 +724,6 @@ def build_video_meta_from_asset(asset: dict[str, Any]) -> VideoMetadata:
         except ValueError:
             pass
     return meta
-
-
-def parse_date(date_str: Optional[str]) -> Optional[datetime]:
-    if not date_str:
-        return None
-    try:
-        return datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError:
-        return None
 
 
 def slugify_result_name(name: str) -> str:
