@@ -372,7 +372,7 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
     {% endif %}
 
     {% else %}
-    {# ── Video job (existing) ──────────────────────────────────── #}
+    {# ── Video job ─────────────────────────────────────────────── #}
     {% if result.video_info %}{% set vi = result.video_info %}
     <p class="meta">
       {{ vi.width }}×{{ vi.height }}
@@ -398,40 +398,10 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
     <div class="warning-banner">{{ result.resolution_warning }}</div>
     {% endif %}
 
-    {% if result.frame_gallery %}
-    <div class="video-gallery">
-      <h2>Representative Frames</h2>
-      <div class="video-gallery-grid">
-        {% for frame in result.frame_gallery %}
-        <div class="video-gallery-card">
-          <img src="/jobs/{{ job.id }}/crops/{{ frame.file }}" alt="video frame {{ loop.index }}">
-          <div class="video-gallery-meta">
-            <strong>
-              {% if frame.timestamp_s is not none %}
-              {{ "%.1f"|format(frame.timestamp_s) }}s
-              {% else %}
-              Frame {{ frame.frame }}
-              {% endif %}
-            </strong>
-            {% if frame.species %}
-            <br>{{ frame.species }}
-            {% endif %}
-            {% if frame.track_id %}
-            <br>Track #{{ frame.track_id }}
-            {% endif %}
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-
+    {# ── 1. Aggregate score (top) ─────────────────────────────── #}
     {% if result.video_predictions %}
     <div class="video-summary">
       <h2>Likely Birds In This Video</h2>
-      <p class="video-summary-copy">
-        This summary rolls up all track fragments into a video-level view.
-      </p>
       <table class="pred-table">
         <thead>
           <tr>
@@ -474,6 +444,35 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
         </table>
       </details>
       {% endif %}
+    </div>
+    {% endif %}
+
+    {# ── 2. Tracking section (gallery + track details) ────────── #}
+    {% if result.frame_gallery %}
+    <div class="video-gallery">
+      <h2>Representative Frames</h2>
+      <div class="video-gallery-grid">
+        {% for frame in result.frame_gallery %}
+        <div class="video-gallery-card">
+          <img src="/jobs/{{ job.id }}/crops/{{ frame.file }}" alt="video frame {{ loop.index }}">
+          <div class="video-gallery-meta">
+            <strong>
+              {% if frame.timestamp_s is not none %}
+              {{ "%.1f"|format(frame.timestamp_s) }}s
+              {% else %}
+              Frame {{ frame.frame }}
+              {% endif %}
+            </strong>
+            {% if frame.species %}
+            <br>{{ frame.species }}
+            {% endif %}
+            {% if frame.track_id %}
+            <br>Track #{{ frame.track_id }}
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
     </div>
     {% endif %}
 
@@ -527,7 +526,65 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
         </div>
         {% endfor %}
       </details>
-    {% else %}
+    {% endif %}
+
+    {# ── 3. Annotated video stills ────────────────────────────── #}
+    {% if result.video_stills %}
+    <div class="video-stills-section">
+      <h2>Annotated Stills</h2>
+      {% for still in result.video_stills %}
+      <div class="track">
+        <div class="track-header">
+          <div>
+            <strong>{{ "%.1f"|format(still.timestamp_s) }}s</strong>
+            <span style="font-weight:400; font-size:0.8rem; color:#888;"> &middot; frame {{ still.frame }}</span>
+          </div>
+        </div>
+        {% if still.annotated_file %}
+        <div class="annotated-photo-wrap">
+          <img class="annotated-photo" src="/jobs/{{ job.id }}/crops/{{ still.annotated_file }}" alt="annotated still at {{ '%.1f'|format(still.timestamp_s) }}s">
+          {% if still.image_width and still.image_height %}
+            {% for det in still.detections %}
+            {% set top_pred = det.species[0] if det.species else none %}
+            <div
+              class="bbox-overlay"
+              style="left:{{ (det.bbox[0] / still.image_width * 100)|round(3) }}%; top:{{ (det.bbox[1] / still.image_height * 100)|round(3) }}%; width:{{ ((det.bbox[2] - det.bbox[0]) / still.image_width * 100)|round(3) }}%; height:{{ ((det.bbox[3] - det.bbox[1]) / still.image_height * 100)|round(3) }}%;"
+            >
+              <div class="bbox-overlay-label">
+                <b>Box {{ det.detection_index }}</b>{% if top_pred %} {{ top_pred.species }}{% endif %}
+              </div>
+            </div>
+            {% endfor %}
+          {% endif %}
+        </div>
+        {% endif %}
+        {% if still.detections %}
+          {% for det in still.detections %}
+          <div style="display:flex; align-items:flex-start; gap:0.75rem; padding:0.75rem 1rem; {% if not loop.last %}border-bottom:1px solid #f0f4f0;{% endif %}">
+            <div style="width:4.5rem; flex-shrink:0; font-size:0.82rem; font-weight:700; color:#2d5a27; padding-top:0.45rem;">
+              Box {{ det.detection_index }}
+            </div>
+            <ul class="predictions" style="flex:1; padding:0; margin:0;">
+              {% for pred in det.species | selectattr("probability", "ge", 0.02) %}
+              <li{% if pred.probability < 0.15 %} class="pred-dim"{% endif %}>
+                <span class="rank">{% if pred.probability >= 0.90 %}⭐{% else %}{{ loop.index }}{% endif %}</span>
+                <a class="species" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
+                <div class="prob-bar-wrap">
+                  <div class="prob-bar" style="width:{{ [pred.probability * 100, 100] | min | int }}%"></div>
+                </div>
+                <span class="prob-label">{{ "%.1f"|format(pred.probability * 100) }}%</span>
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endfor %}
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if not result.tracks and not result.video_stills %}
       <p style="color:#666; font-size:0.9rem">No birds detected in this video.</p>
     {% endif %}
     {% endif %}

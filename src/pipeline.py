@@ -1,3 +1,4 @@
+import bisect
 import json
 import logging
 import os
@@ -498,6 +499,129 @@ class BirdIdentificationPipeline:
             )
         return annotated
 
+    def _extract_video_stills(
+        self,
+        video_path: str,
+        *,
+        duration_s: float,
+        fps: float,
+        width: int,
+        height: int,
+        frames_with_detections: set,
+        crops_dir: Path,
+        video_date: Optional[datetime],
+        latitude: Optional[float],
+        longitude: Optional[float],
+    ) -> List[dict]:
+        """Extract evenly-spaced stills from a video, snapped to tracked frames,
+        and annotate them with detection boxes like photo jobs."""
+        if not frames_with_detections or duration_s <= 0:
+            return []
+
+        num_stills = min(10, max(1, int(duration_s / 2)))
+        sorted_detected = sorted(frames_with_detections)
+        window = int(fps)  # +/-1 second
+
+        # Compute evenly-spaced target frames, snap each to nearest detected frame
+        selected_frames: List[int] = []
+        for i in range(num_stills):
+            t = (i + 0.5) * duration_s / num_stills
+            target_frame = int(t * fps)
+            idx = bisect.bisect_left(sorted_detected, target_frame)
+            best = None
+            best_dist = float("inf")
+            for candidate_idx in (idx - 1, idx):
+                if 0 <= candidate_idx < len(sorted_detected):
+                    dist = abs(sorted_detected[candidate_idx] - target_frame)
+                    if dist <= window and dist < best_dist:
+                        best = sorted_detected[candidate_idx]
+                        best_dist = dist
+            if best is not None and best not in selected_frames:
+                selected_frames.append(best)
+
+        if not selected_frames:
+            return []
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            logger.warning("Could not reopen video for stills: %s", video_path)
+            return []
+
+        stills: List[dict] = []
+        try:
+            for still_idx, frame_no in enumerate(selected_frames):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
+
+                detections = self.detector.detect(frame)
+                if not detections:
+                    continue
+
+                crops = []
+                crop_indices = []
+                for det_idx, det in enumerate(detections):
+                    crop = self._expanded_crop(frame, det.bbox)
+                    if crop is not None:
+                        crops.append(crop)
+                        crop_indices.append(det_idx)
+
+                det_results: List[dict] = []
+                if crops:
+                    batch_preds = self.classifier.classify_batch(crops)
+                    for i, (preds, crop) in enumerate(zip(batch_preds, crops)):
+                        raw_preds = preds[:]
+                        raw_top_conf = raw_preds[0][1] if raw_preds else 0.0
+                        if raw_top_conf < self.min_event_confidence:
+                            continue
+
+                        preds = self.prior.apply(
+                            preds,
+                            dt=video_date,
+                            latitude=latitude,
+                            longitude=longitude,
+                        )
+
+                        det_idx_val = crop_indices[i]
+                        det_results.append({
+                            "detection_index": len(det_results) + 1,
+                            "bbox": [float(x) for x in detections[det_idx_val].bbox],
+                            "species": [
+                                {"species": s, "probability": round(p, 4)}
+                                for s, p in preds[:5]
+                            ],
+                            "raw_species": [
+                                {"species": s, "probability": round(p, 4)}
+                                for s, p in raw_preds[:5]
+                            ],
+                        })
+
+                if not det_results:
+                    continue
+
+                timestamp_s = round(frame_no / fps, 2)
+                annotated_file = f"still_{still_idx:02d}_{frame_no:06d}_annotated.jpg"
+                annotated = self._draw_image_annotations(frame, det_results)
+                cv2.imwrite(str(crops_dir / annotated_file), annotated)
+
+                stills.append({
+                    "frame": frame_no,
+                    "timestamp_s": timestamp_s,
+                    "annotated_file": annotated_file,
+                    "image_width": width,
+                    "image_height": height,
+                    "detections": det_results,
+                })
+                logger.info(
+                    "  Still %d/%d @ %.1fs: %d detection(s)",
+                    still_idx + 1, len(selected_frames), timestamp_s, len(det_results),
+                )
+        finally:
+            cap.release()
+
+        return stills
+
     def process_video(
         self,
         video_path: str,
@@ -551,6 +675,7 @@ class BirdIdentificationPipeline:
         # track_id -> best crop (highest top-1 confidence seen so far)
         best_crops: Dict[int, Tuple[np.ndarray, float]] = {}  # tid -> (crop_bgr, confidence)
         gallery_candidates: List[dict] = []
+        frames_with_detections: set = set()
 
         try:
             while True:
@@ -574,6 +699,9 @@ class BirdIdentificationPipeline:
                                 "via center zoom fallback"
                             )
                 tracks = self.tracker.update(detections, frame_size=(width, height))
+
+                if any(t.disappeared == 0 for t in tracks.values()):
+                    frames_with_detections.add(frame_idx)
 
                 # Map active tracks to their matching detection (for crop access)
                 det_for_track: Dict[int, object] = {}
@@ -676,6 +804,20 @@ class BirdIdentificationPipeline:
         )
         saved_gallery = self._write_video_gallery_frames(video_path, gallery_plan, crops_dir)
 
+        duration_s = frame_idx / fps if fps else 0
+        video_stills = self._extract_video_stills(
+            video_path,
+            duration_s=duration_s,
+            fps=fps,
+            width=width,
+            height=height,
+            frames_with_detections=frames_with_detections,
+            crops_dir=crops_dir,
+            video_date=video_date,
+            latitude=latitude,
+            longitude=longitude,
+        )
+
         # Build per-track summaries using averaged predictions
         track_summaries = []
         video_track_predictions: List[List[Tuple[str, float]]] = []
@@ -705,7 +847,6 @@ class BirdIdentificationPipeline:
                     "crop": saved_crops.get(tid),
                 })
 
-        duration_s = frame_idx / fps if fps else 0
         video_predictions = self._build_video_predictions(video_track_predictions)
         raw_video_predictions = self._build_video_predictions(video_raw_predictions)
         # Merge raw probabilities into video_predictions for side-by-side display
@@ -738,6 +879,7 @@ class BirdIdentificationPipeline:
             "video_predictions": video_predictions,
             "frame_gallery": saved_gallery,
             "tracks": track_summaries,
+            "video_stills": video_stills,
             "all_events": [e for events in track_events.values() for e in events],
         }
 
