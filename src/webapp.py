@@ -2,8 +2,10 @@
 BirdVision web interface — upload videos, view results.
 """
 import asyncio
+import json
 import logging
 import os
+import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
@@ -59,6 +61,8 @@ def create_app(config: dict, templates_dir: str = "templates") -> FastAPI:
         nonlocal pipeline
         global _queue
         _queue = asyncio.Queue()
+
+        _load_existing_jobs(results_dir)
 
         logger.info("Loading pipeline (models may download on first run)…")
         loop = asyncio.get_event_loop()
@@ -130,6 +134,36 @@ def create_app(config: dict, templates_dir: str = "templates") -> FastAPI:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _load_existing_jobs(results_dir: Path):
+    """Reconstruct completed jobs from results JSON files on disk."""
+    # Result files are named {job_id}_{original_stem}_results.json
+    # job_id is a 32-char hex string
+    pattern = re.compile(r'^([0-9a-f]{32})_(.+)_results\.json$')
+    loaded = 0
+    for result_file in sorted(results_dir.glob("*_results.json")):
+        m = pattern.match(result_file.name)
+        if not m:
+            continue
+        job_id, _ = m.group(1), m.group(2)
+        if job_id in _jobs:
+            continue
+        try:
+            result = json.loads(result_file.read_text())
+            original_filename = Path(result.get("video", "")).name
+            # Strip the job_id prefix to get the original upload name
+            if original_filename.startswith(job_id + "_"):
+                original_filename = original_filename[len(job_id) + 1:]
+            job = Job(job_id=job_id, filename=original_filename)
+            job.status = "done"
+            job.result = result
+            _jobs[job_id] = job
+            loaded += 1
+        except Exception as e:
+            logger.warning(f"Could not load result {result_file.name}: {e}")
+    if loaded:
+        logger.info(f"Restored {loaded} completed job(s) from disk.")
+
 
 def _init_pipeline(config: dict) -> BirdIdentificationPipeline:
     p = BirdIdentificationPipeline(config)
