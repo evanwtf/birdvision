@@ -1,6 +1,6 @@
 # BirdVision
 
-Bird species identification from video using local computer vision models.
+Bird species identification from video and photos using local computer vision models.
 Aimed at the Long Island / Northeast US region, no cloud dependencies.
 
 ## How it works
@@ -24,9 +24,10 @@ docker compose build
 docker compose up
 ```
 
-Open `http://localhost:3587` in a browser or on your phone. Upload a video,
-view results with species predictions, confidence scores, crop thumbnails,
-and links to Cornell All About Birds for each candidate species.
+Open `http://localhost:3587` in a browser or on your phone. Upload video or
+photos and view results with species predictions, confidence scores, annotated
+image/video artifacts, and links to Cornell All About Birds for each candidate
+species.
 
 Videos and results persist in `./videos/` and `./results/` on the host.
 Model weights are cached in `./models/` and reused across restarts.
@@ -52,7 +53,14 @@ following counties:
 | `US-NY-081` | Queens |
 | `US-NY-103` | Suffolk |
 
-The active county is set via `metadata.ebird_fips` in `config.yaml`.
+For GPS-driven jobs, BirdVision currently applies priors only inside a rough
+Long Island bounding box. Within that area, it uses a virtual `Long Island`
+region averaged across Kings, Queens, Nassau, and Suffolk. Outside that area,
+the system falls back to visual-only scoring.
+
+If GPS is unavailable, the fallback county is set via `metadata.ebird_fips` in
+`config.yaml`.
+
 To add more counties, download the bar chart from `ebird.org/barchart`,
 drop the file in `ebird_data/`, and rebuild the image.
 
@@ -73,7 +81,21 @@ next job, but model/device changes still require a restart. Key settings:
 | `tracker.min_frames_to_report` | `8` | Minimum frames tracked to include in results |
 | `tracker.min_confidence_to_report` | `0.6` | Override min_frames for high-confidence single detections |
 | `scoring.center_weight_strength` | `2.0` | How much to favor center-frame detections (0 = off) |
-| `metadata.ebird_fips` | `US-NY-059` | County for eBird frequency priors |
+| `metadata.ebird_fips` | `US-NY-059` | Fallback county for eBird priors when GPS is unavailable |
+
+## Image job UX
+
+Photo jobs now emphasize the original photo rather than only crop thumbnails:
+
+- each uploaded photo gets its own `Visual` vs `+ eBird` species table
+- the saved result includes an annotated full-photo JPEG with detection boxes
+- the web UI adds a CSS overlay on top of the scaled image so box labels remain
+  readable at browser size
+- photo metadata shows whether the image is considered `On Long Island` or
+  `Not on Long Island` for eBird gating
+
+Video jobs still use the older crop/track-detail workflow; follow-up issues are
+open to bring the same visualization improvements to video results.
 
 ## CLI batch mode
 
@@ -87,3 +109,4 @@ docker compose --profile cli run birdvision \
 ```
 
 Results are written as JSON to `results/<videoname>_results.json`.
+Image-job artifacts are saved under `results/<job_id>_crops/`.

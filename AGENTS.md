@@ -2,9 +2,10 @@
 
 ## What this project is
 
-Bird species identification from video. Point a camera at a bird, run the
-pipeline, get species predictions weighted by visual similarity + eBird
-location/season frequency data.
+Bird species identification from video and photos. Point a camera at a bird,
+run the pipeline, get species predictions weighted by visual similarity plus
+optional eBird location/season frequency data when the media falls inside a
+supported region.
 
 ## Hardware
 
@@ -22,12 +23,16 @@ src/
   classifier.py     — BioCLIP zero-shot classifier; pre-computes text embeddings
                       for all species at startup; batched inference
   metadata.py       — eBird bar chart priors; maps date → 1-of-48 annual periods,
-                      multiplies classifier probs by observed frequency per county;
-                      zero-frequency species floored at 0.01
+                      applies priors only inside a rough Long Island bounding box,
+                      averages Kings/Queens/Nassau/Suffolk frequencies there, and
+                      otherwise falls back to visual-only scoring; zero-frequency
+                      species floored at 0.01
   pipeline.py       — orchestrates all stages; center-weights classification
                       events by bbox proximity to frame center; applies adaptive
                       crop padding + confidence/crop-size gates; generates both
-                      video-level species summaries and per-track explanations
+                      video-level species summaries and per-track explanations;
+                      for image jobs also emits per-photo summaries, annotated
+                      full-photo JPEGs, and browser overlay metadata
   video_metadata.py — ExifTool wrapper; extracts recording date + GPS from video
   webapp.py         — FastAPI web UI; in-memory job queue; restores completed jobs
                       from results JSON on startup; hot-reloads config before each job
@@ -60,8 +65,15 @@ data/
   context; close-up birds get less background
 - **Video-level summary + per-track detail** — UI and console now lead with a
   video-level species summary; fragmented tracks remain available as debug detail
+- **Image jobs are photo-first** — the job page shows per-photo species tables,
+  the original photo with overlaid detection boxes, and CSS overlay labels tied
+  to each classified box rather than only posting crop thumbnails
 - **eBird priors** are multiplicative — visual prob × frequency, then renormalized;
   species with 0 frequency are floored at `zero_floor=0.01` (not zeroed out)
+- **Long Island-only eBird gating for GPS-driven jobs** — when photo/video GPS is
+  present, priors are only applied inside a rough Long Island bounding box using
+  a virtual region averaged across Kings, Queens, Nassau, and Suffolk; outside
+  that area the system stays visual-only
 - **Job state** is in-memory but reconstructed from results JSON on startup
 - **Config hot-reload** — config.yaml is re-read before each job; model/device
   changes still require restart
@@ -109,6 +121,8 @@ Model path / model name / device changes still require restart.
 - **Preserve result filename conventions** used by startup reconstruction:
   - JSON pattern: `{job_id}_{original_stem}_results.json`
   - Crops: `<results_dir>/<video_stem>_crops/track_<track_id>.jpg`
+  - Image-job artifacts live under `<results_dir>/<job_id>_crops/` and now
+    include per-bird crops plus annotated full-photo JPEGs
 - **Webapp processing is intentionally serial** (`ThreadPoolExecutor(max_workers=1)`).
   Changing concurrency affects queue behavior and GPU memory pressure.
 - **Keep generated artifacts out of commits**: model weights, `results/`,
@@ -120,8 +134,8 @@ Repo: https://github.com/evandhoffman/birdvision (private)
 
 ## What's not done yet
 
-- eBird API integration for dynamic location-based county selection
-  (currently hardcoded to Nassau County FIPS)
+- Broader eBird region coverage and more generic GPS → place naming are still
+  open; GPS-driven priors currently only recognize rough Long Island coverage
 - Live camera feed support (currently batch/upload only)
 - Results persistence across container restarts beyond JSON reconstruction
   (no database; in-memory only)

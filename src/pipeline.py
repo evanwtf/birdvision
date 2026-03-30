@@ -40,11 +40,11 @@ class BirdIdentificationPipeline:
             iou_threshold=trk.get("iou_threshold", 0.3),
             centroid_max_distance=trk.get("centroid_max_distance", 0.15),
         )
-        self.prior = MetadataPrior(
+        self.prior_db_path = meta.get("ebird_db")
+        self.prior_fips = meta.get("ebird_fips")
+        self.prior = self._build_prior(
             latitude=meta.get("latitude"),
             longitude=meta.get("longitude"),
-            db_path=meta.get("ebird_db"),
-            fips=meta.get("ebird_fips"),
         )
 
         self.classify_every_n = cls.get("classify_every_n_frames", 15)
@@ -58,6 +58,21 @@ class BirdIdentificationPipeline:
         self.center_weight_strength = config.get("scoring", {}).get("center_weight_strength", 2.0)
         self.prompt_template = sp.get("prompt_template", "a photo of a {species}")
         self.results_dir = config.get("output", {}).get("results_dir", "results/")
+
+    def _build_prior(
+        self,
+        *,
+        latitude: Optional[float] = None,
+        longitude: Optional[float] = None,
+        fips: Optional[str] = None,
+        use_default_fips: bool = True,
+    ) -> MetadataPrior:
+        return MetadataPrior(
+            latitude=latitude,
+            longitude=longitude,
+            db_path=self.prior_db_path,
+            fips=self.prior_fips if use_default_fips and fips is None else fips,
+        )
 
     def apply_config(self, config: dict):
         """Hot-reload mutable settings from config. Model/device changes require restart."""
@@ -150,9 +165,18 @@ class BirdIdentificationPipeline:
 
         new_lat = meta.get("latitude")
         new_lon = meta.get("longitude")
-        if new_lat != self.prior.latitude or new_lon != self.prior.longitude:
+        new_db_path = meta.get("ebird_db")
+        new_fips = meta.get("ebird_fips")
+        if (
+            new_lat != self.prior.latitude
+            or new_lon != self.prior.longitude
+            or new_db_path != self.prior_db_path
+            or new_fips != self.prior_fips
+        ):
             logger.info(f"Config reload: location {new_lat}, {new_lon}")
-            self.prior = MetadataPrior(latitude=new_lat, longitude=new_lon)
+            self.prior_db_path = new_db_path
+            self.prior_fips = new_fips
+            self.prior = self._build_prior(latitude=new_lat, longitude=new_lon)
 
         new_results_dir = config.get("output", {}).get("results_dir", "results/")
         if self.results_dir != new_results_dir:
@@ -231,6 +255,66 @@ class BirdIdentificationPipeline:
             for species, prob in ranked[:5]
         ]
 
+    def _build_species_summary(
+        self,
+        weighted_scores: Dict[str, float],
+        raw_scores: Dict[str, float],
+    ) -> List[dict]:
+        ranked = sorted(weighted_scores.items(), key=lambda item: -item[1])
+        return [
+            {
+                "species": species,
+                "probability": round(prob, 4),
+                "raw_probability": round(raw_scores.get(species, 0.0), 4),
+            }
+            for species, prob in ranked[:5]
+        ]
+
+    def _draw_image_annotations(
+        self,
+        frame: np.ndarray,
+        detections: List[dict],
+    ) -> np.ndarray:
+        annotated = frame.copy()
+        box_color = (32, 32, 220)
+        label_bg_color = (245, 245, 245)
+        label_text_color = (20, 20, 20)
+        for det in detections:
+            x1, y1, x2, y2 = [int(round(v)) for v in det["bbox"]]
+            label = str(det["detection_index"])
+            top = det["species"][0] if det["species"] else None
+            if top:
+                label = f"{label}: {top['species']}"
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), box_color, 4)
+            (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.65, 2)
+            text_x = max(0, x1)
+            text_y = max(text_h + 8, y1 - 8)
+            cv2.rectangle(
+                annotated,
+                (text_x, text_y - text_h - 8),
+                (text_x + text_w + 12, text_y + baseline - 4),
+                label_bg_color,
+                -1,
+            )
+            cv2.rectangle(
+                annotated,
+                (text_x, text_y - text_h - 8),
+                (text_x + text_w + 12, text_y + baseline - 4),
+                box_color,
+                2,
+            )
+            cv2.putText(
+                annotated,
+                label,
+                (text_x + 6, text_y - 6),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                label_text_color,
+                2,
+                cv2.LINE_AA,
+            )
+        return annotated
+
     def process_video(
         self,
         video_path: str,
@@ -247,11 +331,11 @@ class BirdIdentificationPipeline:
 
         # Use per-video GPS if provided, otherwise fall back to config prior
         if latitude is not None and longitude is not None:
-            self.prior = MetadataPrior(
+            self.prior = self._build_prior(
                 latitude=latitude,
                 longitude=longitude,
-                db_path=self.prior._con and self.prior._con.execute("PRAGMA database_list").fetchone()[2],
                 fips=None,
+                use_default_fips=False,
             )
 
         cap = cv2.VideoCapture(video_path)
@@ -317,7 +401,7 @@ class BirdIdentificationPipeline:
                             )
                             continue
 
-                        preds = self.prior.apply(preds, dt=video_date)
+                        preds = self.prior.apply(preds, dt=video_date, latitude=latitude, longitude=longitude)
 
                         # Weight by proximity to frame center (Gaussian falloff)
                         bbox = tracks[tid].bbox
@@ -498,25 +582,29 @@ class BirdIdentificationPipeline:
         a JSON results file.  No tracker is used — each image is independent.
         """
         if latitude is not None and longitude is not None:
-            self.prior = MetadataPrior(
+            self.prior = self._build_prior(
                 latitude=latitude,
                 longitude=longitude,
-                db_path=self.prior._con and self.prior._con.execute("PRAGMA database_list").fetchone()[2],
                 fips=None,
+                use_default_fips=False,
             )
 
         stem = job_id or Path(image_paths[0]).stem
         crops_dir = Path(self.results_dir) / (stem + "_crops")
         crops_dir.mkdir(parents=True, exist_ok=True)
 
-        all_species_scores: Dict[str, float] = {}
-        all_raw_species_scores: Dict[str, float] = {}
         image_results = []
 
         for img_idx, img_path in enumerate(image_paths):
             # Extract per-image EXIF metadata
             img_meta = extract_media_metadata(img_path)
             img_date = img_meta.recorded_at or video_date  # fall back to job-level date
+            img_latitude = img_meta.latitude if img_meta.latitude is not None else latitude
+            img_longitude = img_meta.longitude if img_meta.longitude is not None else longitude
+            img_ebird_region = self.prior.resolve_county_name(
+                latitude=img_latitude,
+                longitude=img_longitude,
+            )
 
             frame = cv2.imread(img_path)
             if frame is None:
@@ -527,6 +615,11 @@ class BirdIdentificationPipeline:
                     "latitude": img_meta.latitude,
                     "longitude": img_meta.longitude,
                     "camera": img_meta.camera_info,
+                    "ebird_region": img_ebird_region,
+                    "image_width": None,
+                    "image_height": None,
+                    "annotated_file": None,
+                    "species_summary": [],
                     "detections": [],
                 })
                 continue
@@ -543,6 +636,8 @@ class BirdIdentificationPipeline:
                     crop_indices.append(det_idx)
 
             det_results = []
+            image_species_scores: Dict[str, float] = {}
+            image_raw_species_scores: Dict[str, float] = {}
             if crops:
                 batch_preds = self.classifier.classify_batch(crops)
                 for i, (preds, crop) in enumerate(zip(batch_preds, crops)):
@@ -556,22 +651,28 @@ class BirdIdentificationPipeline:
                         )
                         continue
 
-                    preds = self.prior.apply(preds, dt=img_date)
+                    preds = self.prior.apply(
+                        preds,
+                        dt=img_date,
+                        latitude=img_latitude,
+                        longitude=img_longitude,
+                    )
 
                     crop_file = f"img{img_idx}_bird{crop_indices[i]}.jpg"
                     cv2.imwrite(str(crops_dir / crop_file), crop)
 
                     for species, prob in preds[:5]:
-                        all_species_scores[species] = max(
-                            all_species_scores.get(species, 0.0), prob
+                        image_species_scores[species] = max(
+                            image_species_scores.get(species, 0.0), prob
                         )
                     for species, prob in raw_preds[:5]:
-                        all_raw_species_scores[species] = max(
-                            all_raw_species_scores.get(species, 0.0), prob
+                        image_raw_species_scores[species] = max(
+                            image_raw_species_scores.get(species, 0.0), prob
                         )
 
                     det_idx = crop_indices[i]
                     det_results.append({
+                        "detection_index": len(det_results) + 1,
                         "bbox": [float(x) for x in detections[det_idx].bbox],
                         "species": [
                             {"species": s, "probability": round(p, 4)}
@@ -584,24 +685,25 @@ class BirdIdentificationPipeline:
                         "crop_file": crop_file,
                     })
 
+            annotated_file = None
+            if det_results:
+                annotated_file = f"img{img_idx}_annotated.jpg"
+                annotated = self._draw_image_annotations(frame, det_results)
+                cv2.imwrite(str(crops_dir / annotated_file), annotated)
+
             image_results.append({
                 "filename": Path(img_path).name,
                 "date": img_meta.recorded_at.isoformat() if img_meta.recorded_at else None,
                 "latitude": img_meta.latitude,
                 "longitude": img_meta.longitude,
                 "camera": img_meta.camera_info,
+                "ebird_region": img_ebird_region,
+                "image_width": int(frame.shape[1]),
+                "image_height": int(frame.shape[0]),
+                "annotated_file": annotated_file,
+                "species_summary": self._build_species_summary(image_species_scores, image_raw_species_scores),
                 "detections": det_results,
             })
-
-        ranked = sorted(all_species_scores.items(), key=lambda x: -x[1])
-        species_summary = [
-            {
-                "species": s,
-                "probability": round(p, 4),
-                "raw_probability": round(all_raw_species_scores.get(s, 0.0), 4),
-            }
-            for s, p in ranked[:5]
-        ]
 
         summary = {
             "type": "images",
@@ -612,7 +714,6 @@ class BirdIdentificationPipeline:
                 "count": len(image_paths),
                 "filenames": [Path(p).name for p in image_paths],
             },
-            "species_summary": species_summary,
             "images": image_results,
         }
 
@@ -633,19 +734,18 @@ class BirdIdentificationPipeline:
             f"Images: {summary['image_info']['count']} | "
             f"Birds detected: {total_det}"
         )
-        if summary["species_summary"]:
-            logger.info("Likely birds:")
-            for rank, p in enumerate(summary["species_summary"], 1):
-                logger.info(f"  {rank}. {p['species']:<35} {p['probability']:.1%}")
-        else:
-            logger.info("No birds detected.")
         for img in summary["images"]:
             n = len(img["detections"])
             logger.info(f"  {img['filename']}: {n} bird(s)")
+            if img["species_summary"]:
+                for rank, pred in enumerate(img["species_summary"], 1):
+                    logger.info(f"    {rank}. {pred['species']:<33} {pred['probability']:.1%}")
             for det in img["detections"]:
                 top = det["species"][0] if det["species"] else None
                 if top:
                     logger.info(f"    → {top['species']} ({top['probability']:.1%})")
+        if not total_det:
+            logger.info("No birds detected.")
         logger.info("=" * 60)
 
     def _log_event(self, event: dict):

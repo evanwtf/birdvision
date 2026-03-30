@@ -111,6 +111,53 @@
 .pred-table .species-cell { font-weight: 500; }
 .pred-table .prob-cell { text-align: right; font-size: 0.85rem; color: #555; width: 5.5rem; }
 .pred-table .rank-cell { font-weight: 700; color: #2d5a27; width: 1.5rem; }
+tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
+.pred-low-group > summary { cursor: pointer; color: #bbb; font-size: 0.8rem; padding: 0.3rem 0.5rem; list-style: none; display: block; }
+.pred-low-group > summary::-webkit-details-marker { display: none; }
+.annotated-photo {
+  width: 100%;
+  display: block;
+  border-top: 1px solid #eef3ec;
+  border-bottom: 1px solid #eef3ec;
+  background: #f7faf6;
+}
+.annotated-photo-wrap {
+  position: relative;
+  border-top: 1px solid #eef3ec;
+  border-bottom: 1px solid #eef3ec;
+  background: #f7faf6;
+}
+.annotated-photo-wrap .annotated-photo {
+  border: 0;
+}
+.bbox-overlay {
+  position: absolute;
+  border: 3px solid rgba(220, 48, 48, 0.9);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.85) inset;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.bbox-overlay-label {
+  position: absolute;
+  top: -2.1rem;
+  left: -3px;
+  max-width: min(18rem, 80vw);
+  background: rgba(255, 250, 250, 0.96);
+  color: #202020;
+  border: 2px solid rgba(220, 48, 48, 0.95);
+  border-radius: 0.45rem;
+  padding: 0.28rem 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bbox-overlay-label b {
+  color: #9f1010;
+  margin-right: 0.35rem;
+}
 {% endblock %}
 
 {% block head %}
@@ -145,67 +192,120 @@
     {# ── Image job ─────────────────────────────────────────────── #}
     <p class="meta">{{ result.image_info.count }} photo{% if result.image_info.count != 1 %}s{% endif %}</p>
 
-    {% if result.species_summary %}
-    <div class="video-summary">
-      <h2>Likely Birds</h2>
-      <p class="video-summary-copy">
-        Species identified across all uploaded photos.
-      </p>
-      <table class="pred-table">
-        <thead>
-          <tr>
-            <th></th>
-            <th>Species</th>
-            <th style="text-align:right">Visual</th>
-            <th style="text-align:right">+ eBird</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for pred in result.species_summary %}
-          <tr>
-            <td class="rank-cell">{{ loop.index }}</td>
-            <td class="species-cell">
-              <a href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">{{ pred.species }}</a>
-            </td>
-            <td class="prob-cell">{{ "%.1f"|format(pred.get("raw_probability", 0) * 100) }}%</td>
-            <td class="prob-cell" style="font-weight:600;">{{ "%.1f"|format(pred.probability * 100) }}%</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% endif %}
     {% if result.images %}
-      <details class="nerd-toggle">
-        <summary>Nerd stuff: per-image details ({{ result.images | length }} image{% if result.images|length != 1 %}s{% endif %})</summary>
-        {% for img in result.images %}
-        <div class="track">
-          <div class="track-header">
-            <div>
-              <strong>{{ img.filename }}</strong>
-              {% if img.date or img.latitude or img.camera %}
-              <br><span style="font-weight:400; font-size:0.8rem; color:#888;">
-                {% set sep = joiner(" · ") %}
-                {% if img.date %}{{ sep() }}{{ img.date[:10] }}{% if img.date|length > 10 %} {{ img.date[11:16] }}{% endif %}{% endif %}
-                {% if img.camera %}{{ sep() }}{{ img.camera }}{% endif %}
-                {% if img.latitude and img.longitude %}
-                  {{ sep() }}<a href="https://www.openstreetmap.org/?mlat={{ img.latitude }}&mlon={{ img.longitude }}#map=15/{{ img.latitude }}/{{ img.longitude }}" target="_blank" rel="noopener" style="color:#888;">
-                    📍 {{ "%.4f"|format(img.latitude) }}, {{ "%.4f"|format(img.longitude) }}
-                  </a>
-                {% endif %}
-              </span>
+      {% for img in result.images %}
+      <div class="track">
+        <div class="track-header">
+          <div>
+            <strong>{{ img.filename }}</strong>
+            {% if img.date or img.latitude or img.camera or img.ebird_region is not none %}
+            <br><span style="font-weight:400; font-size:0.8rem; color:#888;">
+              {% set sep = joiner(" · ") %}
+              {% if img.date %}{{ sep() }}{{ img.date[:10] }}{% if img.date|length > 10 %} {{ img.date[11:16] }}{% endif %}{% endif %}
+              {% if img.camera %}{{ sep() }}{{ img.camera }}{% endif %}
+              {% if img.latitude and img.longitude %}
+                {{ sep() }}<a href="https://www.openstreetmap.org/?mlat={{ img.latitude }}&mlon={{ img.longitude }}#map=15/{{ img.latitude }}/{{ img.longitude }}" target="_blank" rel="noopener" style="color:#888;">
+                  📍 {{ "%.4f"|format(img.latitude) }}, {{ "%.4f"|format(img.longitude) }}
+                </a>
               {% endif %}
-            </div>
+              {% if img.ebird_region %}
+                {{ sep() }}On Long Island
+              {% elif img.latitude and img.longitude %}
+                {{ sep() }}Not on Long Island
+              {% endif %}
+            </span>
+            {% endif %}
           </div>
-          {% if img.detections %}
+        </div>
+        {% if img.species_summary %}
+        <div style="padding:0.85rem 1rem 0;">
+          <table class="pred-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Species</th>
+                <th style="text-align:right">Visual</th>
+                <th style="text-align:right">+ eBird</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for pred in img.species_summary | selectattr("probability", "ge", 0.02) %}
+              <tr{% if pred.probability < 0.15 %} class="pred-dim"{% endif %}>
+                <td class="rank-cell">{% if pred.probability >= 0.90 %}⭐{% else %}{{ loop.index }}{% endif %}</td>
+                <td class="species-cell">
+                  <a href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">{{ pred.species }}</a>
+                </td>
+                <td class="prob-cell">{{ "%.1f"|format(pred.get("raw_probability", 0) * 100) }}%</td>
+                <td class="prob-cell" style="font-weight:600;">{{ "%.1f"|format(pred.probability * 100) }}%</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% set low_preds = img.species_summary | selectattr("probability", "lt", 0.02) | list %}
+          {% if low_preds %}
+          <details class="pred-low-group">
+            <summary>… {{ low_preds | length }} more</summary>
+            <table class="pred-table">
+              <tbody>
+                {% for pred in low_preds %}
+                <tr class="pred-dim">
+                  <td class="rank-cell">{{ loop.index }}</td>
+                  <td class="species-cell">
+                    <a href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">{{ pred.species }}</a>
+                  </td>
+                  <td class="prob-cell">{{ "%.1f"|format(pred.get("raw_probability", 0) * 100) }}%</td>
+                  <td class="prob-cell" style="font-weight:600;">{{ "%.1f"|format(pred.probability * 100) }}%</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </details>
+          {% endif %}
+        </div>
+        {% endif %}
+        {% if img.annotated_file %}
+        <div class="annotated-photo-wrap">
+          <img class="annotated-photo" src="/jobs/{{ job.id }}/crops/{{ img.annotated_file }}" alt="annotated photo">
+          {% if img.image_width and img.image_height %}
             {% for det in img.detections %}
-            <div style="display:flex; align-items:flex-start; gap:0.75rem; padding:0.5rem 1rem; {% if not loop.last %}border-bottom:1px solid #f0f4f0;{% endif %}">
-              {% if det.crop_file %}
-              <img class="track-crop" src="/jobs/{{ job.id }}/crops/{{ det.crop_file }}" alt="crop">
-              {% endif %}
-              <ul class="predictions" style="flex:1; padding:0; margin:0;">
-                {% for pred in det.species %}
-                <li>
+            {% set top_pred = det.species[0] if det.species else none %}
+            <div
+              class="bbox-overlay"
+              style="left:{{ (det.bbox[0] / img.image_width * 100)|round(3) }}%; top:{{ (det.bbox[1] / img.image_height * 100)|round(3) }}%; width:{{ ((det.bbox[2] - det.bbox[0]) / img.image_width * 100)|round(3) }}%; height:{{ ((det.bbox[3] - det.bbox[1]) / img.image_height * 100)|round(3) }}%;"
+            >
+              <div class="bbox-overlay-label">
+                <b>Box {{ det.detection_index }}</b>{% if top_pred %}{{ top_pred.species }}{% endif %}
+              </div>
+            </div>
+            {% endfor %}
+          {% endif %}
+        </div>
+        {% endif %}
+        {% if img.detections %}
+          {% for det in img.detections %}
+          <div style="display:flex; align-items:flex-start; gap:0.75rem; padding:0.75rem 1rem; {% if not loop.last %}border-bottom:1px solid #f0f4f0;{% endif %}">
+            <div style="width:4.5rem; flex-shrink:0; font-size:0.82rem; font-weight:700; color:#2d5a27; padding-top:0.45rem;">
+              Box {{ det.detection_index }}
+            </div>
+            <ul class="predictions" style="flex:1; padding:0; margin:0;">
+              {% for pred in det.species | selectattr("probability", "ge", 0.02) %}
+              <li{% if pred.probability < 0.15 %} class="pred-dim"{% endif %}>
+                <span class="rank">{% if pred.probability >= 0.90 %}⭐{% else %}{{ loop.index }}{% endif %}</span>
+                <a class="species" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
+                <div class="prob-bar-wrap">
+                  <div class="prob-bar" style="width:{{ [pred.probability * 100, 100] | min | int }}%"></div>
+                  </div>
+                <span class="prob-label">{{ "%.1f"|format(pred.probability * 100) }}%</span>
+              </li>
+              {% endfor %}
+            </ul>
+            {% set low_preds = det.species | selectattr("probability", "lt", 0.02) | list %}
+            {% if low_preds %}
+            <details class="pred-low-group" style="flex:1">
+              <summary>… {{ low_preds | length }} more</summary>
+              <ul class="predictions" style="padding:0; margin:0;">
+                {% for pred in low_preds %}
+                <li class="pred-dim">
                   <span class="rank">{{ loop.index }}</span>
                   <a class="species" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
                   <div class="prob-bar-wrap">
@@ -215,14 +315,15 @@
                 </li>
                 {% endfor %}
               </ul>
-            </div>
-            {% endfor %}
-          {% else %}
-            <p style="color:#888; font-size:0.85rem; padding:0.5rem 1rem;">No birds detected in this image.</p>
-          {% endif %}
-        </div>
-        {% endfor %}
-      </details>
+            </details>
+            {% endif %}
+          </div>
+          {% endfor %}
+        {% else %}
+          <p style="color:#888; font-size:0.85rem; padding:0.75rem 1rem;">No birds detected in this image.</p>
+        {% endif %}
+      </div>
+      {% endfor %}
     {% else %}
       <p style="color:#666; font-size:0.9rem">No birds detected.</p>
     {% endif %}
@@ -266,9 +367,9 @@
           </tr>
         </thead>
         <tbody>
-          {% for pred in result.video_predictions %}
-          <tr>
-            <td class="rank-cell">{{ loop.index }}</td>
+          {% for pred in result.video_predictions | selectattr("presence_probability", "ge", 0.02) %}
+          <tr{% if pred.presence_probability < 0.15 %} class="pred-dim"{% endif %}>
+            <td class="rank-cell">{% if pred.presence_probability >= 0.90 %}⭐{% else %}{{ loop.index }}{% endif %}</td>
             <td class="species-cell">
               <a href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">{{ pred.species }}</a>
             </td>
@@ -278,6 +379,26 @@
           {% endfor %}
         </tbody>
       </table>
+      {% set low_preds = result.video_predictions | selectattr("presence_probability", "lt", 0.02) | list %}
+      {% if low_preds %}
+      <details class="pred-low-group">
+        <summary>… {{ low_preds | length }} more</summary>
+        <table class="pred-table">
+          <tbody>
+            {% for pred in low_preds %}
+            <tr class="pred-dim">
+              <td class="rank-cell">{{ loop.index }}</td>
+              <td class="species-cell">
+                <a href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;">{{ pred.species }}</a>
+              </td>
+              <td class="prob-cell">{{ "%.1f"|format(pred.get("raw_presence_probability", 0) * 100) }}%</td>
+              <td class="prob-cell" style="font-weight:600;">{{ "%.1f"|format(pred.presence_probability * 100) }}%</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
+      {% endif %}
     </div>
     {% endif %}
 
@@ -299,9 +420,9 @@
           <p class="explanation">{{ track.explanation }}</p>
           {% endif %}
           <ul class="predictions">
-            {% for pred in track.averaged_predictions %}
-            <li>
-              <span class="rank">{{ loop.index }}</span>
+            {% for pred in track.averaged_predictions | selectattr("probability", "ge", 0.02) %}
+            <li{% if pred.probability < 0.15 %} class="pred-dim"{% endif %}>
+              <span class="rank">{% if pred.probability >= 0.90 %}⭐{% else %}{{ loop.index }}{% endif %}</span>
               <a class="species" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
               <div class="prob-bar-wrap">
                 <div class="prob-bar" style="width:{{ [pred.probability * 100, 100] | min | int }}%"></div>
@@ -310,6 +431,24 @@
             </li>
             {% endfor %}
           </ul>
+          {% set low_preds = track.averaged_predictions | selectattr("probability", "lt", 0.02) | list %}
+          {% if low_preds %}
+          <details class="pred-low-group">
+            <summary>… {{ low_preds | length }} more</summary>
+            <ul class="predictions">
+              {% for pred in low_preds %}
+              <li class="pred-dim">
+                <span class="rank">{{ loop.index }}</span>
+                <a class="species" href="https://www.allaboutbirds.org/guide/{{ pred.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ pred.species }}</a>
+                <div class="prob-bar-wrap">
+                  <div class="prob-bar" style="width:{{ [pred.probability * 100, 100] | min | int }}%"></div>
+                </div>
+                <span class="prob-label">{{ "%.1f"|format(pred.probability * 100) }}%</span>
+              </li>
+              {% endfor %}
+            </ul>
+          </details>
+          {% endif %}
         </div>
         {% endfor %}
       </details>
