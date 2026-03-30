@@ -1,0 +1,26 @@
+detector:
+  model: yolov8n.pt
+  confidence: 0.3
+  device: cuda
+
+classifier:
+  model: hf-hub:imageomics/bioclip
+  device: cuda
+  top_k: 5
+  classify_every_n_frames: 15
+
+tracker:
+  max_disappeared: 30
+  iou_threshold: 0.3
+
+metadata:
+  latitude: 40.7
+  longitude: -73.5
+
+species:
+  list_file: data/species_lists/north_america_common.txt
+  prompt_template: "a photo of a {species}"
+
+output:
+  # Directory for per-video JSON result files
+  results_dir: results/

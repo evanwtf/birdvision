@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# Models (downloaded automatically, don't commit)
+*.pt
+*.pth
+*.onnx
+
+# HuggingFace / torch cache
+.cache/
+
+# Data and results
+videos/
+results/
+output/
+
+# Claude Code local settings
+.claude/
+
+# Misc
+.DS_Store
+*.log
