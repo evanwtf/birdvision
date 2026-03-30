@@ -39,6 +39,7 @@ Model weights are cached in `./models/` and reused across restarts.
 uv sync
 uv run scripts/serve.py          # web UI on :3587
 uv run scripts/identify_videos.py videos/   # CLI batch mode
+uv run scripts/tune_single_video.py   # single-video tuner
 ```
 
 ## eBird priors
@@ -130,3 +131,30 @@ docker compose --profile cli run birdvision \
 
 Results are written as JSON to `results/{job_id}_{display_stem}_results.json`.
 Image-job artifacts are saved under `results/<job_id>_crops/`.
+
+## Single-video tuner
+
+The tuner runs repeated video jobs against one target species, reusing the
+normal BirdVision pipeline and saving each trial under `results/tuning/`.
+
+```bash
+# Local baseline gull case
+uv run scripts/tune_single_video.py \
+  videos/assets/e84e85beb30cf97e7ccce5a1fe0a6b1bd705b5e81b282cd9a30008c9860cc3c6.mov \
+  --target-species "Herring Gull" \
+  --stop-confidence 0.60 \
+  --time-budget-minutes 30
+
+# Docker Compose tuner service
+docker compose --profile tuner run --rm tuner \
+  /data/videos/assets/e84e85beb30cf97e7ccce5a1fe0a6b1bd705b5e81b282cd9a30008c9860cc3c6.mov \
+  --target-species "Herring Gull" \
+  --stop-confidence 0.60 \
+  --time-budget-minutes 30
+```
+
+The first trial is always the current baseline config. After that, the runner
+does a bounded coordinate search over BirdVision's hot-reloadable detector,
+classifier, tracker, and scoring settings. It stops when the target confidence
+threshold is hit, the time budget is exhausted before launching another trial,
+or no single-parameter improvement remains.

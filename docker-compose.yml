@@ -34,3 +34,19 @@ services:
     command: ["/usr/local/bin/uv", "run", "scripts/identify_videos.py", "/data/videos", "--config", "/data/config.yaml"]
     stop_grace_period: 30s
     profiles: ["cli"]
+
+  tuner:
+    build: .
+    image: birdvision:latest
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - ./config.yaml:/data/config.yaml:ro
+      - ./videos:/data/videos
+      - ./results:/data/results
+      - ./models:/data/models
+    entrypoint: ["/usr/local/bin/uv", "run", "scripts/tune_single_video.py", "--config", "/data/config.yaml"]
+    stop_grace_period: 30s
+    profiles: ["tuner"]
