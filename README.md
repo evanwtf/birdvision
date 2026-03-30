@@ -85,9 +85,9 @@ next job, but model/device changes still require a restart. Key settings:
 | `scoring.center_weight_strength` | `2.0` | How much to favor center-frame detections (0 = off) |
 | `metadata.ebird_fips` | `US-NY-059` | Fallback county for eBird priors when GPS is unavailable |
 
-## Image job UX
+## Results display
 
-Photo jobs now emphasize the original photo rather than only crop thumbnails:
+### Photos
 
 - each uploaded photo gets its own `Visual` vs `+ eBird` species table
 - the saved result includes an annotated full-photo JPEG with detection boxes
@@ -95,28 +95,43 @@ Photo jobs now emphasize the original photo rather than only crop thumbnails:
   readable at browser size
 - photo metadata shows whether the image is considered `On Long Island` or
   `Not on Long Island` for eBird gating
+- photos with no detections show the original image in a collapsed view
 
-Video jobs still use the older crop/track-detail workflow; follow-up issues are
-open to bring the same visualization improvements to video results.
+### Videos
+
+- aggregate species score at the top of the results page
+- embedded video player with codec compatibility warning for Safari
+- annotated stills extracted at evenly-spaced intervals, snapped to frames
+  with active tracked detections, rendered with the same bounding box overlay
+  style as photos
+- representative frame gallery and per-track detail in a collapsible section
+- camera, date, and GPS metadata displayed when available from EXIF
 
 ## Upload review and duplicate handling
 
-The web upload flow is now two-stage:
+The web upload flow is two-stage:
 
 1. choose files or drag-and-drop them onto the upload page
 2. BirdVision inspects each asset and shows a review list before processing
-3. deselect anything you do not want in the final batch
-4. submit only the checked assets as one job
+3. use Select All / Select None / Select New buttons to quickly filter assets
+4. submit the checked assets for processing
+
+Multiple videos create one job per video, queued and processed serially.
+Photos are batched into a single job. Mixed image/video selections are rejected.
 
 During inspection, BirdVision reports filename, filesize, media type, dimensions,
-and when available duration, framerate, GPS, and recorded date. The backend also
+and when available duration, framerate, GPS, and recorded date. The backend
 computes a `sha256` for each upload and stores media in a content-addressed
 asset store under `videos/assets/`.
 
 If the same bytes were already uploaded before, BirdVision marks the item as a
 duplicate and transparently reuses the existing canonical file instead of
-writing another copy. Mixed image/video selections are rejected during review
-before the final submit step.
+writing another copy. The "Select New" button quickly selects only files that
+have not been previously uploaded.
+
+Recording date for eBird seasonal weighting is derived from embedded media
+metadata (EXIF/QuickTime). If no date is present in the metadata, seasonal
+weighting is skipped.
 
 ## CLI batch mode
 
@@ -124,7 +139,7 @@ before the final submit step.
 # Process a directory of videos
 docker compose --profile cli run birdvision
 
-# With explicit date (if not embedded in video metadata)
+# With explicit date
 docker compose --profile cli run birdvision \
   /data/videos --date 2026-04-15 --config /data/config.yaml
 ```
