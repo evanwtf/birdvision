@@ -67,17 +67,29 @@ class Job:
         self.result_stem: Optional[str] = None
 
     @property
+    def media_label(self) -> str:
+        if self.media_type == "images":
+            n = self._image_count()
+            return f"{n} Photo{'s' if n != 1 else ''}"
+        return "Video"
+
+    @property
     def summary(self) -> str:
         label = self._species_summary_label()
         if label:
             return label
 
         if self.media_type == "images":
-            n = len(self.assets) or len(self.image_paths)
-            if n == 0 and self.result and self.result.get("image_info"):
-                n = self.result["image_info"].get("count", 0)
-            return f"{n} photo{'s' if n != 1 else ''}"
-        return f"1 video ({self.filename})"
+            if self._image_count() == 1:
+                return self.filename
+            return "Photo batch"
+        return self.filename
+
+    def _image_count(self) -> int:
+        n = len(self.assets) or len(self.image_paths)
+        if n == 0 and self.result and self.result.get("image_info"):
+            n = self.result["image_info"].get("count", 0)
+        return n
 
     def _species_summary_label(self) -> Optional[str]:
         """Build a label like '2024-02-03: Mourning Dove, Blue Jay, 2 others'."""
@@ -353,11 +365,46 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         asyncio.create_task(_worker(loop, pipeline, config_path))
 
     @app.get("/", response_class=HTMLResponse)
-    async def index(request: Request):
-        recent = list(reversed(list(_jobs.values())))[:20]
+    async def index(request: Request, page: int = 1):
+        page_size = 20
+        all_jobs = list(reversed(list(_jobs.values())))
+        total = len(all_jobs)
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        page = max(1, min(page, total_pages))
+        start = (page - 1) * page_size
+        jobs_page = all_jobs[start : start + page_size]
         return render_template(request, "index.html", {
-            "jobs": recent,
+            "jobs": jobs_page,
+            "page": page,
+            "total_pages": total_pages,
+            "total_jobs": total,
         })
+
+    @app.get("/api/jobs")
+    async def api_jobs(page: int = 1):
+        page_size = 20
+        all_jobs = list(reversed(list(_jobs.values())))
+        total = len(all_jobs)
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        page = max(1, min(page, total_pages))
+        start = (page - 1) * page_size
+        jobs_page = all_jobs[start : start + page_size]
+        return {
+            "jobs": [
+                {
+                    "id": j.id,
+                    "status": j.status,
+                    "media_label": j.media_label,
+                    "summary": j.summary,
+                    "created_at": j.created_at.strftime("%b %-d, %H:%M"),
+                }
+                for j in jobs_page
+            ],
+            "page": page,
+            "total_pages": total_pages,
+            "total_jobs": total,
+            "has_active": any(j.status in ("pending", "running") for j in all_jobs),
+        }
 
     @app.get("/login")
     async def login(request: Request):
@@ -1014,9 +1061,9 @@ def validate_asset_batch(assets: list[dict[str, Any]]) -> dict[str, Any]:
         return {"valid": False, "error": "BirdVision only supports common image and video uploads.", "media_type": None}
     if len(media_types) > 1:
         return {
-            "valid": False,
-            "error": "Please upload either videos or photos, not both at once.",
-            "media_type": None,
+            "valid": True,
+            "error": None,
+            "media_type": "mixed",
         }
     media_type = next(iter(media_types))
     return {"valid": True, "error": None, "media_type": media_type}

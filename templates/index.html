@@ -1,13 +1,9 @@
 {% extends "base.html" %}
 
 {% block title %}BirdVision — Upload{% endblock %}
-{% block header_sub %}Upload a video or photos{% endblock %}
+{% block header_sub %}Upload videos, photos, or both{% endblock %}
 
-{% block head %}
-{% if jobs | selectattr("status", "in", ["pending", "running"]) | list %}
-<meta http-equiv="refresh" content="5">
-{% endif %}
-{% endblock %}
+{% block head %}{% endblock %}
 
 {% block extra_style %}
 .upload-area {
@@ -169,6 +165,14 @@
 .badge-running  { background: var(--status-running-bg); color: var(--status-running-text); }
 .badge-done     { background: var(--status-done-bg); color: var(--status-done-text); }
 .badge-error    { background: var(--status-error-bg); color: var(--status-error-text); }
+.badge-media {
+  background: var(--surface-muted);
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.76rem;
+  padding: 0.18rem 0.6rem;
+}
 .job-name {
   flex: 1;
   overflow: hidden;
@@ -183,18 +187,41 @@
 .job-name:hover { color: var(--accent); }
 .job-time { font-size: 0.78rem; color: var(--muted); flex-shrink: 0; margin-left: 0.75rem; opacity: 0.8; }
 .empty { color: var(--muted); font-size: 0.9rem; text-align: center; padding: 1rem 0; }
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 0 0.25rem;
+  font-size: 0.88rem;
+}
+.pagination a {
+  color: var(--accent);
+  text-decoration: none;
+  padding: 0.3rem 0.7rem;
+  border: 1.5px solid var(--surface-border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+.pagination a:hover {
+  background: var(--surface-muted);
+  border-color: var(--accent);
+}
+.pagination .page-info {
+  color: var(--muted);
+}
 {% endblock %}
 
 {% block content %}
 <div class="card">
-  <h2>Upload Video or Photos</h2>
+  <h2>Upload Videos and Photos</h2>
   {% if can_upload %}
   <form method="post" action="/upload" enctype="multipart/form-data" id="upload-form">
     <div class="upload-area" id="drop-zone" style="position:relative;">
       <input type="file" name="file" id="file-input" accept="video/*,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.heic,.webp" multiple required>
       <div class="icon">📹</div>
-      <div class="label" id="file-label">Tap to choose a video or photos</div>
-      <div class="hint">one video or a batch of photos</div>
+      <div class="label" id="file-label">Tap to choose videos and/or photos</div>
+      <div class="hint">each video becomes its own job; selected photos stay in one batch</div>
     </div>
     <div id="inspect-message" class="message message-info" hidden></div>
     <div id="review-message" class="message message-error" hidden></div>
@@ -223,6 +250,7 @@
   {% endif %}
 </div>
 
+<div id="jobs-card">
 {% if jobs %}
 <div class="card">
   <h2>Recent Jobs</h2>
@@ -230,6 +258,7 @@
     {% for job in jobs %}
     <li>
       <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
+      <span class="badge badge-media">{{ job.media_label }}</span>
       <a class="job-name" href="/jobs/{{ job.id }}">
         {{ job.summary }}
         <span class="job-time">{{ job.created_at.strftime("%b %-d, %H:%M") }}</span>
@@ -237,12 +266,24 @@
     </li>
     {% endfor %}
   </ul>
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    {% if page > 1 %}
+    <a href="/?page={{ page - 1 }}">&laquo; Prev</a>
+    {% endif %}
+    <span class="page-info">Page {{ page }} of {{ total_pages }} ({{ total_jobs }} jobs)</span>
+    {% if page < total_pages %}
+    <a href="/?page={{ page + 1 }}">Next &raquo;</a>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 {% else %}
 <div class="card">
-  <p class="empty">No jobs yet — upload a video or photos to get started.</p>
+  <p class="empty">No jobs yet — upload videos, photos, or both to get started.</p>
 </div>
 {% endif %}
+</div>
 
 {% if can_upload %}
 <script>
@@ -304,6 +345,32 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
+function getSelectionStats() {
+  if (!state.inspection) {
+    return {
+      total: 0,
+      selectedCount: 0,
+      selectedVideos: 0,
+      selectedImages: 0,
+      selectedJobs: 0,
+      duplicates: 0,
+    };
+  }
+
+  const total = state.inspection.assets.length;
+  const selectedAssets = state.inspection.assets.filter((asset) => asset.selected !== false);
+  const selectedVideos = selectedAssets.filter((asset) => asset.media_type === 'video').length;
+  const selectedImages = selectedAssets.filter((asset) => asset.media_type === 'image').length;
+  return {
+    total,
+    selectedCount: selectedAssets.length,
+    selectedVideos,
+    selectedImages,
+    selectedJobs: selectedVideos + (selectedImages > 0 ? 1 : 0),
+    duplicates: state.inspection.assets.filter((asset) => asset.duplicate).length,
+  };
+}
+
 function updateButtonState() {
   if (state.inspecting) {
     btn.disabled = true;
@@ -320,17 +387,19 @@ function updateButtonState() {
     btn.textContent = 'Inspect Files First';
     return;
   }
-  const selected = state.inspection.assets.filter((asset) => asset.selected !== false);
-  const selectedCount = selected.length;
+  const { selectedCount, selectedVideos, selectedImages, selectedJobs } = getSelectionStats();
   const valid = state.inspection.batch && state.inspection.batch.valid;
   btn.disabled = !valid || selectedCount === 0;
-  const selectedVideos = selected.filter((a) => a.media_type === 'video').length;
   if (selectedCount === 0) {
     btn.textContent = 'Select Assets to Process';
-  } else if (selectedVideos > 1) {
-    btn.textContent = `Process ${selectedVideos} Videos (${selectedVideos} jobs)`;
+  } else if (selectedJobs > 1) {
+    btn.textContent = `Process ${selectedJobs} Jobs`;
+  } else if (selectedVideos === 1) {
+    btn.textContent = 'Process Video';
+  } else if (selectedImages > 1) {
+    btn.textContent = `Process ${selectedImages} Photos`;
   } else {
-    btn.textContent = `Process ${selectedCount} Selected`;
+    btn.textContent = 'Process Photo';
   }
 }
 
@@ -339,10 +408,13 @@ function updateReviewSummary() {
     reviewSummary.textContent = '';
     return;
   }
-  const total = state.inspection.assets.length;
-  const selected = state.inspection.assets.filter((asset) => asset.selected !== false).length;
-  const dupes = state.inspection.assets.filter((asset) => asset.duplicate).length;
-  reviewSummary.textContent = `${selected}/${total} selected${dupes ? ` · ${dupes} duplicate${dupes === 1 ? '' : 's'} will be reused` : ''}`;
+  const { total, selectedCount, selectedVideos, selectedImages, selectedJobs, duplicates } = getSelectionStats();
+  const parts = [`${selectedCount}/${total} selected`];
+  if (selectedVideos) parts.push(`${selectedVideos} video${selectedVideos === 1 ? '' : 's'}`);
+  if (selectedImages) parts.push(`${selectedImages} photo${selectedImages === 1 ? '' : 's'}`);
+  if (selectedJobs > 1) parts.push(`${selectedJobs} jobs`);
+  if (duplicates) parts.push(`${duplicates} duplicate${duplicates === 1 ? '' : 's'} will be reused`);
+  reviewSummary.textContent = parts.join(' · ');
 }
 
 function renderReview() {
@@ -489,7 +561,7 @@ async function inspectSelection() {
   setHidden(reviewMessage, true);
 
   if (!files.length) {
-    label.textContent = 'Tap to choose a video or photos';
+    label.textContent = 'Tap to choose videos and/or photos';
     setHidden(inspectMessage, true);
     updateButtonState();
     return;
@@ -519,10 +591,23 @@ async function inspectSelection() {
     payload.assets = (payload.assets || []).map((asset) => ({ ...asset, selected: true }));
     state.inspection = payload;
     const videoCount = (payload.assets || []).filter((a) => a.media_type === 'video').length;
+    const photoCount = (payload.assets || []).filter((a) => a.media_type === 'image').length;
+    const jobCount = videoCount + (photoCount > 0 ? 1 : 0);
     if (payload.batch && payload.batch.valid) {
-      inspectMessage.textContent = videoCount > 1
-        ? `Review the assets below. Each video will be processed as a separate job (${videoCount} jobs).`
-        : 'Review the assets below, then process only the checked items.';
+      if (jobCount > 1) {
+        const parts = [];
+        if (videoCount) parts.push(`${videoCount} video job${videoCount === 1 ? '' : 's'}`);
+        if (photoCount) {
+          parts.push(photoCount === 1 ? '1 photo job' : `1 photo job (${photoCount} photos)`);
+        }
+        inspectMessage.textContent = `Review the assets below. This selection will create ${jobCount} jobs: ${parts.join(' + ')}.`;
+      } else if (videoCount === 1) {
+        inspectMessage.textContent = 'Review the video below, then process only the checked items.';
+      } else if (photoCount > 1) {
+        inspectMessage.textContent = `Review the ${photoCount} photos below, then process them as one batch.`;
+      } else {
+        inspectMessage.textContent = 'Review the photo below, then process it.';
+      }
     } else {
       inspectMessage.textContent = 'Review the batch issue below before processing.';
     }
@@ -590,4 +675,59 @@ zone.addEventListener('drop', (e) => {
 });
 </script>
 {% endif %}
+
+<script>
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const currentPage = parseInt(params.get('page'), 10) || 1;
+  let polling = {{ 'true' if jobs | selectattr("status", "in", ["pending", "running"]) | list else 'false' }};
+
+  function escapeHtml(s) {
+    const el = document.createElement('span');
+    el.textContent = s;
+    return el.innerHTML;
+  }
+
+  function renderJobs(data) {
+    const container = document.getElementById('jobs-card');
+    if (!data.jobs.length) {
+      container.innerHTML = '<div class="card"><p class="empty">No jobs yet \u2014 upload videos, photos, or both to get started.</p></div>';
+      return;
+    }
+    let html = '<div class="card"><h2>Recent Jobs</h2><ul class="jobs-list">';
+    for (const job of data.jobs) {
+      html += '<li>'
+        + '<span class="badge badge-' + escapeHtml(job.status) + '">' + escapeHtml(job.status) + '</span>'
+        + '<span class="badge badge-media">' + escapeHtml(job.media_label) + '</span>'
+        + '<a class="job-name" href="/jobs/' + escapeHtml(job.id) + '">'
+        + escapeHtml(job.summary)
+        + '<span class="job-time">' + escapeHtml(job.created_at) + '</span>'
+        + '</a></li>';
+    }
+    html += '</ul>';
+    if (data.total_pages > 1) {
+      html += '<div class="pagination">';
+      if (data.page > 1) html += '<a href="/?page=' + (data.page - 1) + '">&laquo; Prev</a>';
+      html += '<span class="page-info">Page ' + data.page + ' of ' + data.total_pages + ' (' + data.total_jobs + ' jobs)</span>';
+      if (data.page < data.total_pages) html += '<a href="/?page=' + (data.page + 1) + '">Next &raquo;</a>';
+      html += '</div>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
+  }
+
+  async function poll() {
+    try {
+      const resp = await fetch('/api/jobs?page=' + currentPage);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      renderJobs(data);
+      polling = data.has_active;
+    } catch (e) { /* ignore transient errors */ }
+    if (polling) setTimeout(poll, 5000);
+  }
+
+  if (polling) setTimeout(poll, 5000);
+})();
+</script>
 {% endblock %}

@@ -316,14 +316,14 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
               {% set sep = joiner(" · ") %}
               {% if img.date %}{{ sep() }}{{ img.date[:10] }}{% if img.date|length > 10 %} {{ img.date[11:16] }}{% endif %}{% endif %}
               {% if img.camera %}{{ sep() }}{{ img.camera }}{% endif %}
-              {% if img.latitude and img.longitude %}
+              {% if img.latitude and img.longitude and user_email %}
                 {{ sep() }}<a class="meta-link" href="https://www.openstreetmap.org/?mlat={{ img.latitude }}&mlon={{ img.longitude }}#map=15/{{ img.latitude }}/{{ img.longitude }}" target="_blank" rel="noopener">
                   📍 {{ "%.4f"|format(img.latitude) }}, {{ "%.4f"|format(img.longitude) }}
                 </a>
               {% endif %}
               {% if img.ebird_region %}
                 {{ sep() }}On Long Island
-              {% elif img.latitude and img.longitude %}
+              {% elif img.latitude and img.longitude and user_email %}
                 {{ sep() }}Not on Long Island
               {% endif %}
             </span>
@@ -454,12 +454,12 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
       &nbsp;·&nbsp; {{ vi.frames_processed }} frames
       &nbsp;·&nbsp; {{ result.tracks | length }} track(s)
     </p>
-    {% if result.date or (job.video_meta and (job.video_meta.camera_info or job.video_meta.has_gps)) %}
+    {% if result.date or (job.video_meta and (job.video_meta.camera_info or (job.video_meta.has_gps and user_email))) %}
     <p class="meta">
       {% set sep = joiner(" &middot; ") %}
       {% if result.date %}{{ sep() }}{{ result.date[:10] }}{% if result.date|length > 10 %} {{ result.date[11:16] }}{% endif %}{% endif %}
       {% if job.video_meta and job.video_meta.camera_info %}{{ sep() }}{{ job.video_meta.camera_info }}{% endif %}
-      {% if job.video_meta and job.video_meta.has_gps %}
+      {% if job.video_meta and job.video_meta.has_gps and user_email %}
         {{ sep() }}<a class="meta-link" href="{{ job.video_meta.osm_url }}" target="_blank" rel="noopener">
           📍 {{ "%.4f"|format(job.video_meta.latitude) }}, {{ "%.4f"|format(job.video_meta.longitude) }}
         </a>
