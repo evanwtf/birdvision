@@ -142,8 +142,11 @@ ID/secret, redirect URI, and session secret also require restart.
 
 ## Workflow notes for AI/code assistants
 
-- **No automated test suite is currently checked in** (`tests/` is absent).
-  Prefer focused smoke checks:
+- **Unit tests**: run `uv run pytest` (167 tests, ~2s, no GPU/model needed).
+  Tests cover tracker math, eBird metadata priors, pipeline helpers,
+  video metadata formatting, and webapp auth/upload logic. Heavy dependencies
+  (YOLO, BioCLIP, ExifTool) are monkeypatched in test fixtures.
+- **Smoke checks** for full-stack validation:
   - `uv run scripts/import_ebird_barchart.py ebird_data/ --db /tmp/ebird_priors.db`
   - `uv run scripts/serve.py --config config.yaml --port 3587`
   - `uv run scripts/identify_videos.py <video-or-dir> --config config.yaml`
