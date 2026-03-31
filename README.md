@@ -37,6 +37,10 @@ export GOOGLE_CLIENT_SECRET="your-client-secret"
 export SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_hex(32))')"
 ```
 
+If BirdVision is served behind HTTPS through a reverse proxy, also set the
+exact callback URL under `auth.redirect_uri` in `config.yaml`, for example
+`https://birdvision.example.com/auth/callback`.
+
 Managed uploaded media, the asset index, and any legacy uploads persist in
 `./videos/` on the host. Results persist in `./results/`.
 Model weights are cached in `./models/` and reused across restarts.
@@ -83,24 +87,27 @@ next job, but model/device changes still require a restart. Key settings:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `detector.confidence` | `0.4` | Detection threshold (raise to reduce false positives) |
-| `classifier.crop_padding_ratio` | `0.12` | Maximum crop padding for smaller/distant birds |
+| `classifier.classify_every_n_frames` | `10` | Run classification every N frames for each active track |
+| `classifier.crop_padding_ratio` | `0.18` | Maximum crop padding for smaller/distant birds |
 | `classifier.crop_padding_ratio_min` | `0.04` | Minimum crop padding once the bird already fills a large share of the frame |
-| `classifier.crop_closeup_area_ratio` | `0.10` | When bbox area reaches this fraction of the frame, padding ramps down to the minimum |
+| `classifier.crop_closeup_area_ratio` | `0.06` | When bbox area reaches this fraction of the frame, padding ramps down to the minimum |
 | `classifier.min_crop_area` | `2500` | Skip classification for tiny detections that are mostly noise when upscaled |
-| `classifier.min_event_confidence` | `0.30` | Discard low-confidence visual classification events instead of averaging them into a track |
+| `classifier.min_event_confidence` | `0.35` | Discard low-confidence visual classification events instead of averaging them into a track |
 | `tracker.centroid_max_distance` | `0.18` | Fallback match radius as a fraction of frame diagonal when IoU matching fails |
 | `tracker.min_frames_to_report` | `8` | Minimum frames tracked to include in results |
 | `tracker.min_confidence_to_report` | `0.6` | Override min_frames for high-confidence single detections |
 | `scoring.center_weight_strength` | `2.0` | How much to favor center-frame detections (0 = off) |
 | `metadata.ebird_fips` | `US-NY-059` | Fallback county for eBird priors when GPS is unavailable |
 | `webapp.debug` | `false` | Local/debug bypass for auth checks on upload and reprocess endpoints |
+| `auth.redirect_uri` | `""` | Optional explicit OAuth callback URL to use behind HTTPS reverse proxies |
 | `auth.allowed_emails` | `[]` | Signed-in Google accounts allowed to upload and reprocess jobs |
 
-Google OAuth client ID, client secret, and session secret can live either in
-`config.yaml` or the `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and
-`SESSION_SECRET` environment variables. Environment variables take precedence so
-you can keep secrets out of git. Changes to `auth.allowed_emails` are picked up
-without restart; changing OAuth credentials or the session secret still
+Google OAuth client ID, client secret, redirect URI, and session secret can
+live either in `config.yaml` or the `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, and `SESSION_SECRET`
+environment variables. Environment variables take precedence so you can keep
+secrets out of git. Changes to `auth.allowed_emails` are picked up without
+restart; changing OAuth credentials, redirect URI, or the session secret still
 requires restarting the web server.
 
 For local work, set `webapp.debug: true`, run `uv run scripts/serve.py --debug`,
@@ -114,6 +121,32 @@ whitelist. Browsing the job list and results pages stays public.
 Full setup guide: [docs/google_oauth_setup.md](docs/google_oauth_setup.md).
 That doc covers creating the Google Cloud OAuth client, setting the callback
 URI, generating `SESSION_SECRET`, and wiring the values into BirdVision.
+
+## Themes
+
+Use the header theme switcher to change the UI appearance. BirdVision currently
+ships with:
+
+- `Default` — the current restrained green UI
+- `Birdy` — a warmer, more natural bird-book palette
+- `Super Birdy` — a loud Big Bird-style yellow/orange/blue palette with animated
+  bird icons drifting in the background
+
+The selected theme is stored in a cookie and applies to both the upload page
+and results pages.
+
+## Request Logging
+
+BirdVision writes an application-level access log entry for each request. In
+addition to method, path, status, and duration, it logs:
+
+- `proxy_ip` — the direct client address seen by the app, usually the reverse proxy
+- `real_ip` — `X-Real-IP` when present, otherwise the first `X-Forwarded-For` IP
+- `x_forwarded_for` and `x_real_ip` — the raw forwarded headers
+- `email` — the signed-in Google account email from the session, or `-` for anonymous requests
+
+For accurate client IP logging behind a reverse proxy, configure the proxy to
+send `X-Forwarded-For` and/or `X-Real-IP`.
 
 ## Results display
 

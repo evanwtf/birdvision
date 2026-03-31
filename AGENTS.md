@@ -40,7 +40,9 @@ src/
                       hash index; two-phase inspect/finalize upload flow;
                       multi-video uploads split into one job per video;
                       in-memory job queue restored from results JSON on startup;
-                      hot-reloads config before each job
+                      hot-reloads config before each job; Google OAuth upload
+                      gating; cookie-backed theme selector; per-request access
+                      logging with forwarded IPs and signed-in email
 
 scripts/
   serve.py                    — uvicorn entry point for web UI (port 3587)
@@ -63,7 +65,7 @@ data/
 ## Key design decisions
 
 - **No video output** — text logs + JSON results + JPEG crops only
-- **Classify every 15 frames** per track, not every frame
+- **Classify every 10 frames** per track, not every frame
 - **Center weighting** — classification events weighted by Gaussian based on
   distance of bbox center from frame center (`scoring.center_weight_strength`)
 - **Adaptive crop padding** — smaller/distant birds get more surrounding
@@ -99,6 +101,12 @@ data/
   for seasonal eBird weighting; no manual date input in the upload form
 - **Video codec warning** — non-Safari-compatible codecs (VP9, AV1) are detected
   at upload time and a warning is shown on the job page
+- **Theme switcher** — the header exposes `Default`, `Birdy`, and
+  `Super Birdy`; theme choice is stored in a cookie and applies across pages
+- **OAuth callback can be explicit** — `auth.redirect_uri` / `GOOGLE_REDIRECT_URI`
+  can override request-derived callback URLs for reverse-proxied HTTPS deploys
+- **Access logs include identity hints** — each request logs proxy IP, best-effort
+  real client IP from forwarded headers, and signed-in email when a session exists
 - **Config hot-reload** — config.yaml is re-read before each job; model/device
   changes still require restart
 - **Species name normalization** happens at eBird import time (NAME_OVERRIDES
@@ -127,8 +135,10 @@ Hot-reloadable settings currently include:
 - tracker disappearance/IoU/centroid thresholds and reporting thresholds
 - scoring.center-weight strength
 - metadata latitude/longitude/FIPS and results directory
+- auth allowed_emails
 
-Model path / model name / device changes still require restart.
+Model path / model name / device changes still require restart. OAuth client
+ID/secret, redirect URI, and session secret also require restart.
 
 ## Workflow notes for AI/code assistants
 
