@@ -562,8 +562,46 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         job = _jobs.get(job_id)
         if job is None:
             return HTMLResponse("Job not found", status_code=404)
+
+        base = str(request.base_url).rstrip("/")
+        og_url = f"{base}/jobs/{job_id}"
+
+        if job.status == "done" and job.result:
+            og_title = f"BirdVision: {job.summary}"
+            # Build description from top species in the summary label
+            species_label = job._species_summary_label()
+            if species_label:
+                og_description = f"Bird identification results: {species_label}"
+            else:
+                og_description = "Bird identification results from BirdVision."
+
+            # Pick a representative annotated image
+            og_image_url = None
+            if job.media_type == "images":
+                images = job.result.get("images") or []
+                for img in images:
+                    af = img.get("annotated_file")
+                    if af:
+                        og_image_url = f"{base}/jobs/{job_id}/crops/{af}"
+                        break
+            else:
+                gallery = job.result.get("frame_gallery") or []
+                if gallery:
+                    first_file = gallery[0].get("file")
+                    if first_file:
+                        og_image_url = f"{base}/jobs/{job_id}/crops/{first_file}"
+        else:
+            status_label = job.status
+            og_title = f"BirdVision \u2014 Job {status_label}"
+            og_description = f"Job is {status_label}."
+            og_image_url = None
+
         return render_template(request, "job.html", {
             "job": job,
+            "og_title": og_title,
+            "og_description": og_description,
+            "og_url": og_url,
+            "og_image_url": og_image_url,
         })
 
     @app.post("/jobs/{job_id}/reprocess")

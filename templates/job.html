@@ -273,6 +273,16 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
 {% if job.status in ('pending', 'running') %}
 <meta http-equiv="refresh" content="3">
 {% endif %}
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="BirdVision">
+<meta property="og:title" content="{{ og_title }}">
+<meta property="og:description" content="{{ og_description }}">
+<meta property="og:url" content="{{ og_url }}">
+{% if og_image_url %}<meta property="og:image" content="{{ og_image_url }}">{% endif %}
+<meta name="twitter:card" content="{{ 'summary_large_image' if og_image_url else 'summary' }}">
+<meta name="twitter:title" content="{{ og_title }}">
+<meta name="twitter:description" content="{{ og_description }}">
+{% if og_image_url %}<meta name="twitter:image" content="{{ og_image_url }}">{% endif %}
 {% endblock %}
 
 {% block content %}
