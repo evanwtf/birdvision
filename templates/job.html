@@ -295,6 +295,10 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
     <span class="job-title">{{ job.filename }}</span>
   </div>
 
+  {% if user_email and job.submitted_by %}
+  <p class="meta">Submitted by: {{ job.submitted_by }}</p>
+  {% endif %}
+
   {% if job.status in ('done', 'error') and can_upload %}
   <form method="post" action="/jobs/{{ job.id }}/reprocess" style="margin-bottom:1rem">
     <button class="btn btn-secondary" type="submit">↺ Reprocess</button>

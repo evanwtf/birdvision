@@ -1,16 +1,20 @@
 """Unit tests for pure helper / auth logic in src/webapp.py."""
 
+import json
 import os
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.webapp import (
     AuthSettings,
+    Job,
     build_auth_settings,
     build_job_display_name,
     can_upload_email,
     classify_media_type,
+    current_user_email,
     debug_mode_enabled,
     normalize_email,
     normalize_secret,
@@ -20,6 +24,8 @@ from src.webapp import (
     result_name_seed,
     slugify_result_name,
     validate_asset_batch,
+    _persist_submitted_by,
+    _load_existing_jobs,
 )
 
 
@@ -464,3 +470,127 @@ class TestWebappResolutionWarningText:
 
     def test_adequate_image(self):
         assert resolution_warning_text(media_type="image", width=4000, height=3000) is None
+
+
+# ---------------------------------------------------------------------------
+# Job.submitted_by
+# ---------------------------------------------------------------------------
+
+class TestJobSubmittedBy:
+    def test_default_is_none(self):
+        job = Job(id="abc123", filename="bird.mp4", media_type="video")
+        assert job.submitted_by is None
+
+    def test_can_be_set(self):
+        job = Job(id="abc123", filename="bird.mp4", media_type="video")
+        job.submitted_by = "user@example.com"
+        assert job.submitted_by == "user@example.com"
+
+    def test_can_be_set_to_none(self):
+        job = Job(id="abc123", filename="bird.mp4", media_type="video")
+        job.submitted_by = "user@example.com"
+        job.submitted_by = None
+        assert job.submitted_by is None
+
+
+# ---------------------------------------------------------------------------
+# _persist_submitted_by
+# ---------------------------------------------------------------------------
+
+class TestPersistSubmittedBy:
+    def test_writes_submitted_by_to_json(self, tmp_path):
+        stem = "abc123_bird_video"
+        results_dir = tmp_path
+        json_path = results_dir / f"{stem}_results.json"
+        initial_data = {"video": "/path/to/bird.mp4", "tracks": []}
+        json_path.write_text(json.dumps(initial_data))
+
+        _persist_submitted_by(results_dir, stem, "user@example.com")
+
+        updated = json.loads(json_path.read_text())
+        assert updated["submitted_by"] == "user@example.com"
+        assert updated["video"] == "/path/to/bird.mp4"
+
+    def test_missing_json_is_a_noop(self, tmp_path):
+        # Should not raise even when the file doesn't exist
+        _persist_submitted_by(tmp_path, "nonexistent_stem", "user@example.com")
+
+    def test_overwrites_existing_submitted_by(self, tmp_path):
+        stem = "def456_vid"
+        json_path = tmp_path / f"{stem}_results.json"
+        json_path.write_text(json.dumps({"submitted_by": "old@example.com"}))
+
+        _persist_submitted_by(tmp_path, stem, "new@example.com")
+
+        updated = json.loads(json_path.read_text())
+        assert updated["submitted_by"] == "new@example.com"
+
+
+# ---------------------------------------------------------------------------
+# _load_existing_jobs restores submitted_by
+# ---------------------------------------------------------------------------
+
+class TestLoadExistingJobsSubmittedBy:
+    def test_submitted_by_restored_from_json(self, tmp_path, monkeypatch):
+        import src.webapp as webapp_module
+
+        # Clear and patch the module-level _jobs dict
+        monkeypatch.setattr(webapp_module, "_jobs", {})
+
+        job_id = "a" * 32
+        stem = f"{job_id}_birdvideo"
+        result_data = {
+            "type": "video",
+            "video": "/path/to/bird.mp4",
+            "source_filename": "bird.mp4",
+            "display_name": "bird.mp4",
+            "submitted_by": "tester@example.com",
+            "tracks": [],
+            "video_predictions": [],
+        }
+        result_file = tmp_path / f"{stem}_results.json"
+        result_file.write_text(json.dumps(result_data))
+
+        _load_existing_jobs(tmp_path)
+
+        assert job_id in webapp_module._jobs
+        assert webapp_module._jobs[job_id].submitted_by == "tester@example.com"
+
+    def test_submitted_by_none_when_absent_from_json(self, tmp_path, monkeypatch):
+        import src.webapp as webapp_module
+
+        monkeypatch.setattr(webapp_module, "_jobs", {})
+
+        job_id = "b" * 32
+        stem = f"{job_id}_oldvideo"
+        result_data = {
+            "type": "video",
+            "video": "/path/to/old.mp4",
+            "source_filename": "old.mp4",
+            "display_name": "old.mp4",
+            "tracks": [],
+            "video_predictions": [],
+        }
+        result_file = tmp_path / f"{stem}_results.json"
+        result_file.write_text(json.dumps(result_data))
+
+        _load_existing_jobs(tmp_path)
+
+        assert job_id in webapp_module._jobs
+        assert webapp_module._jobs[job_id].submitted_by is None
+
+
+# ---------------------------------------------------------------------------
+# current_user_email
+# ---------------------------------------------------------------------------
+
+class TestCurrentUserEmail:
+    def test_returns_email_from_session(self):
+        request = MagicMock()
+        request.session = {"email": "User@Example.COM"}
+        assert current_user_email(request) == "user@example.com"
+
+    def test_returns_none_when_no_session_email(self):
+        request = MagicMock()
+        request.session = {}
+        assert current_user_email(request) is None
