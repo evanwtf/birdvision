@@ -65,6 +65,7 @@ class Job:
         self.created_at: datetime = datetime.now()
         self.selected_date: Optional[datetime] = None
         self.result_stem: Optional[str] = None
+        self.submitted_by: Optional[str] = None
 
     @property
     def media_label(self) -> str:
@@ -362,7 +363,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             _executor, lambda: _init_pipeline(config)
         )
         logger.info("Pipeline ready.")
-        asyncio.create_task(_worker(loop, pipeline, config_path))
+        asyncio.create_task(_worker(loop, pipeline, config_path, results_dir))
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request, page: int = 1):
@@ -494,6 +495,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         # Split multiple videos into one job per video
         groups = _split_asset_groups(selected_assets, asset_store)
 
+        submitter_email = current_user_email(request)
         created_jobs: list[Job] = []
         for group in groups:
             job = await _create_job_from_selection(
@@ -502,6 +504,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             )
             if isinstance(job, JSONResponse):
                 return job
+            job.submitted_by = submitter_email
             _jobs[job.id] = job
             await _queue.put(job)
             created_jobs.append(job)
@@ -540,6 +543,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             for asset in inspected_assets
         ]
 
+        submitter_email = current_user_email(request)
         groups = _split_asset_groups(selected_assets, asset_store)
         created_jobs: list[Job] = []
         for group in groups:
@@ -549,6 +553,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             )
             if isinstance(job, JSONResponse):
                 return HTMLResponse(job.body.decode(), status_code=job.status_code)
+            job.submitted_by = submitter_email
             _jobs[job.id] = job
             await _queue.put(job)
             created_jobs.append(job)
@@ -901,6 +906,7 @@ def _load_existing_jobs(results_dir: Path):
                     job.selected_date = datetime.fromisoformat(result["date"])
                 except ValueError:
                     pass
+            job.submitted_by = result.get("submitted_by")
             if job.assets:
                 job.video_meta = build_video_meta_from_asset(job.assets[0])
             elif result.get("latitude") is not None and result.get("longitude") is not None:
@@ -929,7 +935,25 @@ def _init_pipeline(config: dict) -> BirdIdentificationPipeline:
     return p
 
 
-async def _worker(loop: asyncio.AbstractEventLoop, pipeline: BirdIdentificationPipeline, config_path: Optional[Path] = None):
+def _persist_submitted_by(results_dir: Path, result_stem: str, submitted_by: str) -> None:
+    """Append submitted_by to the already-written results JSON file."""
+    json_path = results_dir / f"{result_stem}_results.json"
+    if not json_path.exists():
+        return
+    try:
+        data = json.loads(json_path.read_text())
+        data["submitted_by"] = submitted_by
+        json_path.write_text(json.dumps(data, indent=2))
+    except Exception as exc:
+        logger.warning(f"Could not persist submitted_by to {json_path}: {exc}")
+
+
+async def _worker(
+    loop: asyncio.AbstractEventLoop,
+    pipeline: BirdIdentificationPipeline,
+    config_path: Optional[Path] = None,
+    results_dir: Optional[Path] = None,
+):
     while True:
         job = await _queue.get()
         job.status = "running"
@@ -970,6 +994,11 @@ async def _worker(loop: asyncio.AbstractEventLoop, pipeline: BirdIdentificationP
                         asset_records=job.assets,
                     ),
                 )
+            # Inject submitted_by into result dict and persist it in the JSON file
+            if job.submitted_by:
+                result["submitted_by"] = job.submitted_by
+                if results_dir and job.result_stem:
+                    _persist_submitted_by(results_dir, job.result_stem, job.submitted_by)
             job.result = result
             job.status = "done"
             logger.info(f"Job {job.id} done.")
