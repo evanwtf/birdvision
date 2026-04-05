@@ -1,10 +1,7 @@
 name: Tests
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:  # manual trigger only; automatic triggers disabled
 
 jobs:
   test:
