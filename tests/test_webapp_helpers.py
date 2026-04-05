@@ -473,6 +473,46 @@ class TestWebappResolutionWarningText:
 
 
 # ---------------------------------------------------------------------------
+# Job.slug
+# ---------------------------------------------------------------------------
+
+class TestJobSlug:
+    def _make_job(self, filename: str) -> Job:
+        return Job(id="abc123", filename=filename)
+
+    def test_simple_filename(self):
+        assert self._make_job("blue-jay.mp4").slug == "blue-jay"
+
+    def test_uppercase_lowercased(self):
+        assert self._make_job("Blue_Jay.MOV").slug == "blue-jay"
+
+    def test_spaces_become_hyphens(self):
+        assert self._make_job("morning dove 2024.mp4").slug == "morning-dove-2024"
+
+    def test_special_chars_stripped(self):
+        slug = self._make_job("bird (1) video!.mp4").slug
+        assert "(" not in slug
+        assert "!" not in slug
+        assert slug == "bird-1-video"
+
+    def test_leading_trailing_hyphens_stripped(self):
+        slug = self._make_job("--bird--.mp4").slug
+        assert not slug.startswith("-")
+        assert not slug.endswith("-")
+
+    def test_empty_stem_defaults_to_job(self):
+        assert self._make_job("...mp4").slug == "job"
+
+    def test_path_uses_stem_only(self):
+        assert self._make_job("/path/to/cardinal.mp4").slug == "cardinal"
+
+    def test_only_alphanumeric_and_hyphens(self):
+        import re as _re
+        slug = self._make_job("bird@photo#2024.jpg").slug
+        assert _re.match(r"^[a-z0-9-]+$", slug)
+
+
+# ---------------------------------------------------------------------------
 # Job.submitted_by
 # ---------------------------------------------------------------------------
 

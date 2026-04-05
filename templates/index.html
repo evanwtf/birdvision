@@ -259,7 +259,7 @@
     <li>
       <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
       <span class="badge badge-media">{{ job.media_label }}</span>
-      <a class="job-name" href="/jobs/{{ job.id }}">
+      <a class="job-name" href="/jobs/{{ job.id }}/{{ job.slug }}">
         {{ job.summary }}
         <span class="job-time">{{ job.created_at.strftime("%b %-d, %H:%M") }}</span>
       </a>
@@ -699,7 +699,7 @@ zone.addEventListener('drop', (e) => {
       html += '<li>'
         + '<span class="badge badge-' + escapeHtml(job.status) + '">' + escapeHtml(job.status) + '</span>'
         + '<span class="badge badge-media">' + escapeHtml(job.media_label) + '</span>'
-        + '<a class="job-name" href="/jobs/' + escapeHtml(job.id) + '">'
+        + '<a class="job-name" href="/jobs/' + escapeHtml(job.id) + '/' + escapeHtml(job.slug) + '">'
         + escapeHtml(job.summary)
         + '<span class="job-time">' + escapeHtml(job.created_at) + '</span>'
         + '</a></li>';

@@ -68,6 +68,13 @@ class Job:
         self.submitted_by: Optional[str] = None
 
     @property
+    def slug(self) -> str:
+        """URL-friendly slug derived from filename, without extension."""
+        stem = Path(self.filename).stem
+        slug = re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-")
+        return slug or "job"
+
+    @property
     def media_label(self) -> str:
         if self.media_type == "images":
             n = self._image_count()
@@ -394,6 +401,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             "jobs": [
                 {
                     "id": j.id,
+                    "slug": j.slug,
                     "status": j.status,
                     "media_label": j.media_label,
                     "summary": j.summary,
@@ -563,7 +571,14 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         return RedirectResponse("/", status_code=303)
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
-    async def job_detail(request: Request, job_id: str):
+    async def job_detail_redirect(request: Request, job_id: str):
+        job = _jobs.get(job_id)
+        if not job:
+            return HTMLResponse("Job not found", status_code=404)
+        return RedirectResponse(url=f"/jobs/{job_id}/{job.slug}", status_code=301)
+
+    @app.get("/jobs/{job_id}/{slug}", response_class=HTMLResponse)
+    async def job_detail(request: Request, job_id: str, slug: str):
         job = _jobs.get(job_id)
         if job is None:
             return HTMLResponse("Job not found", status_code=404)
