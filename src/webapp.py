@@ -367,7 +367,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request, page: int = 1):
         page_size = 20
-        all_jobs = list(reversed(list(_jobs.values())))
+        all_jobs = sorted(_jobs.values(), key=lambda j: j.created_at, reverse=True)
         total = len(all_jobs)
         total_pages = max(1, (total + page_size - 1) // page_size)
         page = max(1, min(page, total_pages))
@@ -383,7 +383,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
     @app.get("/api/jobs")
     async def api_jobs(page: int = 1):
         page_size = 20
-        all_jobs = list(reversed(list(_jobs.values())))
+        all_jobs = sorted(_jobs.values(), key=lambda j: j.created_at, reverse=True)
         total = len(all_jobs)
         total_pages = max(1, (total + page_size - 1) // page_size)
         page = max(1, min(page, total_pages))
