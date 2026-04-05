@@ -53,12 +53,14 @@ class MetadataPrior:
         db_path: Optional[str] = None,
         fips: Optional[str] = None,
         zero_floor: float = 0.01,
+        prior_mode: str = "seasonal",  # "seasonal" | "location_only"
     ):
         self.latitude = latitude
         self.longitude = longitude
         self.db_path = db_path
         self.default_fips = fips
         self.zero_floor = zero_floor
+        self.prior_mode = prior_mode
         self._con: Optional[sqlite3.Connection] = None
         self._county_fips: set[str] = set()
         self._county_names: Dict[str, str] = {}
@@ -119,6 +121,25 @@ class MetadataPrior:
             return None
         return region["name"]
 
+    def _query_frequencies_annual(
+        self,
+        fips_list: List[str],
+        species_names: List[str],
+    ) -> Dict[str, float]:
+        """Return average frequency across all 48 periods (year-round)."""
+        placeholders = ",".join("?" * len(species_names))
+        fips_placeholders = ",".join("?" * len(fips_list))
+        rows = self._con.execute(
+            f"""
+            SELECT species, AVG(freq) FROM barchart
+            WHERE fips IN ({fips_placeholders})
+              AND species IN ({placeholders})
+            GROUP BY species
+            """,
+            [*fips_list, *species_names],
+        ).fetchall()
+        return {row[0]: row[1] for row in rows}
+
     def get_priors(
         self,
         species_names: List[str],
@@ -126,27 +147,33 @@ class MetadataPrior:
         latitude: Optional[float] = None,
         longitude: Optional[float] = None,
     ) -> Dict[str, float]:
-        if self._con is None or dt is None:
+        if self._con is None:
+            return {s: 1.0 for s in species_names}
+        if self.prior_mode == "seasonal" and dt is None:
             return {s: 1.0 for s in species_names}
 
         region = self.resolve_region(latitude=latitude, longitude=longitude)
         if region is None:
             return {s: 1.0 for s in species_names}
 
-        period = _date_to_period(dt)
-        placeholders = ",".join("?" * len(species_names))
         fips_placeholders = ",".join("?" * len(region["fips"]))
-        rows = self._con.execute(
-            f"""
-            SELECT species, AVG(freq) FROM barchart
-            WHERE fips IN ({fips_placeholders}) AND period = ?
-              AND species IN ({placeholders})
-            GROUP BY species
-            """,
-            [*region["fips"], period, *species_names],
-        ).fetchall()
 
-        freq_map = {row[0]: row[1] for row in rows}
+        if self.prior_mode == "location_only":
+            freq_map = self._query_frequencies_annual(region["fips"], species_names)
+        else:
+            period = _date_to_period(dt)
+            placeholders = ",".join("?" * len(species_names))
+            rows = self._con.execute(
+                f"""
+                SELECT species, AVG(freq) FROM barchart
+                WHERE fips IN ({fips_placeholders}) AND period = ?
+                  AND species IN ({placeholders})
+                GROUP BY species
+                """,
+                [*region["fips"], period, *species_names],
+            ).fetchall()
+            freq_map = {row[0]: row[1] for row in rows}
+
         return {
             s: max(freq_map.get(s, 0.0), self.zero_floor)
             for s in species_names

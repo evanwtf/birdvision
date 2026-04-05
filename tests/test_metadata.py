@@ -185,3 +185,125 @@ class TestMetadataPriorApply:
         result = mp.apply(predictions, dt=None)
         result_dict = dict(result)
         assert result_dict["Robin"] == pytest.approx(0.6)
+
+
+# ---------------------------------------------------------------------------
+# MetadataPrior — location_only mode
+# ---------------------------------------------------------------------------
+
+class TestMetadataPriorLocationOnly:
+    def test_prior_mode_stored(self, ebird_db):
+        mp = MetadataPrior(db_path=ebird_db, prior_mode="location_only")
+        assert mp.prior_mode == "location_only"
+
+    def test_default_prior_mode_is_seasonal(self, ebird_db):
+        mp = MetadataPrior(db_path=ebird_db)
+        assert mp.prior_mode == "seasonal"
+
+    def test_location_only_applies_without_date(self, ebird_db):
+        """location_only mode should apply priors even when dt=None."""
+        mp = MetadataPrior(db_path=ebird_db, prior_mode="location_only")
+        priors = mp.get_priors(
+            ["Mourning Dove", "Nonexistent Bird"],
+            dt=None,
+            latitude=40.7,
+            longitude=-73.5,
+        )
+        # Mourning Dove: AVG of (0.45, 0.50, 0.60, 0.55) = 0.525
+        assert priors["Mourning Dove"] == pytest.approx(0.525)
+        assert priors["Nonexistent Bird"] == pytest.approx(0.01)
+
+    def test_location_only_applies_with_date(self, ebird_db):
+        """location_only mode ignores date for period selection, uses year-round avg."""
+        mp = MetadataPrior(db_path=ebird_db, prior_mode="location_only")
+        priors_no_date = mp.get_priors(
+            ["Mourning Dove"],
+            dt=None,
+            latitude=40.7,
+            longitude=-73.5,
+        )
+        priors_with_date = mp.get_priors(
+            ["Mourning Dove"],
+            dt=datetime(2024, 1, 1),
+            latitude=40.7,
+            longitude=-73.5,
+        )
+        # Both should give the same year-round average
+        assert priors_no_date["Mourning Dove"] == pytest.approx(priors_with_date["Mourning Dove"])
+
+    def test_location_only_annual_average(self, ebird_db):
+        """Verify year-round average is different from period-specific seasonal value."""
+        mp_location = MetadataPrior(db_path=ebird_db, prior_mode="location_only")
+        mp_seasonal = MetadataPrior(db_path=ebird_db, prior_mode="seasonal")
+        # Period 0 (Jan 1): Mourning Dove avg(Nassau, Suffolk) = avg(0.45, 0.50) = 0.475
+        seasonal_priors = mp_seasonal.get_priors(
+            ["Mourning Dove"],
+            dt=datetime(2024, 1, 1),
+            latitude=40.7,
+            longitude=-73.5,
+        )
+        location_priors = mp_location.get_priors(
+            ["Mourning Dove"],
+            dt=None,
+            latitude=40.7,
+            longitude=-73.5,
+        )
+        # Seasonal at period 0 = 0.475; year-round avg = 0.525 (includes period 24)
+        assert seasonal_priors["Mourning Dove"] == pytest.approx(0.475)
+        assert location_priors["Mourning Dove"] == pytest.approx(0.525)
+
+    def test_location_only_outside_region_returns_uniform(self, ebird_db):
+        """Geographic gating still applies in location_only mode."""
+        mp = MetadataPrior(db_path=ebird_db, prior_mode="location_only")
+        priors = mp.get_priors(
+            ["Mourning Dove"],
+            dt=None,
+            latitude=41.9,
+            longitude=-87.6,  # Chicago
+        )
+        assert priors == {"Mourning Dove": 1.0}
+
+    def test_location_only_zero_floor(self, ebird_db):
+        """Zero-floor still applies in location_only mode."""
+        mp = MetadataPrior(db_path=ebird_db, prior_mode="location_only", zero_floor=0.05)
+        priors = mp.get_priors(
+            ["Nonexistent Bird"],
+            dt=None,
+            latitude=40.7,
+            longitude=-73.5,
+        )
+        assert priors["Nonexistent Bird"] == pytest.approx(0.05)
+
+    def test_location_only_apply_reweights(self, ebird_db):
+        """apply() in location_only mode reweights and normalizes predictions."""
+        mp = MetadataPrior(db_path=ebird_db, prior_mode="location_only")
+        predictions = [("Mourning Dove", 0.5), ("Blue Jay", 0.5)]
+        result = mp.apply(
+            predictions,
+            dt=None,
+            latitude=40.7,
+            longitude=-73.5,
+        )
+        result_dict = dict(result)
+        total = sum(result_dict.values())
+        assert total == pytest.approx(1.0)
+        # Mourning Dove has higher year-round frequency than Blue Jay
+        assert result_dict["Mourning Dove"] > result_dict["Blue Jay"]
+
+    def test_location_only_apply_sorted_descending(self, ebird_db):
+        """apply() returns results sorted by probability descending."""
+        mp = MetadataPrior(db_path=ebird_db, prior_mode="location_only")
+        predictions = [("Blue Jay", 0.5), ("Mourning Dove", 0.5)]
+        result = mp.apply(
+            predictions,
+            dt=None,
+            latitude=40.7,
+            longitude=-73.5,
+        )
+        assert result[0][1] >= result[1][1]
+
+    def test_location_only_no_db_returns_uniform(self):
+        """Without a DB, location_only still returns uniform priors."""
+        mp = MetadataPrior(prior_mode="location_only")
+        priors = mp.get_priors(["Robin", "Sparrow"], dt=None)
+        assert priors == {"Robin": 1.0, "Sparrow": 1.0}

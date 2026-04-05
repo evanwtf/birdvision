@@ -73,6 +73,7 @@ class BirdIdentificationPipeline:
         )
         self.prior_db_path = meta.get("ebird_db")
         self.prior_fips = meta.get("ebird_fips")
+        self.prior_mode = meta.get("prior_mode", "seasonal")
         self.prior = self._build_prior(
             latitude=meta.get("latitude"),
             longitude=meta.get("longitude"),
@@ -113,6 +114,7 @@ class BirdIdentificationPipeline:
             longitude=longitude,
             db_path=self.prior_db_path,
             fips=self.prior_fips if use_default_fips and fips is None else fips,
+            prior_mode=self.prior_mode,
         )
 
     def apply_config(self, config: dict):
@@ -224,15 +226,18 @@ class BirdIdentificationPipeline:
         new_lon = meta.get("longitude")
         new_db_path = meta.get("ebird_db")
         new_fips = meta.get("ebird_fips")
+        new_prior_mode = meta.get("prior_mode", "seasonal")
         if (
             new_lat != self.prior.latitude
             or new_lon != self.prior.longitude
             or new_db_path != self.prior_db_path
             or new_fips != self.prior_fips
+            or new_prior_mode != self.prior_mode
         ):
-            logger.info(f"Config reload: location {new_lat}, {new_lon}")
+            logger.info(f"Config reload: location {new_lat}, {new_lon}, prior_mode {new_prior_mode}")
             self.prior_db_path = new_db_path
             self.prior_fips = new_fips
+            self.prior_mode = new_prior_mode
             self.prior = self._build_prior(latitude=new_lat, longitude=new_lon)
 
         new_results_dir = config.get("output", {}).get("results_dir", "results/")
@@ -860,6 +865,7 @@ class BirdIdentificationPipeline:
             "date": video_date.isoformat() if video_date else None,
             "latitude": latitude,
             "longitude": longitude,
+            "prior_mode": self.prior.prior_mode,
             "asset_records": asset_records or [],
             "resolution_warning": resolution_warning_text(
                 media_type="video",
@@ -1103,6 +1109,7 @@ class BirdIdentificationPipeline:
             "date": video_date.isoformat() if video_date else None,
             "latitude": latitude,
             "longitude": longitude,
+            "prior_mode": self.prior.prior_mode,
             "asset_records": asset_records or [],
             "image_info": {
                 "count": len(image_paths),
