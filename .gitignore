@@ -27,6 +27,9 @@ data/ebird_priors.db
 # Claude Code local settings
 .claude/
 
+# API tokens (real file gitignored; api_tokens.yaml.example is committed)
+api_tokens.yaml
+
 # Misc
 .DS_Store
 .env

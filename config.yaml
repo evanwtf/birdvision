@@ -36,6 +36,10 @@ output:
 webapp:
   upload_dir: /data/videos
   debug: false
+  # Path to a YAML file listing API tokens that may POST to /api/v1/videos.
+  # If unset (or the file is missing/empty), the API endpoint returns 503 and
+  # the browser /upload route is unaffected.
+  api_tokens_file: /data/api_tokens.yaml
 auth:
   google_client_id: "REDACTED_OAUTH_CLIENT_ID"
   google_client_secret: "REDACTED_OAUTH_SECRET"

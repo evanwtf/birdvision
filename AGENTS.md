@@ -36,13 +36,17 @@ src/
                       jobs extracts annotated stills snapped to tracked frames
   video_metadata.py — ExifTool/OpenCV metadata helpers; extracts recording date,
                       GPS, camera info, video codec, dimensions, and duration/fps
-  webapp.py         — FastAPI web UI; content-addressed asset store + persisted
-                      hash index; two-phase inspect/finalize upload flow;
+  webapp.py         — FastAPI web UI + JSON API; content-addressed asset store +
+                      persisted hash index; two-phase inspect/finalize upload flow;
                       multi-video uploads split into one job per video;
                       in-memory job queue restored from results JSON on startup;
                       hot-reloads config before each job; Google OAuth upload
                       gating; cookie-backed theme selector; per-request access
-                      logging with forwarded IPs and signed-in email
+                      logging with forwarded IPs and signed-in email.
+                      API routes:
+                        POST /api/v1/videos  — token-authenticated video ingest
+                          from external clients (X-API-Token against
+                          webapp.api_tokens_file); returns 202 JSON with job_id
 
 scripts/
   serve.py                    — uvicorn entry point for web UI (port 3587)
@@ -86,7 +90,12 @@ data/
   one job per video
 - **Managed uploads are content-addressed** — uploaded media are stored and
   reused by `sha256` under the webapp upload directory, with a persisted index;
-  duplicate uploads reuse existing canonical files instead of creating copies
+  duplicate uploads reuse existing canonical files instead of creating copies;
+  API uploads go through the same store so identical clips deduplicate
+- **API ingest is token-authenticated** — `POST /api/v1/videos` accepts an
+  `X-API-Token` header validated against `webapp.api_tokens_file`
+  (`api_tokens.yaml`, gitignored); disabled (503) if not configured; browser
+  OAuth routes are unaffected; API jobs tagged `submitted_by=<name>@api`
 - **eBird priors** are multiplicative — visual prob × frequency, then renormalized;
   species with 0 frequency are floored at `zero_floor=0.01` (not zeroed out)
 - **Long Island-only eBird gating for GPS-driven jobs** — when photo/video GPS is

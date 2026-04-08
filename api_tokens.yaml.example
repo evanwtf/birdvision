@@ -1,0 +1,13 @@
+# BirdVision API tokens — copy to api_tokens.yaml and replace the values.
+#
+# Each entry authorizes one external client to POST to /api/v1/videos.
+# Generate a token with:
+#
+#   python -c 'import secrets; print(secrets.token_hex(32))'
+#
+# Mount this file into the container at the path referenced by
+# webapp.api_tokens_file in config.yaml.
+
+tokens:
+  - name: birdcamgrabber
+    token: replace-me-with-a-real-hex-token

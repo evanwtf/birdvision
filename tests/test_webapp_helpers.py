@@ -24,6 +24,8 @@ from src.webapp import (
     result_name_seed,
     slugify_result_name,
     validate_asset_batch,
+    _load_api_tokens,
+    _persist_source_event_id,
     _persist_submitted_by,
     _load_existing_jobs,
 )
@@ -618,6 +620,143 @@ class TestLoadExistingJobsSubmittedBy:
 
         assert job_id in webapp_module._jobs
         assert webapp_module._jobs[job_id].submitted_by is None
+
+
+# ---------------------------------------------------------------------------
+# _load_api_tokens
+# ---------------------------------------------------------------------------
+
+class TestLoadApiTokens:
+    def test_missing_file_returns_empty(self, tmp_path):
+        assert _load_api_tokens(tmp_path / "nope.yaml") == {}
+
+    def test_well_formed_file(self, tmp_path):
+        f = tmp_path / "tokens.yaml"
+        f.write_text(
+            "tokens:\n"
+            "  - name: birdcamgrabber\n"
+            "    token: abc123\n"
+            "  - name: other-client\n"
+            "    token: def456\n"
+        )
+        result = _load_api_tokens(f)
+        assert result == {"abc123": "birdcamgrabber", "def456": "other-client"}
+
+    def test_empty_file_returns_empty(self, tmp_path):
+        f = tmp_path / "tokens.yaml"
+        f.write_text("")
+        assert _load_api_tokens(f) == {}
+
+    def test_missing_tokens_key(self, tmp_path):
+        f = tmp_path / "tokens.yaml"
+        f.write_text("other: value\n")
+        assert _load_api_tokens(f) == {}
+
+    def test_skips_entries_without_token(self, tmp_path):
+        f = tmp_path / "tokens.yaml"
+        f.write_text(
+            "tokens:\n"
+            "  - name: good\n"
+            "    token: t1\n"
+            "  - name: bad-no-token\n"
+            "  - name: bad-empty-token\n"
+            "    token: \"\"\n"
+        )
+        assert _load_api_tokens(f) == {"t1": "good"}
+
+    def test_unknown_name_falls_back(self, tmp_path):
+        f = tmp_path / "tokens.yaml"
+        f.write_text(
+            "tokens:\n"
+            "  - token: just-a-token\n"
+        )
+        assert _load_api_tokens(f) == {"just-a-token": "unknown"}
+
+    def test_malformed_yaml_returns_empty(self, tmp_path):
+        f = tmp_path / "tokens.yaml"
+        f.write_text("tokens: [this is not: valid yaml\n")
+        assert _load_api_tokens(f) == {}
+
+    def test_tokens_not_a_list(self, tmp_path):
+        f = tmp_path / "tokens.yaml"
+        f.write_text("tokens: not-a-list\n")
+        assert _load_api_tokens(f) == {}
+
+
+# ---------------------------------------------------------------------------
+# _persist_source_event_id
+# ---------------------------------------------------------------------------
+
+class TestPersistSourceEventId:
+    def test_writes_source_event_id_to_json(self, tmp_path):
+        stem = "abc123_clip"
+        json_path = tmp_path / f"{stem}_results.json"
+        json_path.write_text(json.dumps({"video": "/x.mp4"}))
+
+        _persist_source_event_id(tmp_path, stem, "evt-xyz")
+
+        updated = json.loads(json_path.read_text())
+        assert updated["source_event_id"] == "evt-xyz"
+        assert updated["video"] == "/x.mp4"
+
+    def test_missing_json_is_a_noop(self, tmp_path):
+        _persist_source_event_id(tmp_path, "nonexistent", "evt-xyz")
+
+    def test_overwrites_existing_value(self, tmp_path):
+        stem = "abc123_clip"
+        json_path = tmp_path / f"{stem}_results.json"
+        json_path.write_text(json.dumps({"source_event_id": "old"}))
+
+        _persist_source_event_id(tmp_path, stem, "new")
+
+        assert json.loads(json_path.read_text())["source_event_id"] == "new"
+
+
+# ---------------------------------------------------------------------------
+# _load_existing_jobs restores source_event_id
+# ---------------------------------------------------------------------------
+
+class TestLoadExistingJobsSourceEventId:
+    def test_source_event_id_restored_from_json(self, tmp_path, monkeypatch):
+        import src.webapp as webapp_module
+
+        monkeypatch.setattr(webapp_module, "_jobs", {})
+
+        job_id = "c" * 32
+        stem = f"{job_id}_clip"
+        result_data = {
+            "type": "video",
+            "video": "/path/to/clip.mp4",
+            "source_filename": "clip.mp4",
+            "display_name": "clip.mp4",
+            "source_event_id": "evt-12345",
+            "tracks": [],
+            "video_predictions": [],
+        }
+        (tmp_path / f"{stem}_results.json").write_text(json.dumps(result_data))
+
+        _load_existing_jobs(tmp_path)
+
+        assert webapp_module._jobs[job_id].source_event_id == "evt-12345"
+
+    def test_source_event_id_none_when_absent(self, tmp_path, monkeypatch):
+        import src.webapp as webapp_module
+
+        monkeypatch.setattr(webapp_module, "_jobs", {})
+
+        job_id = "d" * 32
+        stem = f"{job_id}_clip"
+        (tmp_path / f"{stem}_results.json").write_text(json.dumps({
+            "type": "video",
+            "video": "/p.mp4",
+            "source_filename": "p.mp4",
+            "display_name": "p.mp4",
+            "tracks": [],
+            "video_predictions": [],
+        }))
+
+        _load_existing_jobs(tmp_path)
+        assert webapp_module._jobs[job_id].source_event_id is None
 
 
 # ---------------------------------------------------------------------------

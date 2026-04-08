@@ -55,6 +55,61 @@ uv run scripts/identify_videos.py videos/   # CLI batch mode
 uv run scripts/tune_single_video.py   # single-video tuner
 ```
 
+## HTTP API
+
+In addition to the browser UI, BirdVision exposes a small JSON API for
+external clients (e.g. [birdcamgrabber](https://github.com/evandhoffman/birdcamgrabber)
+posting motion-event clips).
+
+### Auth
+
+API requests must include an `X-API-Token` header. Tokens are loaded from a
+YAML file referenced by `webapp.api_tokens_file` in `config.yaml`:
+
+```yaml
+# api_tokens.yaml — gitignored, mounted into the container
+tokens:
+  - name: birdcamgrabber
+    token: <hex>
+```
+
+Generate a token with `python -c 'import secrets; print(secrets.token_hex(32))'`.
+The browser-facing `/upload` route stays gated by Google OAuth as before;
+only the `/api/v1/*` endpoints check tokens. If `api_tokens_file` is unset
+or empty, `/api/v1/videos` returns `503`.
+
+### `POST /api/v1/videos`
+
+Multipart form upload. Submits a video clip for processing and returns a
+job id immediately (processing is async). The clip is ingested through the
+same content-addressed asset store as browser uploads, so identical clips
+deduplicate on disk.
+
+| Field             | Required | Description                                          |
+|-------------------|----------|------------------------------------------------------|
+| `file`            | yes      | Video file                                            |
+| `captured_at`     | yes      | ISO-8601 timestamp of the source event               |
+| `latitude`        | no       | Decimal degrees; falls back to `metadata.latitude`   |
+| `longitude`       | no       | Decimal degrees; falls back to `metadata.longitude`  |
+| `source`          | no       | Short client name (e.g. `birdcamgrabber`)            |
+| `source_event_id` | no       | Opaque upstream id; surfaced on the job page         |
+
+Response: `202 Accepted` with `{"job_id": "...", "url": "/jobs/<id>", "status": "pending"}`.
+Errors: `400` for malformed/non-video uploads, `401` for bad auth, `503` if
+no tokens are configured.
+
+```bash
+curl -X POST https://birdvision.example.com/api/v1/videos \
+  -H "X-API-Token: $BIRDVISION_TOKEN" \
+  -F "file=@clip.mp4" \
+  -F "captured_at=2026-04-07T12:34:56Z" \
+  -F "latitude=40.77" -F "longitude=-73.97" \
+  -F "source=birdcamgrabber" -F "source_event_id=evt-abc"
+```
+
+API-uploaded jobs are tagged with `submitted_by=<source>@api` so they appear
+in the existing "Submitted by" line in the UI without special-casing.
+
 ## eBird priors
 
 Species frequency data is sourced from eBird bar chart downloads for the

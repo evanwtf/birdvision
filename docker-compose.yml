@@ -14,6 +14,7 @@ services:
       - BIRDVISION_DEBUG=${BIRDVISION_DEBUG:-}
     volumes:
       - ./config.yaml:/data/config.yaml:ro
+      - ./api_tokens.yaml:/data/api_tokens.yaml:ro
       - ./videos:/data/videos
       - ./results:/data/results
       - ./models:/data/models

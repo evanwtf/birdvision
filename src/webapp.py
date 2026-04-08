@@ -19,7 +19,7 @@ from urllib.parse import quote
 
 import yaml
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -66,6 +66,7 @@ class Job:
         self.selected_date: Optional[datetime] = None
         self.result_stem: Optional[str] = None
         self.submitted_by: Optional[str] = None
+        self.source_event_id: Optional[str] = None  # opaque upstream id (API uploads only)
 
     @property
     def slug(self) -> str:
@@ -302,6 +303,18 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
     results_dir = Path(config.get("output", {}).get("results_dir", "results"))
     results_dir.mkdir(parents=True, exist_ok=True)
     asset_store = AssetStore(upload_dir)
+
+    api_tokens_path_str = config.get("webapp", {}).get("api_tokens_file")
+    api_tokens: dict[str, str] = {}
+    if api_tokens_path_str:
+        api_tokens = _load_api_tokens(Path(api_tokens_path_str))
+        if api_tokens:
+            logger.info(f"Loaded {len(api_tokens)} API token(s) from {api_tokens_path_str}")
+        else:
+            logger.warning(
+                f"API tokens file {api_tokens_path_str} missing or empty — "
+                f"/api/v1/videos will return 503 until tokens are configured"
+            )
 
     pipeline: Optional[BirdIdentificationPipeline] = None
 
@@ -569,6 +582,106 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         if len(created_jobs) == 1:
             return RedirectResponse(f"/jobs/{created_jobs[0].id}", status_code=303)
         return RedirectResponse("/", status_code=303)
+
+    @app.post("/api/v1/videos")
+    async def api_upload_video(
+        file: UploadFile = File(...),
+        captured_at: str = Form(...),
+        latitude: Optional[float] = Form(None),
+        longitude: Optional[float] = Form(None),
+        source: Optional[str] = Form(None),
+        source_event_id: Optional[str] = Form(None),
+        x_api_token: Optional[str] = Header(None, alias="X-API-Token"),
+    ):
+        # ── Auth ──────────────────────────────────────────────────────────
+        # Token-based auth, separate from the browser /upload Google OAuth
+        # gate. If no tokens are configured the endpoint is disabled.
+        if not api_tokens:
+            raise HTTPException(
+                status_code=503,
+                detail="API ingest is not configured (set webapp.api_tokens_file)",
+            )
+        if not x_api_token or x_api_token not in api_tokens:
+            raise HTTPException(status_code=401, detail="Invalid or missing X-API-Token")
+        client_name = api_tokens[x_api_token]
+
+        # ── Validate captured_at ──────────────────────────────────────────
+        try:
+            video_date = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"captured_at must be ISO-8601, got: {captured_at!r}",
+            )
+
+        # ── Read file and ingest into the content-addressed asset store ───
+        contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="Empty file")
+
+        original_filename = Path(file.filename or "upload.mp4").name
+        inspected = asset_store.inspect_bytes(
+            original_filename=original_filename,
+            content_type=file.content_type,
+            data=contents,
+            client_metadata=None,
+        )
+        if inspected.get("media_type") != "video":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Expected a video upload, got media_type={inspected.get('media_type')}",
+            )
+
+        # ── Build a Job through the same path as the browser flow ────────
+        selected_assets = [{
+            "sha256": inspected["sha256"],
+            "original_filename": inspected["original_filename"],
+            "selected": True,
+        }]
+        job_or_error = await _create_job_from_selection(
+            selected_assets=selected_assets,
+            asset_store=asset_store,
+        )
+        if isinstance(job_or_error, JSONResponse):
+            return job_or_error
+        job = job_or_error
+
+        # Override metadata with what the API client told us. The clip is
+        # likely a re-encoded MP4 with no exif/QuickTime tags, so the
+        # asset_store's auto-extracted values are usually None.
+        job.selected_date = video_date
+        if latitude is not None or longitude is not None:
+            job.video_meta = VideoMetadata(
+                recorded_at=video_date,
+                latitude=latitude,
+                longitude=longitude,
+            )
+        elif job.video_meta is None:
+            job.video_meta = VideoMetadata(recorded_at=video_date)
+        else:
+            job.video_meta.recorded_at = video_date
+
+        # Surface the API client as the submitter so the existing
+        # "Submitted by" UI works without special-casing API jobs.
+        job.submitted_by = f"{source or client_name}@api"
+        job.source_event_id = source_event_id
+
+        _jobs[job.id] = job
+        await _queue.put(job)
+        logger.info(
+            f"API video ingest from {client_name}: job={job.id} "
+            f"sha256={inspected['sha256'][:12]} "
+            f"event_id={source_event_id} captured_at={video_date.isoformat()}"
+        )
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "job_id": job.id,
+                "url": f"/jobs/{job.id}",
+                "status": job.status,
+            },
+        )
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     async def job_detail_redirect(request: Request, job_id: str):
@@ -916,6 +1029,38 @@ def build_google_oauth_client(settings: AuthSettings):
     return oauth.create_client("google")
 
 
+def _load_api_tokens(path: Path) -> dict[str, str]:
+    """Load API tokens from a YAML file. Returns ``{token: client_name}``.
+
+    File format::
+
+        tokens:
+          - name: birdcamgrabber
+            token: <random-hex>
+
+    Returns an empty dict if the file is missing, unreadable, or empty.
+    """
+    if not path.exists():
+        return {}
+    try:
+        data = yaml.safe_load(path.read_text()) or {}
+    except Exception as exc:
+        logger.warning(f"Could not parse api_tokens_file {path}: {exc}")
+        return {}
+    out: dict[str, str] = {}
+    entries = data.get("tokens") or []
+    if not isinstance(entries, list):
+        return {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        token = entry.get("token")
+        name = entry.get("name") or "unknown"
+        if isinstance(token, str) and token:
+            out[token] = name
+    return out
+
+
 def _load_existing_jobs(results_dir: Path):
     pattern = re.compile(r'^([0-9a-f]{32})_(.+)_results\.json$')
     legacy_pattern = re.compile(r'^([0-9a-f]{32})_results\.json$')
@@ -960,6 +1105,7 @@ def _load_existing_jobs(results_dir: Path):
                 except ValueError:
                     pass
             job.submitted_by = result.get("submitted_by")
+            job.source_event_id = result.get("source_event_id")
             if job.assets:
                 job.video_meta = build_video_meta_from_asset(job.assets[0])
             elif result.get("latitude") is not None and result.get("longitude") is not None:
@@ -999,6 +1145,19 @@ def _persist_submitted_by(results_dir: Path, result_stem: str, submitted_by: str
         json_path.write_text(json.dumps(data, indent=2))
     except Exception as exc:
         logger.warning(f"Could not persist submitted_by to {json_path}: {exc}")
+
+
+def _persist_source_event_id(results_dir: Path, result_stem: str, source_event_id: str) -> None:
+    """Append source_event_id to the already-written results JSON file."""
+    json_path = results_dir / f"{result_stem}_results.json"
+    if not json_path.exists():
+        return
+    try:
+        data = json.loads(json_path.read_text())
+        data["source_event_id"] = source_event_id
+        json_path.write_text(json.dumps(data, indent=2))
+    except Exception as exc:
+        logger.warning(f"Could not persist source_event_id to {json_path}: {exc}")
 
 
 async def _worker(
@@ -1052,6 +1211,10 @@ async def _worker(
                 result["submitted_by"] = job.submitted_by
                 if results_dir and job.result_stem:
                     _persist_submitted_by(results_dir, job.result_stem, job.submitted_by)
+            if job.source_event_id:
+                result["source_event_id"] = job.source_event_id
+                if results_dir and job.result_stem:
+                    _persist_source_event_id(results_dir, job.result_stem, job.source_event_id)
             job.result = result
             job.status = "done"
             logger.info(f"Job {job.id} done.")

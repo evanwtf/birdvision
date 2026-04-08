@@ -296,7 +296,10 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
   </div>
 
   {% if user_email and job.submitted_by %}
-  <p class="meta">Submitted by: {{ job.submitted_by }}</p>
+  <p class="meta">
+    Submitted by: {{ job.submitted_by }}
+    {% if job.source_event_id %} &nbsp;·&nbsp; event <code>{{ job.source_event_id }}</code>{% endif %}
+  </p>
   {% endif %}
 
   {% if job.status in ('done', 'error') and can_upload %}
