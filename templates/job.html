@@ -207,6 +207,14 @@
 .prob-bar { background: var(--accent); height: 6px; border-radius: 4px; }
 .prob-label { width: 3.5rem; text-align: right; font-size: 0.82rem; color: var(--muted); flex-shrink: 0; }
 .explanation { font-size: 0.85rem; color: var(--muted); font-style: italic; padding: 0.5rem 1rem 0.25rem; line-height: 1.5; }
+.score-breakdown { margin: 0.25rem 1rem 0.5rem; font-size: 0.82rem; }
+.score-breakdown > summary { cursor: pointer; color: var(--muted); list-style: none; display: block; padding: 0.2rem 0; }
+.score-breakdown > summary::-webkit-details-marker { display: none; }
+.breakdown-table { border-collapse: collapse; margin-top: 0.4rem; width: auto; }
+.breakdown-table th, .breakdown-table td { padding: 0.2rem 0.8rem 0.2rem 0; text-align: left; white-space: nowrap; }
+.breakdown-table th { color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
+.breakdown-table td:last-child { font-variant-numeric: tabular-nums; }
+.breakdown-final td { font-weight: 700; color: var(--accent); }
 .error-msg { color: var(--message-error-text); background: var(--message-error-bg); border-radius: 8px; padding: 1rem; font-size: 0.9rem; }
 .pred-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 .pred-table th { text-align: left; font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; padding: 0.4rem 0.5rem; border-bottom: 2px solid var(--surface-border); }
@@ -596,6 +604,51 @@ tr.pred-dim td, li.pred-dim { opacity: 0.4; font-size: 0.85em; }
           </div>
           {% if track.explanation %}
           <p class="explanation">{{ track.explanation }}</p>
+          {% endif %}
+          {% if track.bioclip_predictions or track.efficientnet_predictions %}
+          {% set top_species = track.averaged_predictions[0].species if track.averaged_predictions else None %}
+          {% if top_species %}
+          <details class="score-breakdown">
+            <summary>Score breakdown for <strong>{{ top_species }}</strong></summary>
+            <table class="breakdown-table">
+              <thead><tr><th>Model</th><th>Species</th><th>Score</th></tr></thead>
+              <tbody>
+              {% if track.bioclip_predictions %}
+              {% set bc_top = track.bioclip_predictions[0] %}
+              <tr>
+                <td>BioCLIP</td>
+                <td><a href="https://www.allaboutbirds.org/guide/{{ bc_top.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ bc_top.species }}</a></td>
+                <td>{{ "%.1f"|format(bc_top.probability * 100) }}%</td>
+              </tr>
+              {% endif %}
+              {% if track.efficientnet_predictions %}
+              {% set en_top = track.efficientnet_predictions[0] %}
+              <tr>
+                <td>EfficientNet</td>
+                <td><a href="https://www.allaboutbirds.org/guide/{{ en_top.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ en_top.species }}</a></td>
+                <td>{{ "%.1f"|format(en_top.probability * 100) }}%</td>
+              </tr>
+              {% endif %}
+              {% if track.raw_predictions %}
+              {% set raw_top = track.raw_predictions[0] %}
+              <tr>
+                <td>Ensemble (pre-prior)</td>
+                <td><a href="https://www.allaboutbirds.org/guide/{{ raw_top.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ raw_top.species }}</a></td>
+                <td>{{ "%.1f"|format(raw_top.probability * 100) }}%</td>
+              </tr>
+              {% endif %}
+              {% if track.averaged_predictions %}
+              {% set final_top = track.averaged_predictions[0] %}
+              <tr class="breakdown-final">
+                <td>Final (post-prior)</td>
+                <td><a href="https://www.allaboutbirds.org/guide/{{ final_top.species.replace(' ', '_') }}/" target="_blank" rel="noopener">{{ final_top.species }}</a></td>
+                <td>{{ "%.1f"|format(final_top.probability * 100) }}%</td>
+              </tr>
+              {% endif %}
+              </tbody>
+            </table>
+          </details>
+          {% endif %}
           {% endif %}
           <ul class="predictions">
             {% for pred in track.averaged_predictions | selectattr("probability", "ge", 0.02) %}

@@ -18,34 +18,38 @@ class Track:
     prediction_weights: List[float] = field(default_factory=list)
     # Raw visual predictions (pre-prior), parallel to prediction_history
     raw_prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
+    # Per-model breakdown (only populated when ensemble is active)
+    bioclip_prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
+    efficientnet_prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
+
+    def _weighted_average(self, history: List[List[Tuple[str, float]]]) -> Optional[List[Tuple[str, float]]]:
+        if not history:
+            return None
+        weights = self.prediction_weights if self.prediction_weights else [1.0] * len(history)
+        total_weight = sum(weights)
+        scores: Dict[str, float] = {}
+        for preds, w in zip(history, weights):
+            for species, prob in preds:
+                scores[species] = scores.get(species, 0.0) + prob * w
+        return sorted([(s, p / total_weight) for s, p in scores.items()], key=lambda x: -x[1])
+
+    @property
+    def best_bioclip_prediction(self) -> Optional[List[Tuple[str, float]]]:
+        return self._weighted_average(self.bioclip_prediction_history)
+
+    @property
+    def best_efficientnet_prediction(self) -> Optional[List[Tuple[str, float]]]:
+        return self._weighted_average(self.efficientnet_prediction_history)
 
     @property
     def best_raw_prediction(self) -> Optional[List[Tuple[str, float]]]:
         """Weighted average of raw visual scores (before eBird priors)."""
-        if not self.raw_prediction_history:
-            return None
-        weights = self.prediction_weights if self.prediction_weights else [1.0] * len(self.raw_prediction_history)
-        total_weight = sum(weights)
-        scores: Dict[str, float] = {}
-        for preds, w in zip(self.raw_prediction_history, weights):
-            for species, prob in preds:
-                scores[species] = scores.get(species, 0.0) + prob * w
-        averaged = [(s, p / total_weight) for s, p in scores.items()]
-        return sorted(averaged, key=lambda x: -x[1])
+        return self._weighted_average(self.raw_prediction_history)
 
     @property
     def best_prediction(self) -> Optional[List[Tuple[str, float]]]:
         """Weighted average of probabilities across all classification events."""
-        if not self.prediction_history:
-            return None
-        weights = self.prediction_weights if self.prediction_weights else [1.0] * len(self.prediction_history)
-        total_weight = sum(weights)
-        scores: Dict[str, float] = {}
-        for preds, w in zip(self.prediction_history, weights):
-            for species, prob in preds:
-                scores[species] = scores.get(species, 0.0) + prob * w
-        averaged = [(s, p / total_weight) for s, p in scores.items()]
-        return sorted(averaged, key=lambda x: -x[1])
+        return self._weighted_average(self.prediction_history)
 
 
 def iou(box1: np.ndarray, box2: np.ndarray) -> float:

@@ -12,6 +12,8 @@ services:
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - SESSION_SECRET=${SESSION_SECRET:-}
       - BIRDVISION_DEBUG=${BIRDVISION_DEBUG:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
     volumes:
       - ./config.yaml:/data/config.yaml:ro
       - ./api_tokens.yaml:/data/api_tokens.yaml:ro

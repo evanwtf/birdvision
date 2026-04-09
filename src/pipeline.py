@@ -756,7 +756,12 @@ class BirdIdentificationPipeline:
 
                 if to_classify_crops:
                     batch_results = self.classifier.classify_batch(to_classify_crops)
-                    for tid, preds, crop in zip(to_classify_ids, batch_results, to_classify_crops):
+                    # Capture per-model scores if ensemble is active
+                    bc_batch = getattr(self.classifier, "last_bioclip_results", [None] * len(batch_results))
+                    en_batch = getattr(self.classifier, "last_efficientnet_results", [None] * len(batch_results))
+                    for tid, preds, crop, bc_preds, en_preds in zip(
+                        to_classify_ids, batch_results, to_classify_crops, bc_batch, en_batch
+                    ):
                         raw_preds = preds[:]  # save pre-prior visual scores
                         raw_top_conf = raw_preds[0][1] if raw_preds else 0.0
                         tracks[tid].last_classified_frame = frame_idx
@@ -788,6 +793,10 @@ class BirdIdentificationPipeline:
                         tracks[tid].prediction_history.append(preds)
                         tracks[tid].raw_prediction_history.append(raw_preds)
                         tracks[tid].prediction_weights.append(center_weight)
+                        if bc_preds is not None:
+                            tracks[tid].bioclip_prediction_history.append(bc_preds)
+                        if en_preds is not None:
+                            tracks[tid].efficientnet_prediction_history.append(en_preds)
 
                         if raw_top_conf > best_crops.get(tid, (None, -1.0))[1]:
                             best_crops[tid] = (crop.copy(), raw_top_conf)
@@ -798,6 +807,9 @@ class BirdIdentificationPipeline:
                             "timestamp_s": round(timestamp_s, 2),
                             "track_id": tid,
                             "predictions": [{"species": s, "probability": round(p, 4)} for s, p in preds],
+                            "bioclip_predictions": [{"species": s, "probability": round(p, 4)} for s, p in (bc_preds or [])[:5]],
+                            "efficientnet_predictions": [{"species": s, "probability": round(p, 4)} for s, p in (en_preds or [])[:5]],
+                            "raw_predictions": [{"species": s, "probability": round(p, 4)} for s, p in raw_preds[:5]],
                         }
                         track_events.setdefault(tid, []).append(event)
                         top_species = preds[0][0] if preds else None
@@ -862,6 +874,8 @@ class BirdIdentificationPipeline:
                 video_track_predictions.append(best)
                 if raw:
                     video_raw_predictions.append(raw)
+                bc_avg = track.best_bioclip_prediction
+                en_avg = track.best_efficientnet_prediction
                 track_summaries.append({
                     "track_id": tid,
                     "frames_tracked": track.frame_count,
@@ -872,6 +886,12 @@ class BirdIdentificationPipeline:
                     "raw_predictions": [
                         {"species": s, "probability": round(p, 4)} for s, p in raw[:5]
                     ] if raw else [],
+                    "bioclip_predictions": [
+                        {"species": s, "probability": round(p, 4)} for s, p in bc_avg[:5]
+                    ] if bc_avg else [],
+                    "efficientnet_predictions": [
+                        {"species": s, "probability": round(p, 4)} for s, p in en_avg[:5]
+                    ] if en_avg else [],
                     "explanation": explanation,
                     "crop": saved_crops.get(tid),
                 })
@@ -1062,7 +1082,11 @@ class BirdIdentificationPipeline:
             image_raw_species_scores: Dict[str, float] = {}
             if crops:
                 batch_preds = self.classifier.classify_batch(crops)
-                for i, (preds, crop) in enumerate(zip(batch_preds, crops)):
+                img_bc_batch = getattr(self.classifier, "last_bioclip_results", [None] * len(batch_preds))
+                img_en_batch = getattr(self.classifier, "last_efficientnet_results", [None] * len(batch_preds))
+                for i, (preds, crop, img_bc_preds, img_en_preds) in enumerate(
+                    zip(batch_preds, crops, img_bc_batch, img_en_batch)
+                ):
                     raw_preds = preds[:]
                     raw_top_conf = raw_preds[0][1] if raw_preds else 0.0
 
@@ -1103,6 +1127,14 @@ class BirdIdentificationPipeline:
                         "raw_species": [
                             {"species": s, "probability": round(p, 4)}
                             for s, p in raw_preds[:5]
+                        ],
+                        "bioclip_species": [
+                            {"species": s, "probability": round(p, 4)}
+                            for s, p in (img_bc_preds or [])[:5]
+                        ],
+                        "efficientnet_species": [
+                            {"species": s, "probability": round(p, 4)}
+                            for s, p in (img_en_preds or [])[:5]
                         ],
                         "crop_file": crop_file,
                     })
@@ -1177,15 +1209,39 @@ class BirdIdentificationPipeline:
         if not self.verbose_runtime_logs:
             return
         top = event["predictions"][0]
-        others = ", ".join(
-            f"{p['species']} {p['probability']:.1%}"
-            for p in event["predictions"][1:3]
-        )
-        logger.info(
-            f"  [{event['timestamp_s']:.1f}s] track#{event['track_id']} → "
-            f"{top['species']} ({top['probability']:.1%})"
-            + (f"  | also: {others}" if others else "")
-        )
+        top_species = top["species"]
+        final_prob = top["probability"]
+
+        bc_preds = event.get("bioclip_predictions", [])
+        en_preds = event.get("efficientnet_predictions", [])
+        raw_preds = event.get("raw_predictions", [])
+
+        if bc_preds and en_preds:
+            bc_score = next((p["probability"] for p in bc_preds if p["species"] == top_species), None)
+            en_score = next((p["probability"] for p in en_preds if p["species"] == top_species), None)
+            raw_score = next((p["probability"] for p in raw_preds if p["species"] == top_species), None)
+            parts = []
+            if bc_score is not None:
+                parts.append(f"BioCLIP {bc_score:.1%}")
+            if en_score is not None:
+                parts.append(f"EfficientNet {en_score:.1%}")
+            if raw_score is not None:
+                parts.append(f"Ensemble {raw_score:.1%}")
+            parts.append(f"Final {final_prob:.1%}")
+            logger.info(
+                f"  [{event['timestamp_s']:.1f}s] track#{event['track_id']} → "
+                f"{top_species}: {' | '.join(parts)}"
+            )
+        else:
+            others = ", ".join(
+                f"{p['species']} {p['probability']:.1%}"
+                for p in event["predictions"][1:3]
+            )
+            logger.info(
+                f"  [{event['timestamp_s']:.1f}s] track#{event['track_id']} → "
+                f"{top_species} ({final_prob:.1%})"
+                + (f"  | also: {others}" if others else "")
+            )
 
     def _print_summary(self, summary: dict):
         print(f"\n{'='*60}")
