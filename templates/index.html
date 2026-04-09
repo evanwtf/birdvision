@@ -145,17 +145,17 @@
 .jobs-list li {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.7rem 0;
+  gap: 0.4rem;
+  padding: 0.5rem 0;
   border-bottom: 1px solid var(--line);
   font-size: 0.95rem;
 }
 .jobs-list li:last-child { border-bottom: none; }
 .badge {
   display: inline-block;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 700;
-  padding: 0.15rem 0.5rem;
+  padding: 0.1rem 0.4rem;
   border-radius: 99px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -163,29 +163,48 @@
 }
 .badge-pending  { background: var(--status-pending-bg); color: var(--status-pending-text); }
 .badge-running  { background: var(--status-running-bg); color: var(--status-running-text); }
-.badge-done     { background: var(--status-done-bg); color: var(--status-done-text); }
 .badge-error    { background: var(--status-error-bg); color: var(--status-error-text); }
-.badge-media {
-  background: var(--surface-muted);
-  color: var(--text);
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 0.76rem;
-  padding: 0.18rem 0.6rem;
+.job-media {
+  flex-shrink: 0;
+  font-size: 1rem;
+  line-height: 1;
 }
 .job-name {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.4rem;
   text-decoration: none;
   color: inherit;
 }
+.job-name > .job-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 .job-name:hover { color: var(--accent); }
-.job-time { font-size: 0.78rem; color: var(--muted); flex-shrink: 0; margin-left: 0.75rem; opacity: 0.8; }
+.job-time {
+  font-size: 0.72rem;
+  color: var(--muted);
+  flex-shrink: 0;
+  opacity: 0.8;
+  text-align: right;
+  line-height: 1.15;
+}
+.job-time .job-time-rel { display: block; font-size: 0.66rem; opacity: 0.75; }
+@media (max-width: 600px) {
+  #jobs-card .card { padding: 1rem 0.85rem; }
+  .jobs-list li { gap: 0.35rem; font-size: 0.9rem; }
+  .job-media { font-size: 0.95rem; }
+  .job-time { font-size: 0.68rem; }
+  .job-time .job-time-rel { font-size: 0.62rem; }
+}
 .empty { color: var(--muted); font-size: 0.9rem; text-align: center; padding: 1rem 0; }
 .pagination {
   display: flex;
@@ -213,6 +232,7 @@
 {% endblock %}
 
 {% block content %}
+{% if can_upload or (auth_enabled and user_email) %}
 <div class="card">
   <h2>Upload Videos and Photos</h2>
   {% if can_upload %}
@@ -243,12 +263,9 @@
   <div class="message message-error" style="margin-bottom:0">
     You are signed in as <strong>{{ user_email }}</strong> but not authorized to upload. Contact the admin to request access.
   </div>
-  {% elif auth_enabled %}
-  <div class="message message-info" style="margin-bottom:0">
-    Sign in to upload media. <a href="/login">Sign in with Google</a>.
-  </div>
   {% endif %}
 </div>
+{% endif %}
 
 <div id="jobs-card">
 {% if jobs %}
@@ -257,11 +274,15 @@
   <ul class="jobs-list">
     {% for job in jobs %}
     <li>
-      <span class="badge badge-{{ job.status }}">{{ job.status }}</span>
-      <span class="badge badge-media">{{ job.media_label }}</span>
+      {% if job.status == 'pending' or job.status == 'running' %}
+      <span class="badge badge-{{ job.status }}">Processing…</span>
+      {% elif job.status == 'error' %}
+      <span class="badge badge-error">Error</span>
+      {% endif %}
+      <span class="job-media" aria-label="{{ 'video' if job.media_type != 'images' else 'photo' }}">{{ job.media_label }}</span>
       <a class="job-name" href="/jobs/{{ job.id }}/{{ job.slug }}">
-        {{ job.summary }}
-        <time class="job-time" datetime="{{ job.created_at.strftime('%Y-%m-%dT%H:%M:%S') }}Z">{{ job.created_at.strftime("%b %-d, %H:%M") }}</time>
+        <span class="job-summary">{{ job.summary }}</span>
+        <time class="job-time" datetime="{{ job.created_at.strftime('%Y-%m-%dT%H:%M:%S') }}Z">{{ job.created_at.strftime("%b %-d") }}</time>
       </a>
     </li>
     {% endfor %}
@@ -688,16 +709,44 @@ zone.addEventListener('drop', (e) => {
     return el.innerHTML;
   }
 
+  function formatRelative(diffMs) {
+    const abs = Math.abs(diffMs);
+    const mins = Math.round(abs / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return hours + 'h ago';
+    const days = Math.round(hours / 24);
+    return days + 'd ago';
+  }
+
   function formatJobTime(iso) {
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    if (Number.isNaN(d.getTime())) return { primary: iso, relative: '' };
+    const now = new Date();
+    const sameDay = d.getFullYear() === now.getFullYear()
+      && d.getMonth() === now.getMonth()
+      && d.getDate() === now.getDate();
+    if (sameDay) {
+      const primary = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+      return { primary: primary, relative: formatRelative(now - d) };
+    }
+    const sameYear = d.getFullYear() === now.getFullYear();
+    const primary = d.toLocaleDateString(undefined, sameYear
+      ? { month: 'short', day: 'numeric' }
+      : { year: 'numeric', month: 'short', day: 'numeric' });
+    return { primary: primary, relative: '' };
+  }
+
+  function renderJobTime(el) {
+    const parts = formatJobTime(el.getAttribute('datetime'));
+    let html = escapeHtml(parts.primary);
+    if (parts.relative) html += '<span class="job-time-rel">' + escapeHtml(parts.relative) + '</span>';
+    el.innerHTML = html;
   }
 
   function localiseJobTimes() {
-    document.querySelectorAll('time.job-time[datetime]').forEach(el => {
-      el.textContent = formatJobTime(el.getAttribute('datetime'));
-    });
+    document.querySelectorAll('time.job-time[datetime]').forEach(renderJobTime);
   }
 
   function renderJobs(data) {
@@ -708,12 +757,22 @@ zone.addEventListener('drop', (e) => {
     }
     let html = '<div class="card"><h2>Recent Jobs</h2><ul class="jobs-list">';
     for (const job of data.jobs) {
+      const t = formatJobTime(job.created_at);
+      let statusBadge = '';
+      if (job.status === 'pending' || job.status === 'running') {
+        statusBadge = '<span class="badge badge-' + escapeHtml(job.status) + '">Processing\u2026</span>';
+      } else if (job.status === 'error') {
+        statusBadge = '<span class="badge badge-error">Error</span>';
+      }
+      const mediaAria = job.media_type === 'images' ? 'photo' : 'video';
+      let timeHtml = escapeHtml(t.primary);
+      if (t.relative) timeHtml += '<span class="job-time-rel">' + escapeHtml(t.relative) + '</span>';
       html += '<li>'
-        + '<span class="badge badge-' + escapeHtml(job.status) + '">' + escapeHtml(job.status) + '</span>'
-        + '<span class="badge badge-media">' + escapeHtml(job.media_label) + '</span>'
+        + statusBadge
+        + '<span class="job-media" aria-label="' + mediaAria + '">' + escapeHtml(job.media_label) + '</span>'
         + '<a class="job-name" href="/jobs/' + escapeHtml(job.id) + '/' + escapeHtml(job.slug) + '">'
-        + escapeHtml(job.summary)
-        + '<time class="job-time" datetime="' + escapeHtml(job.created_at) + '">' + escapeHtml(formatJobTime(job.created_at)) + '</time>'
+        + '<span class="job-summary">' + escapeHtml(job.summary) + '</span>'
+        + '<time class="job-time" datetime="' + escapeHtml(job.created_at) + '">' + timeHtml + '</time>'
         + '</a></li>';
     }
     html += '</ul>';

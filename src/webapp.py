@@ -91,8 +91,8 @@ class Job:
     def media_label(self) -> str:
         if self.media_type == "images":
             n = self._image_count()
-            return f"{n} Photo{'s' if n != 1 else ''}"
-        return "Video"
+            return f"📷×{n}" if n > 1 else "📷"
+        return "🎥"
 
     @property
     def summary(self) -> str:
@@ -113,7 +113,7 @@ class Job:
         return n
 
     def _species_summary_label(self) -> Optional[str]:
-        """Build a label like '2024-02-03: Mourning Dove (82%), Blue Jay (74%), 2 others'."""
+        """Build a label like 'Mourning Dove (82%), Blue Jay (74%), 2 others'."""
         if not self.result or self.status != "done":
             return None
 
@@ -151,11 +151,6 @@ class Job:
                 f"{others} other{'s' if others != 1 else ''}"
             )
 
-        # Prefix with date if available
-        date_str = self.result.get("date")
-        if date_str:
-            date_prefix = date_str[:10]
-            return f"{date_prefix}: {species_text}"
         return species_text
 
 
@@ -502,6 +497,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
                     "slug": j.slug,
                     "status": j.status,
                     "media_label": j.media_label,
+                    "media_type": j.media_type,
                     "summary": j.summary,
                     "created_at": j.created_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 }
