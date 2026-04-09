@@ -61,6 +61,16 @@ def prefetch_gemma(model_name: str) -> None:
     logger.info("Gemma OK: %s", model_name)
 
 
+def prefetch_hf_image_classifier(model_name: str) -> None:
+    logger.info("Checking HF image classifier: %s", model_name)
+    from transformers import pipeline as hf_pipeline
+    from PIL import Image
+    pipe = hf_pipeline("image-classification", model=model_name, device=-1, top_k=1)
+    pipe(Image.new("RGB", (224, 224)))
+    del pipe
+    logger.info("HF image classifier OK: %s", model_name)
+
+
 def prefetch_yolo(model_path: str) -> None:
     """YOLO downloads yolov8n.pt (etc.) from ultralytics on first use."""
     from ultralytics import YOLO
@@ -105,6 +115,9 @@ def main() -> None:
 
             elif backend == "gemma4":
                 prefetch_gemma(model_name)
+
+            elif backend == "hf_image_classifier":
+                prefetch_hf_image_classifier(model_name)
 
             else:
                 logger.warning("Unknown backend %r — skipping prefetch", backend)

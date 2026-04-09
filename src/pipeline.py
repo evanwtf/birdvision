@@ -66,6 +66,28 @@ class BirdIdentificationPipeline:
             device=cls.get("device", "cuda"),
             top_k=cls.get("top_k", 5),
         )
+        ensemble_cfg = cls.get("ensemble", {})
+        if ensemble_cfg.get("enabled", False):
+            from .ensemble_classifier import EnsembleClassifier
+            from .hf_classifier import HFImageClassifier
+            secondary_model = ensemble_cfg.get("secondary_model", "chriamue/bird-species-classifier")
+            logger.info("Ensemble mode enabled — loading secondary classifier: %s", secondary_model)
+            secondary = HFImageClassifier(
+                model_name=secondary_model,
+                species_list=[],  # set later by load_species()
+                device=cls.get("device", "cuda"),
+            )
+            self.classifier = EnsembleClassifier(
+                bioclip=self.classifier,
+                secondary=secondary,
+                alpha=ensemble_cfg.get("alpha", 0.6),
+                beta=ensemble_cfg.get("beta", 0.4),
+            )
+            logger.info(
+                "Ensemble ready: BioCLIP^%.1f × EfficientNet^%.1f",
+                ensemble_cfg.get("alpha", 0.6),
+                ensemble_cfg.get("beta", 0.4),
+            )
         self.tracker = BirdTracker(
             max_disappeared=trk.get("max_disappeared", 30),
             iou_threshold=trk.get("iou_threshold", 0.3),

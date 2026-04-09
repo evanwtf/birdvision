@@ -14,6 +14,11 @@ classifier:
   crop_closeup_area_ratio: 0.06
   min_crop_area: 2500
   min_event_confidence: 0.35
+  ensemble:
+    enabled: true
+    secondary_model: chriamue/bird-species-classifier
+    alpha: 0.6   # BioCLIP weight
+    beta: 0.4    # EfficientNet-BIRDS525 weight
 tracker:
   max_disappeared: 120
   iou_threshold: 0.2

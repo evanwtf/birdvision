@@ -79,6 +79,14 @@ def _load_classifier_backend(model_cfg: dict):
             return None
         # Species list is loaded separately; classifier is initialized lazily
         return model_cfg
+    if backend == "hf_image_classifier":
+        try:
+            from src.hf_classifier import HFImageClassifier  # noqa: F401
+        except ImportError:
+            logger.warning("hf_classifier module not found — skipping model: %s", model_cfg.get("id"))
+            return None
+        # Classifier is initialized lazily (needs species list)
+        return model_cfg
     raise ValueError(f"Unknown backend: {backend!r}")
 
 
@@ -216,6 +224,109 @@ def _run_gemma_on_stills(
 
 
 # ---------------------------------------------------------------------------
+# HF image-classifier inference on padded crops from video stills
+# ---------------------------------------------------------------------------
+
+def _run_hf_on_stills(
+    result: dict,
+    crops_dir: Path,
+    classifier,
+    pad_factor: float = 0.5,
+) -> list[dict]:
+    """
+    For each detection in video_stills, crop the bird region from the full
+    annotated frame with generous padding so the model sees context beyond
+    the tight YOLO bbox.  Falls back to the track crop images when no
+    video_stills are present.
+
+    pad_factor: fraction of bbox dimension added as padding on each side
+                (0.5 = 50% of width/height added per side).
+    """
+    import cv2
+
+    tracks_out = []
+    video_stills = result.get("video_stills", [])
+
+    if not video_stills:
+        # Fallback: tight track crops
+        for track in result.get("tracks", []):
+            crop_file = track.get("crop", "")
+            crop_path = crops_dir / crop_file
+            if not crop_file or not crop_path.exists():
+                continue
+            frame_bgr = cv2.imread(str(crop_path))
+            if frame_bgr is None:
+                continue
+            scores = classifier.classify(frame_bgr)
+            top_species = [
+                {"species": sp, "score": round(sc, 4)}
+                for sp, sc in sorted(scores.items(), key=lambda x: -x[1])
+                if sc > 0
+            ][:10]
+            if top_species:
+                tracks_out.append({
+                    "track_id": track.get("track_id", 0),
+                    "crop_file": crop_file,
+                    "top_species": top_species,
+                })
+        return tracks_out
+
+    seen_track_ids: set[int] = set()
+
+    for still in video_stills:
+        annotated_file = still.get("annotated_file", "")
+        still_path = crops_dir / annotated_file
+        if not annotated_file or not still_path.exists():
+            continue
+
+        base_frame = cv2.imread(str(still_path))
+        if base_frame is None:
+            logger.warning("Could not read still: %s", still_path)
+            continue
+
+        h_frame, w_frame = base_frame.shape[:2]
+
+        for det in still.get("detections", []):
+            track_id = det.get("track_id", det.get("detection_index", 0))
+            if track_id in seen_track_ids:
+                continue
+            seen_track_ids.add(track_id)
+
+            bbox = det.get("bbox")
+            if not bbox or len(bbox) != 4:
+                continue
+
+            x1, y1, x2, y2 = [int(v) for v in bbox]
+            bw, bh = x2 - x1, y2 - y1
+            pad_x = int(bw * pad_factor)
+            pad_y = int(bh * pad_factor)
+            cx1 = max(0, x1 - pad_x)
+            cy1 = max(0, y1 - pad_y)
+            cx2 = min(w_frame, x2 + pad_x)
+            cy2 = min(h_frame, y2 + pad_y)
+
+            crop = base_frame[cy1:cy2, cx1:cx2]
+            if crop.size == 0:
+                continue
+
+            scores = classifier.classify(crop)
+            top_species = [
+                {"species": sp, "score": round(sc, 4)}
+                for sp, sc in sorted(scores.items(), key=lambda x: -x[1])
+                if sc > 0
+            ][:10]
+
+            if top_species:
+                tracks_out.append({
+                    "track_id": track_id,
+                    "crop_file": annotated_file,
+                    "top_species": top_species,
+                })
+
+    return tracks_out
+
+
+# ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
 
@@ -329,7 +440,7 @@ def run(cfg: dict, max_clips: int | None = None) -> None:
         if not pending:
             continue
 
-        # Lazy-init Gemma classifier
+        # Lazy-init classifier
         if model_cfg.get("backend") == "gemma4":
             from src.gemma_classifier import GemmaClassifier
             species_file = Path(
@@ -343,6 +454,18 @@ def run(cfg: dict, max_clips: int | None = None) -> None:
                 species_list=all_species,
                 location_hint=model_cfg.get("location_hint", ""),
             )
+        elif model_cfg.get("backend") == "hf_image_classifier":
+            from src.hf_classifier import HFImageClassifier
+            species_file = Path(
+                cfg.get("species_list_file")
+                or Path(__file__).parent.parent / "data" / "species_lists" / "north_america_common.txt"
+            )
+            all_species = [l.strip() for l in species_file.read_text().splitlines() if l.strip()]
+            logger.info("Loaded %d species from %s", len(all_species), species_file)
+            classifier = HFImageClassifier(
+                model_name=model_cfg["model"],
+                species_list=all_species,
+            )
 
         for result_file, result, asset_sha in pending:
             crops_dir = results_dir / f"{asset_sha}_crops"
@@ -354,6 +477,8 @@ def run(cfg: dict, max_clips: int | None = None) -> None:
                 tracks_out = _run_gemma_on_stills(
                     result, crops_dir, classifier, model_cfg,
                 )
+            elif model_cfg.get("backend") == "hf_image_classifier":
+                tracks_out = _run_hf_on_stills(result, crops_dir, classifier)
             else:
                 logger.error("Unhandled backend: %s", model_cfg.get("backend"))
                 continue

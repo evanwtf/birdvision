@@ -45,25 +45,34 @@ class BirdClassifier:
         self.text_features = torch.cat(all_features, dim=0)
         logger.info("Species embeddings ready.")
 
-    def classify_batch(self, crops_bgr: List[np.ndarray]) -> List[List[Tuple[str, float]]]:
-        """Classify a batch of BGR image crops. Returns top-k (species, probability) per crop."""
-        if not crops_bgr:
-            return []
+    def _encode_crops(self, crops_bgr: List[np.ndarray]) -> np.ndarray:
+        """Run BioCLIP image encoder and return full softmax probability matrix (n_crops × n_species)."""
         if self.text_features is None:
             raise RuntimeError("Call set_species() before classifying.")
-
         images = torch.stack([
             self.preprocess(Image.fromarray(crop[:, :, ::-1]))
             for crop in crops_bgr
         ]).to(self.device)
-
         with torch.no_grad():
             image_features = self.model.encode_image(images)
             image_features /= image_features.norm(dim=-1, keepdim=True)
             probs = (100.0 * image_features @ self.text_features.T).softmax(dim=-1).cpu().numpy()
+        return probs
 
+    def classify_batch(self, crops_bgr: List[np.ndarray]) -> List[List[Tuple[str, float]]]:
+        """Classify a batch of BGR image crops. Returns top-k (species, probability) per crop."""
+        if not crops_bgr:
+            return []
+        probs = self._encode_crops(crops_bgr)
         results = []
         for row in probs:
             top_idx = np.argsort(row)[::-1][: self.top_k]
             results.append([(self.species_names[i], float(row[i])) for i in top_idx])
         return results
+
+    def classify_batch_all_scores(self, crops_bgr: List[np.ndarray]) -> List[np.ndarray]:
+        """Like classify_batch but returns the full probability vector per crop (all species)."""
+        if not crops_bgr:
+            return []
+        probs = self._encode_crops(crops_bgr)
+        return [probs[i] for i in range(len(crops_bgr))]

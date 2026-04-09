@@ -41,10 +41,16 @@ models:
     # No re-inference is performed unless rerun: true is set.
     rerun: false
 
+  - id: bird_species_classifier
+    label: "EfficientNet-BIRDS525"
+    backend: hf_image_classifier
+    model: chriamue/bird-species-classifier
+    enabled: true
+
   - id: gemma4_e4b
     label: "Gemma 4 E4B-it"
     backend: gemma4
     model: google/gemma-4-E4B-it
     # Optional: appended to the prompt to give the model location context.
     location_hint: "Nassau County, Long Island, New York"
-    enabled: true
+    enabled: false
