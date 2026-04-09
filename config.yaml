@@ -29,6 +29,7 @@ metadata:
   latitude: 40.7
   longitude: -73.5
   ebird_db: /app/data/ebird_priors.db
+  local_priors_file: /app/data/local_priors.yaml
   ebird_fips: US-NY-059
   prior_mode: seasonal
 scoring:

@@ -14,12 +14,24 @@ to see.
 """
 
 import logging
+import math
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import yaml
+
 logger = logging.getLogger(__name__)
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance in kilometres between two lat/lon points."""
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    return R * 2 * math.asin(math.sqrt(a))
 
 # 48 periods/year: period = (month-1)*4 + (day-1)//(days_in_month//4)
 # Simpler approximation: period = day_of_year / (365/48)
@@ -54,6 +66,7 @@ class MetadataPrior:
         fips: Optional[str] = None,
         zero_floor: float = 0.01,
         prior_mode: str = "seasonal",  # "seasonal" | "location_only"
+        local_priors_file: Optional[str] = None,
     ):
         self.latitude = latitude
         self.longitude = longitude
@@ -64,6 +77,23 @@ class MetadataPrior:
         self._con: Optional[sqlite3.Connection] = None
         self._county_fips: set[str] = set()
         self._county_names: Dict[str, str] = {}
+        self._local_locations: list[dict] = []
+
+        if local_priors_file and Path(local_priors_file).exists():
+            with open(local_priors_file) as f:
+                local_cfg = yaml.safe_load(f)
+            self._local_locations = local_cfg.get("locations", [])
+            for loc in self._local_locations:
+                n_sp = len(loc.get("species", {}))
+                logger.info(
+                    "Local priors loaded: %r (%.4f, %.4f) radius=%.1fkm  %d species overridden",
+                    loc.get("name", "unnamed"),
+                    loc.get("lat"), loc.get("lon"),
+                    loc.get("radius_km", 1.0),
+                    n_sp,
+                )
+        elif local_priors_file:
+            logger.warning("local_priors_file not found: %s", local_priors_file)
 
         if db_path and Path(db_path).exists():
             self._con = sqlite3.connect(db_path, check_same_thread=False)
@@ -140,6 +170,21 @@ class MetadataPrior:
         ).fetchall()
         return {row[0]: row[1] for row in rows}
 
+    def _resolve_local_overrides(
+        self,
+        latitude: Optional[float],
+        longitude: Optional[float],
+    ) -> Dict[str, float]:
+        """Return per-species override dict for the first matching location, or {} if none match."""
+        if latitude is None or longitude is None or not self._local_locations:
+            return {}
+        for loc in self._local_locations:
+            dist = _haversine_km(latitude, longitude, loc["lat"], loc["lon"])
+            if dist <= loc.get("radius_km", 1.0):
+                logger.debug("Local override active: %r (%.2fkm away)", loc.get("name"), dist)
+                return dict(loc.get("species", {}))
+        return {}
+
     def get_priors(
         self,
         species_names: List[str],
@@ -151,6 +196,9 @@ class MetadataPrior:
             return {s: 1.0 for s in species_names}
         if self.prior_mode == "seasonal" and dt is None:
             return {s: 1.0 for s in species_names}
+
+        lat = latitude if latitude is not None else self.latitude
+        lon = longitude if longitude is not None else self.longitude
 
         region = self.resolve_region(latitude=latitude, longitude=longitude)
         if region is None:
@@ -174,8 +222,11 @@ class MetadataPrior:
             ).fetchall()
             freq_map = {row[0]: row[1] for row in rows}
 
+        # Local overrides bypass zero_floor — the explicit value is used as-is.
+        # eBird-sourced species that are not overridden still get zero_floor applied.
+        local = self._resolve_local_overrides(lat, lon)
         return {
-            s: max(freq_map.get(s, 0.0), self.zero_floor)
+            s: (local[s] if s in local else max(freq_map.get(s, 0.0), self.zero_floor))
             for s in species_names
         }
 

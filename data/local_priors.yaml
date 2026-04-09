@@ -1,0 +1,95 @@
+# Local species frequency overrides for BirdVision.
+#
+# These supplement the eBird county data for specific named locations.
+# When a video's GPS falls within `radius_km` of a location, the per-species
+# frequencies here replace the eBird lookup for those species only.
+# Species not listed fall through to eBird data + zero_floor as normal.
+# Explicit overrides bypass zero_floor — the value here is used as-is.
+#
+# Frequencies are on the same 0–1 scale as eBird bar charts:
+#   1.0 = observed on essentially every checklist
+#   0.5 = observed on about half of checklists
+#   0.1 = occasionally seen
+#   0.01 = rare but possible
+#   0.001 = habitat-incompatible (diving duck at a feeder, etc.)
+
+locations:
+  - name: "Nassau County Backyard Feeder"
+    lat: 40.7
+    lon: -73.5
+    radius_km: 0.5
+    habitat: feeder
+    species:
+      # ── Very common feeder/yard regulars ──────────────────────────────────
+      Monk Parakeet:            0.95  # extremely common in this neighborhood
+      House Sparrow:            0.90
+      European Starling:        0.85
+      Mourning Dove:            0.85
+      American Crow:            0.80
+      Blue Jay:                 0.80
+      Northern Cardinal:        0.75
+      Fish Crow:                0.70
+      Common Grackle:           0.70
+      Northern Mockingbird:     0.65
+      American Goldfinch:       0.60
+      House Finch:              0.60
+      Canada Goose:             0.60
+      Herring Gull:             0.55
+      Ring-billed Gull:         0.55
+      Dark-eyed Junco:          0.50  # seasonal (winter)
+      White-throated Sparrow:   0.50  # seasonal (winter/migration)
+
+      # ── Common feeder visitors ─────────────────────────────────────────
+      Black-capped Chickadee:   0.50
+      Downy Woodpecker:         0.45
+      Red-bellied Woodpecker:   0.40
+      White-breasted Nuthatch:  0.40
+      Carolina Wren:            0.35
+      Song Sparrow:             0.35
+      Great Black-backed Gull:  0.35
+      Laughing Gull:            0.35
+      Purple Finch:             0.25
+      Chipping Sparrow:         0.25
+      House Wren:               0.20
+      American Robin:           0.20
+      Gray Catbird:             0.20
+      Pine Siskin:              0.15
+
+      # ── Less common — seen in the area but not at the feeder ──────────
+      Mallard:                  0.15
+      Great Blue Heron:         0.10
+      Great Egret:              0.10
+      Snowy Egret:              0.08
+      Green Heron:              0.08
+      Black-crowned Night-Heron: 0.08
+      Mute Swan:                0.08
+      Brant:                    0.06
+      Tundra Swan:              0.05
+      Spotted Sandpiper:        0.05
+      Semipalmated Plover:      0.04
+      Semipalmated Sandpiper:   0.04
+      Least Sandpiper:          0.04
+      Black-bellied Plover:     0.04
+      Piping Plover:            0.03
+
+      # ── Habitat-incompatible: pelagic / diving / offshore birds ───────
+      # These should never show up at a backyard feeder regardless of what
+      # county-level eBird data says. Explicit suppression bypasses zero_floor.
+      Atlantic Puffin:          0.001
+      Razorbill:                0.001
+      Common Murre:             0.001
+      Thick-billed Murre:       0.001
+      Dovekie:                  0.001
+      Common Loon:              0.002
+      Red-throated Loon:        0.002
+      Horned Grebe:             0.002
+      Redhead:                  0.002
+      Bufflehead:               0.003
+      Common Goldeneye:         0.002
+      Hooded Merganser:         0.003
+      Common Merganser:         0.002
+      Red-breasted Merganser:   0.002
+      Long-tailed Duck:         0.001
+      Surf Scoter:              0.001
+      White-winged Scoter:      0.001
+      Black Scoter:             0.001

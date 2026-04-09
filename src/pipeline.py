@@ -96,6 +96,7 @@ class BirdIdentificationPipeline:
         self.prior_db_path = meta.get("ebird_db")
         self.prior_fips = meta.get("ebird_fips")
         self.prior_mode = meta.get("prior_mode", "seasonal")
+        self.local_priors_file = meta.get("local_priors_file")
         self.prior = self._build_prior(
             latitude=meta.get("latitude"),
             longitude=meta.get("longitude"),
@@ -137,6 +138,7 @@ class BirdIdentificationPipeline:
             db_path=self.prior_db_path,
             fips=self.prior_fips if use_default_fips and fips is None else fips,
             prior_mode=self.prior_mode,
+            local_priors_file=self.local_priors_file,
         )
 
     def apply_config(self, config: dict):

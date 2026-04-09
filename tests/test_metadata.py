@@ -307,3 +307,110 @@ class TestMetadataPriorLocationOnly:
         mp = MetadataPrior(prior_mode="location_only")
         priors = mp.get_priors(["Robin", "Sparrow"], dt=None)
         assert priors == {"Robin": 1.0, "Sparrow": 1.0}
+
+
+# ---------------------------------------------------------------------------
+# Local priors overrides
+# ---------------------------------------------------------------------------
+
+class TestLocalPriorOverrides:
+    """Tests for user-defined local prior overrides via local_priors.yaml."""
+
+    def _make_local_priors_file(self, tmp_path, content: str) -> str:
+        p = tmp_path / "local_priors.yaml"
+        p.write_text(content)
+        return str(p)
+
+    def test_override_bypasses_zero_floor(self, tmp_path, ebird_db):
+        """A suppressed species should use the override value, not zero_floor."""
+        yaml_content = """
+locations:
+  - name: Test Feeder
+    lat: 40.7
+    lon: -73.5
+    radius_km: 1.0
+    species:
+      Atlantic Puffin: 0.001
+"""
+        lp = self._make_local_priors_file(tmp_path, yaml_content)
+        mp = MetadataPrior(
+            db_path=ebird_db,
+            zero_floor=0.01,
+            local_priors_file=lp,
+        )
+        priors = mp.get_priors(
+            ["Atlantic Puffin", "Mourning Dove"],
+            dt=datetime(2024, 1, 1),  # period 0 — present in fixture
+            latitude=40.7,
+            longitude=-73.5,
+        )
+        # Override wins — 0.001, not floored to 0.01
+        assert priors["Atlantic Puffin"] == pytest.approx(0.001)
+        # Non-overridden species still gets eBird value (with zero_floor)
+        assert priors["Mourning Dove"] > 0.01
+
+    def test_non_overridden_species_gets_ebird_value(self, tmp_path, ebird_db):
+        """Species absent from the local override still use eBird + zero_floor."""
+        yaml_content = """
+locations:
+  - name: Test Feeder
+    lat: 40.7
+    lon: -73.5
+    radius_km: 1.0
+    species:
+      House Sparrow: 0.9
+"""
+        lp = self._make_local_priors_file(tmp_path, yaml_content)
+        mp = MetadataPrior(db_path=ebird_db, zero_floor=0.01, local_priors_file=lp)
+        priors = mp.get_priors(
+            ["House Sparrow", "Mourning Dove"],
+            dt=datetime(2024, 1, 1),
+            latitude=40.7,
+            longitude=-73.5,
+        )
+        assert priors["House Sparrow"] == pytest.approx(0.9)
+        # Mourning Dove not overridden — comes from eBird
+        assert priors["Mourning Dove"] == pytest.approx(0.475)
+
+    def test_outside_radius_no_override(self, tmp_path, ebird_db):
+        """GPS outside radius_km does not activate the local override."""
+        yaml_content = """
+locations:
+  - name: Test Feeder
+    lat: 40.7
+    lon: -73.5
+    radius_km: 0.1
+    species:
+      Atlantic Puffin: 0.001
+"""
+        lp = self._make_local_priors_file(tmp_path, yaml_content)
+        mp = MetadataPrior(db_path=ebird_db, zero_floor=0.01, local_priors_file=lp)
+        priors = mp.get_priors(
+            ["Atlantic Puffin"],
+            dt=datetime(2024, 1, 1),
+            latitude=40.8,   # ~15 km away
+            longitude=-73.5,
+        )
+        # No override — zero_floor applies
+        assert priors["Atlantic Puffin"] == pytest.approx(0.01)
+
+    def test_no_gps_no_override(self, tmp_path, ebird_db):
+        """When GPS is unavailable, local overrides are never applied."""
+        yaml_content = """
+locations:
+  - name: Test Feeder
+    lat: 40.7
+    lon: -73.5
+    radius_km: 100.0
+    species:
+      Atlantic Puffin: 0.001
+"""
+        lp = self._make_local_priors_file(tmp_path, yaml_content)
+        mp = MetadataPrior(db_path=ebird_db, zero_floor=0.01, local_priors_file=lp, fips="US-NY-059")
+        priors = mp.get_priors(
+            ["Atlantic Puffin"],
+            dt=datetime(2024, 1, 1),
+            # no lat/lon passed, no default lat/lon set
+        )
+        # Override needs GPS to activate; without GPS no override is applied
+        assert priors["Atlantic Puffin"] == pytest.approx(0.01)
