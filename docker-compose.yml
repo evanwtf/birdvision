@@ -15,6 +15,7 @@ services:
     volumes:
       - ./config.yaml:/data/config.yaml:ro
       - ./api_tokens.yaml:/data/api_tokens.yaml:ro
+      - ./data/local_priors.yaml:/app/data/local_priors.yaml:ro
       - ./videos:/data/videos
       - ./results:/data/results
       - ./models:/data/models
@@ -23,7 +24,7 @@ services:
     command: ["/usr/local/bin/uv", "run", "scripts/serve.py", "--config", "/data/config.yaml"]
     stop_grace_period: 30s
 
-  # CLI batch runner — drop videos in ./videos/ and run manually
+  # CLI batch runner — processes all videos in ./videos/assets/
   birdvision:
     build: .
     image: birdvision:latest
@@ -33,10 +34,11 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     volumes:
       - ./config.yaml:/data/config.yaml:ro
+      - ./data/local_priors.yaml:/app/data/local_priors.yaml:ro
       - ./videos:/data/videos:ro
       - ./results:/data/results
       - ./models:/data/models
-    command: ["/usr/local/bin/uv", "run", "scripts/identify_videos.py", "/data/videos", "--config", "/data/config.yaml"]
+    command: ["/usr/local/bin/uv", "run", "scripts/identify_videos.py", "/data/videos/assets", "--config", "/data/config.yaml"]
     stop_grace_period: 30s
     profiles: ["cli"]
 

@@ -60,23 +60,38 @@ class EnsembleClassifier:
     # ---- Core inference ----------------------------------------------------
 
     def classify_batch(self, crops_bgr: list) -> list[list[tuple[str, float]]]:
-        """Run both classifiers and return geometric-mean combined top-k predictions."""
+        """Run both classifiers and return geometric-mean combined top-k predictions.
+
+        After calling this, per-model scores are available in:
+          self.last_bioclip_results    — List[List[Tuple[str, float]]] top-k per crop
+          self.last_efficientnet_results — same, renormalized over mapped species
+        """
         if not crops_bgr:
+            self.last_bioclip_results = []
+            self.last_efficientnet_results = []
             return []
 
         species = self.species_names
-        n = len(species)
         alpha, beta, floor = self.alpha, self.beta, self._floor
 
         # Full BioCLIP probability vectors for all crops in one GPU batch.
         all_bc_probs = self._bioclip.classify_batch_all_scores(crops_bgr)
 
         results = []
+        self.last_bioclip_results = []
+        self.last_efficientnet_results = []
+
         for crop, bc_probs in zip(crops_bgr, all_bc_probs):
             # Secondary model scores (dict over all species; 0.0 for unmapped).
             hf_scores = self._secondary.classify(crop)
 
             hf_vec = np.array([hf_scores.get(s, 0.0) for s in species], dtype=np.float64)
+            # Store actual HF scores renormalized over mapped species (for display).
+            hf_display = hf_vec.copy()
+            hf_total = hf_display.sum()
+            if hf_total > 0:
+                hf_display /= hf_total
+
             hf_vec[hf_vec == 0.0] = floor  # neutral prior for unmapped species
 
             combined = (bc_probs.astype(np.float64) ** alpha) * (hf_vec ** beta)
@@ -86,5 +101,14 @@ class EnsembleClassifier:
 
             top_idx = np.argsort(combined)[::-1][: self.top_k]
             results.append([(species[i], float(combined[i])) for i in top_idx])
+
+            bc_top_idx = np.argsort(bc_probs)[::-1][: self.top_k]
+            self.last_bioclip_results.append(
+                [(species[i], float(bc_probs[i])) for i in bc_top_idx]
+            )
+            hf_top_idx = np.argsort(hf_display)[::-1][: self.top_k]
+            self.last_efficientnet_results.append(
+                [(species[i], float(hf_display[i])) for i in hf_top_idx]
+            )
 
         return results
