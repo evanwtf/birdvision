@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Bird species identification from video using local computer vision models"
 requires-python = ">=3.12"
 dependencies = [
+    "accelerate>=1.13.0",
     "authlib>=1.6.0",
+    "bitsandbytes>=0.49.2",
     "fastapi>=0.135.2",
     "httpx>=0.28.1",
     "itsdangerous>=2.2.0",
@@ -19,6 +21,7 @@ dependencies = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
     "tqdm>=4.65.0",
+    "transformers>=5.5.0",
     "ultralytics>=8.4.31",
     "uvicorn[standard]>=0.42.0",
 ]

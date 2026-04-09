@@ -1,0 +1,67 @@
+services:
+
+  # Pre-download all configured models into the shared models volume.
+  # Run this once before 'eval'; safe to re-run (cache hits are fast).
+  #
+  #   docker compose -f eval/docker-compose.yml run --rm prefetch
+  prefetch:
+    build:
+      context: ..
+      dockerfile: eval/Dockerfile
+    image: birdvision-eval:latest
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - ../models:/data/models
+      - ./config.yaml:/app/eval/config.yaml:ro
+    # BioCLIP and YOLO are not needed for the current eval flow (we reuse
+    # existing results JSONs), so skip them to save time on first run.
+    command: [
+      "/usr/local/bin/uv", "run", "eval/prefetch_models.py",
+      "--config", "eval/config.yaml",
+      "--skip-bioclip",
+      "--skip-yolo",
+    ]
+    profiles: ["prefetch"]
+
+  # Run all configured models over the asset library and write eval sidecars.
+  # Run 'prefetch' first to ensure models are cached.
+  #
+  # The report/ directory must be writable by the container's nonroot user
+  # (uid 65532). If it was created by a local uv run, fix with:
+  #   chmod 777 eval/report
+  eval:
+    build:
+      context: ..
+      dockerfile: eval/Dockerfile
+    image: birdvision-eval:latest
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - PYTHONWARNINGS=ignore::UserWarning,ignore::FutureWarning
+    volumes:
+      - ../videos/assets:/data/videos/assets:ro
+      - ../results:/data/results:ro
+      - ./report:/data/report
+      - ../models:/data/models
+      - ./config.yaml:/app/eval/config.yaml:ro
+    stop_grace_period: 30s
+
+  # Generate report.html from eval sidecars. Can be re-run independently,
+  # no GPU required.
+  #
+  #   docker compose -f eval/docker-compose.yml --profile report up report
+  report:
+    build:
+      context: ..
+      dockerfile: eval/Dockerfile
+    image: birdvision-eval:latest
+    volumes:
+      - ../results:/data/results:ro
+      - ./report:/data/report
+      - ./config.yaml:/app/eval/config.yaml:ro
+    command: ["/usr/local/bin/uv", "run", "eval/report_generator.py", "--config", "eval/config.yaml"]
+    profiles: ["report"]

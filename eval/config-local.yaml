@@ -1,0 +1,42 @@
+# Local dev config — paths for running outside Docker with uv run
+assets_dir: videos/assets
+results_dir: results
+report_dir: eval/report
+
+species_list_file: data/species_lists/north_america_common.txt
+
+max_clips: null
+skip_no_detections: true
+
+implausible_at_feeder:
+  - Atlantic Puffin
+  - Redhead
+  - Horned Grebe
+  - Common Loon
+  - Red-throated Loon
+  - Razorbill
+  - Long-tailed Duck
+  - Surf Scoter
+  - White-winged Scoter
+  - Black Scoter
+  - Hooded Merganser
+  - Common Merganser
+  - Red-breasted Merganser
+  - Bufflehead
+  - Common Goldeneye
+  - Dovekie
+  - Thick-billed Murre
+  - Common Murre
+
+models:
+  - id: bioclip
+    label: "BioCLIP"
+    backend: bioclip
+    rerun: false
+
+  - id: gemma4_e4b
+    label: "Gemma 4 E4B-it"
+    backend: gemma4
+    model: google/gemma-4-E4B-it
+    location_hint: "Nassau County, Long Island, New York"
+    enabled: false

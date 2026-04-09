@@ -1,0 +1,50 @@
+assets_dir: /data/videos/assets
+results_dir: /data/results
+report_dir: /data/report
+
+# Full species list used for Gemma prompts. Defaults to the bundled file.
+species_list_file: /app/data/species_lists/north_america_common.txt
+
+# Set to an integer (e.g. 20) for a quick test run; null = all clips
+max_clips: null
+
+# Skip clips where the existing BioCLIP run found no birds
+skip_no_detections: true
+
+# Ecological implausibility flags: these species are highlighted in the
+# report when they appear as #1 at a backyard feeder location.
+implausible_at_feeder:
+  - Atlantic Puffin
+  - Redhead
+  - Horned Grebe
+  - Common Loon
+  - Red-throated Loon
+  - Razorbill
+  - Long-tailed Duck
+  - Surf Scoter
+  - White-winged Scoter
+  - Black Scoter
+  - Hooded Merganser
+  - Common Merganser
+  - Red-breasted Merganser
+  - Bufflehead
+  - Common Goldeneye
+  - Dovekie
+  - Thick-billed Murre
+  - Common Murre
+
+models:
+  - id: bioclip
+    label: "BioCLIP"
+    backend: bioclip
+    # BioCLIP results are read directly from existing results JSONs.
+    # No re-inference is performed unless rerun: true is set.
+    rerun: false
+
+  - id: gemma4_e4b
+    label: "Gemma 4 E4B-it"
+    backend: gemma4
+    model: google/gemma-4-E4B-it
+    # Optional: appended to the prompt to give the model location context.
+    location_hint: "Nassau County, Long Island, New York"
+    enabled: true

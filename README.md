@@ -265,6 +265,75 @@ docker compose --profile cli run birdvision \
 Results are written as JSON to `results/{job_id}_{display_stem}_results.json`.
 Image-job artifacts are saved under `results/<job_id>_crops/`.
 
+## Model comparison eval
+
+The `eval/` container runs every video in the asset library through multiple
+classifier backends in sequence and produces a self-contained HTML report so
+you can visually compare what each model predicted for each clip.
+
+### Quick start (local, no Docker)
+
+The BioCLIP pass reads your existing results JSONs — no GPU, no model load:
+
+```bash
+uv run eval/eval_runner.py --config eval/config-local.yaml
+uv run eval/report_generator.py --config eval/config-local.yaml
+# open eval/report/report.html in a browser
+```
+
+To limit to a subset while iterating:
+
+```bash
+uv run eval/eval_runner.py --config eval/config-local.yaml --max-clips 20
+```
+
+### Docker workflow
+
+Three compose services, run in order:
+
+```bash
+# 1. Download / verify all configured models (fast on repeat runs)
+docker compose -f eval/docker-compose.yml run --rm prefetch
+
+# 2. Run inference over all clips, write sidecar JSONs
+#    The report/ output directory must be writable by the container's
+#    nonroot user (uid 65532). If it was created by a local uv run, fix first:
+#      chmod 777 eval/report
+docker compose -f eval/docker-compose.yml up eval
+
+# 3. Generate report.html from sidecars (no GPU needed)
+docker compose -f eval/docker-compose.yml --profile report up report
+```
+
+The report is written to `eval/report/report.html` alongside a `crops/`
+directory of copied bird crop images. The HTML file is self-contained and
+portable — open it directly in a browser.
+
+### Adding a model
+
+Enable a backend in `eval/config.yaml`:
+
+```yaml
+models:
+  - id: gemma4_e4b
+    label: "Gemma 4 E4B-it"
+    backend: gemma4
+    model: google/gemma-4-E4B-it
+    enabled: true          # flip this when the backend is implemented
+```
+
+Then run the prefetch → eval → report sequence above. The `prefetch` service
+will download the model weights before the eval run starts.
+
+### Report features
+
+- **Cards sorted by disagreement** — clips where models disagree appear first
+- **Implausible-species flagging** — picks that are ecologically unlikely at a
+  backyard feeder (Redhead, Horned Grebe, Atlantic Puffin, etc.) are highlighted
+  in red
+- **Filter buttons** — show all clips, disagreements only, or implausible only
+- **Per-model top-5 predictions** with confidence scores per track
+
 ## Single-video tuner
 
 The tuner runs repeated video jobs against one target species, reusing the

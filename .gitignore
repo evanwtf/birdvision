@@ -21,6 +21,9 @@ results/
 output/
 models/
 
+# Eval report output (generated, not committed)
+eval/report/
+
 # Generated eBird SQLite DB (built from ebird_data/ via import script)
 data/ebird_priors.db
 
