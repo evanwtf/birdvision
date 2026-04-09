@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,7 @@ import pytest
 from src.webapp import (
     AuthSettings,
     Job,
+    SAFARI_COMPATIBLE_CODECS,
     build_auth_settings,
     build_job_display_name,
     can_upload_email,
@@ -23,6 +25,7 @@ from src.webapp import (
     resolution_warning_text,
     result_name_seed,
     slugify_result_name,
+    transcode_to_h264,
     validate_asset_batch,
     _load_api_tokens,
     _persist_source_event_id,
@@ -478,6 +481,80 @@ class TestWebappResolutionWarningText:
 # Job.slug
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Job.has_detections
+# ---------------------------------------------------------------------------
+
+class TestJobHasDetections:
+    def _video_job(self, status="done", tracks=None):
+        job = Job(id="abc", filename="clip.mp4", media_type="video")
+        job.status = status
+        if status == "done":
+            job.result = {"type": "video", "tracks": tracks if tracks is not None else []}
+        return job
+
+    def _image_job(self, status="done", images=None):
+        job = Job(id="abc", filename="photo.jpg", media_type="images")
+        job.status = status
+        if status == "done":
+            job.result = {"type": "images", "images": images if images is not None else []}
+        return job
+
+    def test_pending_job_always_visible(self):
+        job = self._video_job(status="pending")
+        job.result = None
+        assert job.has_detections is True
+
+    def test_running_job_always_visible(self):
+        job = self._video_job(status="running")
+        job.result = None
+        assert job.has_detections is True
+
+    def test_error_job_always_visible(self):
+        job = self._video_job(status="error")
+        job.result = None
+        assert job.has_detections is True
+
+    def test_video_with_tracks_is_visible(self):
+        job = self._video_job(tracks=[{"track_id": 1}])
+        assert job.has_detections is True
+
+    def test_video_with_no_tracks_is_hidden(self):
+        job = self._video_job(tracks=[])
+        assert job.has_detections is False
+
+    def test_video_with_tracks_but_no_species_is_visible(self):
+        # Detected but unidentified - still show it
+        job = self._video_job(tracks=[{"track_id": 1}])
+        job.result["video_predictions"] = []
+        assert job.has_detections is True
+
+    def test_image_with_detections_is_visible(self):
+        job = self._image_job(images=[{"detections": [{"bbox": [0, 0, 10, 10]}]}])
+        assert job.has_detections is True
+
+    def test_image_with_no_detections_is_hidden(self):
+        job = self._image_job(images=[{"detections": []}])
+        assert job.has_detections is False
+
+    def test_image_with_mixed_photos_is_visible(self):
+        # At least one photo has a detection
+        job = self._image_job(images=[
+            {"detections": []},
+            {"detections": [{"bbox": [0, 0, 10, 10]}]},
+        ])
+        assert job.has_detections is True
+
+    def test_image_with_no_images_is_hidden(self):
+        job = self._image_job(images=[])
+        assert job.has_detections is False
+
+    def test_done_job_with_no_result_is_visible(self):
+        job = self._video_job(status="done")
+        job.result = None
+        assert job.has_detections is True
+
+
 class TestJobSlug:
     def _make_job(self, filename: str) -> Job:
         return Job(id="abc123", filename=filename)
@@ -773,3 +850,120 @@ class TestCurrentUserEmail:
         request = MagicMock()
         request.session = {}
         assert current_user_email(request) is None
+
+
+# ---------------------------------------------------------------------------
+# SAFARI_COMPATIBLE_CODECS
+# ---------------------------------------------------------------------------
+
+class TestSafariCompatibleCodecs:
+    def test_h264_is_compatible(self):
+        assert "avc1" in SAFARI_COMPATIBLE_CODECS
+
+    def test_hevc_variants_are_compatible(self):
+        assert "hvc1" in SAFARI_COMPATIBLE_CODECS
+        assert "hev1" in SAFARI_COMPATIBLE_CODECS
+
+    def test_vp9_not_compatible(self):
+        assert "VP90" not in SAFARI_COMPATIBLE_CODECS
+
+    def test_av1_not_compatible(self):
+        assert "av01" not in SAFARI_COMPATIBLE_CODECS
+
+
+# ---------------------------------------------------------------------------
+# transcode_to_h264
+# ---------------------------------------------------------------------------
+
+class TestTranscodeToH264:
+    def test_calls_ffmpeg_with_expected_args(self, tmp_path):
+        input_file = tmp_path / "clip.webm"
+        input_file.write_bytes(b"fake video data")
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            # Simulate ffmpeg creating the tmp file
+            tmp_out = tmp_path / "clip_h264.tmp.mp4"
+            mock_run.side_effect = lambda *a, **kw: (
+                tmp_out.write_bytes(b"fake h264"), MagicMock(returncode=0)
+            )[1]
+
+            result = transcode_to_h264(input_file)
+
+        assert mock_run.called
+        cmd = mock_run.call_args[0][0]
+        assert cmd[0] == "ffmpeg"
+        assert "-c:v" in cmd
+        assert "libx264" in cmd
+        assert "-movflags" in cmd
+        assert "+faststart" in cmd
+
+    def test_returns_output_path_on_success(self, tmp_path):
+        input_file = tmp_path / "clip.webm"
+        input_file.write_bytes(b"fake")
+        expected_output = tmp_path / "clip_h264.mp4"
+
+        def fake_run(*args, **kwargs):
+            # ffmpeg writes tmp file
+            (tmp_path / "clip_h264.tmp.mp4").write_bytes(b"fake h264")
+            return MagicMock(returncode=0)
+
+        with patch("subprocess.run", side_effect=fake_run):
+            result = transcode_to_h264(input_file)
+
+        assert result == expected_output
+        assert expected_output.exists()
+
+    def test_returns_none_on_ffmpeg_failure(self, tmp_path):
+        input_file = tmp_path / "clip.webm"
+        input_file.write_bytes(b"fake")
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stderr=b"error")
+            result = transcode_to_h264(input_file)
+
+        assert result is None
+
+    def test_returns_none_when_ffmpeg_not_found(self, tmp_path):
+        input_file = tmp_path / "clip.webm"
+        input_file.write_bytes(b"fake")
+
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            result = transcode_to_h264(input_file)
+
+        assert result is None
+
+    def test_returns_none_on_timeout(self, tmp_path):
+        input_file = tmp_path / "clip.webm"
+        input_file.write_bytes(b"fake")
+
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("ffmpeg", 600)):
+            result = transcode_to_h264(input_file)
+
+        assert result is None
+
+    def test_reuses_existing_output(self, tmp_path):
+        input_file = tmp_path / "clip.webm"
+        input_file.write_bytes(b"fake")
+        output_file = tmp_path / "clip_h264.mp4"
+        output_file.write_bytes(b"already transcoded")
+
+        with patch("subprocess.run") as mock_run:
+            result = transcode_to_h264(input_file)
+
+        mock_run.assert_not_called()
+        assert result == output_file
+
+    def test_cleans_up_tmp_on_failure(self, tmp_path):
+        input_file = tmp_path / "clip.webm"
+        input_file.write_bytes(b"fake")
+        tmp_out = tmp_path / "clip_h264.tmp.mp4"
+
+        def fake_run(*args, **kwargs):
+            tmp_out.write_bytes(b"partial")
+            return MagicMock(returncode=1, stderr=b"error")
+
+        with patch("subprocess.run", side_effect=fake_run):
+            transcode_to_h264(input_file)
+
+        assert not tmp_out.exists()

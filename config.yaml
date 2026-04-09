@@ -42,6 +42,9 @@ output:
 webapp:
   upload_dir: /data/videos
   debug: false
+  # Transcode VP9/AV1 videos to H.264 before ML processing so they play natively
+  # in Safari/iOS. Set to false to disable and serve the original file instead.
+  transcode_incompatible_video: true
   # Path to a YAML file listing API tokens that may POST to /api/v1/videos.
   # If unset (or the file is missing/empty), the API endpoint returns 503 and
   # the browser /upload route is unaffected.

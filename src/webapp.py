@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import secrets
+import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -41,11 +42,10 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
 GOOGLE_SERVER_METADATA_URL = "https://accounts.google.com/.well-known/openid-configuration"
 THEME_COOKIE_NAME = "birdvision_theme"
 THEME_OPTIONS = (
-    {"id": "default", "label": "Default"},
-    {"id": "birdy", "label": "Birdy"},
     {"id": "super-birdy", "label": "Super Birdy"},
+    {"id": "boring", "label": "Boring"},
 )
-DEFAULT_THEME_ID = "default"
+DEFAULT_THEME_ID = "super-birdy"
 VALID_THEME_IDS = {theme["id"] for theme in THEME_OPTIONS}
 
 
@@ -76,6 +76,18 @@ class Job:
         return slug or "job"
 
     @property
+    def has_detections(self) -> bool:
+        """False only for completed jobs where the detector found nothing at all.
+        Pending, running, and error jobs always return True so they remain visible.
+        A job with detections but no confident ID also returns True.
+        """
+        if self.status != "done" or self.result is None:
+            return True
+        if self.result.get("type") == "images":
+            return any(img.get("detections") for img in self.result.get("images", []))
+        return bool(self.result.get("tracks"))
+
+    @property
     def media_label(self) -> str:
         if self.media_type == "images":
             n = self._image_count()
@@ -101,12 +113,12 @@ class Job:
         return n
 
     def _species_summary_label(self) -> Optional[str]:
-        """Build a label like '2024-02-03: Mourning Dove, Blue Jay, 2 others'."""
+        """Build a label like '2024-02-03: Mourning Dove (82%), Blue Jay (74%), 2 others'."""
         if not self.result or self.status != "done":
             return None
 
-        # Collect top species names
-        top_species: list[str] = []
+        # Collect top (species, prob) pairs
+        top_species: list[tuple[str, float]] = []
         if self.result.get("type") == "images":
             seen: set[str] = set()
             for img in self.result.get("images", []):
@@ -115,22 +127,29 @@ class Job:
                     prob = pred.get("probability", 0)
                     if sp and prob >= 0.15 and sp not in seen:
                         seen.add(sp)
-                        top_species.append(sp)
+                        top_species.append((sp, prob))
         else:
             for pred in self.result.get("video_predictions", []):
                 sp = pred.get("species", "")
                 prob = pred.get("presence_probability", 0)
                 if sp and prob >= 0.15:
-                    top_species.append(sp)
+                    top_species.append((sp, prob))
 
         if not top_species:
             return None
 
-        # Build the species part: show up to 2, then "N others"
+        def fmt(sp: str, prob: float) -> str:
+            return f"{sp} ({round(prob * 100):.0f}%)"
+
+        # Build the species part: show up to 2 with %, then "N others"
         if len(top_species) <= 2:
-            species_text = ", ".join(top_species)
+            species_text = ", ".join(fmt(sp, prob) for sp, prob in top_species)
         else:
-            species_text = f"{top_species[0]}, {top_species[1]}, {len(top_species) - 2} other{'s' if len(top_species) - 2 != 1 else ''}"
+            others = len(top_species) - 2
+            species_text = (
+                f"{fmt(*top_species[0])}, {fmt(*top_species[1])}, "
+                f"{others} other{'s' if others != 1 else ''}"
+            )
 
         # Prefix with date if available
         date_str = self.result.get("date")
@@ -149,6 +168,57 @@ class AuthSettings:
     redirect_uri: Optional[str]
     session_secret: Optional[str]
     allowed_emails: set[str]
+
+
+SAFARI_COMPATIBLE_CODECS = {"avc1", "hvc1", "hev1"}
+
+
+def transcode_to_h264(input_path: Path) -> Optional[Path]:
+    """Transcode a video to H.264/AAC in an MP4 container using ffmpeg.
+
+    Returns the output path on success, or None if ffmpeg is unavailable or fails.
+    If the output file already exists, returns it immediately without re-transcoding.
+    """
+    output_path = input_path.parent / (input_path.stem + "_h264.mp4")
+    if output_path.exists():
+        logger.info(f"Transcoded file already exists, reusing: {output_path.name}")
+        return output_path
+
+    tmp_path = input_path.parent / (input_path.stem + "_h264.tmp.mp4")
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", str(input_path),
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "128k",
+                "-movflags", "+faststart",
+                str(tmp_path),
+            ],
+            capture_output=True,
+            timeout=600,
+        )
+        if result.returncode != 0:
+            logger.error(
+                f"ffmpeg transcode failed for {input_path.name}: "
+                f"{result.stderr.decode(errors='replace')[-500:]}"
+            )
+            tmp_path.unlink(missing_ok=True)
+            return None
+        tmp_path.rename(output_path)
+        logger.info(f"Transcoded {input_path.name} -> {output_path.name}")
+        return output_path
+    except FileNotFoundError:
+        logger.error("ffmpeg not found; cannot transcode video")
+        tmp_path.unlink(missing_ok=True)
+        return None
+    except subprocess.TimeoutExpired:
+        logger.error(f"ffmpeg timed out transcoding {input_path.name}")
+        tmp_path.unlink(missing_ok=True)
+        return None
+    except Exception as exc:
+        logger.error(f"Unexpected error transcoding {input_path.name}: {exc}")
+        tmp_path.unlink(missing_ok=True)
+        return None
 
 
 class AssetStore:
@@ -273,6 +343,15 @@ class AssetStore:
             client_metadata=None,
         )
 
+    def update_transcoded_path(self, sha256: str, new_path: str, new_codec: str) -> None:
+        """Update the stored path and codec for an asset after transcoding."""
+        record = self._assets.get(sha256)
+        if record is None:
+            return
+        record["stored_path"] = new_path
+        record["video_codec"] = new_codec
+        self._save_index()
+
 
 _jobs: dict[str, Job] = {}
 _queue: asyncio.Queue
@@ -383,12 +462,15 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             _executor, lambda: _init_pipeline(config)
         )
         logger.info("Pipeline ready.")
-        asyncio.create_task(_worker(loop, pipeline, config_path, results_dir))
+        asyncio.create_task(_worker(loop, pipeline, config_path, results_dir, asset_store))
 
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request, page: int = 1):
         page_size = 20
-        all_jobs = sorted(_jobs.values(), key=lambda j: j.created_at, reverse=True)
+        all_jobs = sorted(
+            (j for j in _jobs.values() if j.has_detections),
+            key=lambda j: j.created_at, reverse=True,
+        )
         total = len(all_jobs)
         total_pages = max(1, (total + page_size - 1) // page_size)
         page = max(1, min(page, total_pages))
@@ -404,7 +486,10 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
     @app.get("/api/jobs")
     async def api_jobs(page: int = 1):
         page_size = 20
-        all_jobs = sorted(_jobs.values(), key=lambda j: j.created_at, reverse=True)
+        all_jobs = sorted(
+            (j for j in _jobs.values() if j.has_detections),
+            key=lambda j: j.created_at, reverse=True,
+        )
         total = len(all_jobs)
         total_pages = max(1, (total + page_size - 1) // page_size)
         page = max(1, min(page, total_pages))
@@ -418,7 +503,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
                     "status": j.status,
                     "media_label": j.media_label,
                     "summary": j.summary,
-                    "created_at": j.created_at.strftime("%b %-d, %H:%M"),
+                    "created_at": j.created_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 }
                 for j in jobs_page
             ],
@@ -690,53 +775,6 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             return HTMLResponse("Job not found", status_code=404)
         return RedirectResponse(url=f"/jobs/{job_id}/{job.slug}", status_code=301)
 
-    @app.get("/jobs/{job_id}/{slug}", response_class=HTMLResponse)
-    async def job_detail(request: Request, job_id: str, slug: str):
-        job = _jobs.get(job_id)
-        if job is None:
-            return HTMLResponse("Job not found", status_code=404)
-
-        base = str(request.base_url).rstrip("/")
-        og_url = f"{base}/jobs/{job_id}"
-
-        if job.status == "done" and job.result:
-            og_title = f"BirdVision: {job.summary}"
-            # Build description from top species in the summary label
-            species_label = job._species_summary_label()
-            if species_label:
-                og_description = f"Bird identification results: {species_label}"
-            else:
-                og_description = "Bird identification results from BirdVision."
-
-            # Pick a representative annotated image
-            og_image_url = None
-            if job.media_type == "images":
-                images = job.result.get("images") or []
-                for img in images:
-                    af = img.get("annotated_file")
-                    if af:
-                        og_image_url = f"{base}/jobs/{job_id}/crops/{af}"
-                        break
-            else:
-                gallery = job.result.get("frame_gallery") or []
-                if gallery:
-                    first_file = gallery[0].get("file")
-                    if first_file:
-                        og_image_url = f"{base}/jobs/{job_id}/crops/{first_file}"
-        else:
-            status_label = job.status
-            og_title = f"BirdVision \u2014 Job {status_label}"
-            og_description = f"Job is {status_label}."
-            og_image_url = None
-
-        return render_template(request, "job.html", {
-            "job": job,
-            "og_title": og_title,
-            "og_description": og_description,
-            "og_url": og_url,
-            "og_image_url": og_image_url,
-        })
-
     @app.post("/jobs/{job_id}/reprocess")
     async def reprocess(request: Request, job_id: str):
         auth_response = require_upload_access(request, current_auth_settings())
@@ -846,6 +884,55 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         if not photo_path.exists():
             return HTMLResponse("Photo not found", status_code=404)
         return FileResponse(photo_path)
+
+    # This catch-all must be registered AFTER all specific /jobs/{job_id}/...
+    # sub-routes, otherwise FastAPI matches it first.
+    @app.get("/jobs/{job_id}/{slug}", response_class=HTMLResponse)
+    async def job_detail(request: Request, job_id: str, slug: str):
+        job = _jobs.get(job_id)
+        if job is None:
+            return HTMLResponse("Job not found", status_code=404)
+
+        base = str(request.base_url).rstrip("/")
+        og_url = f"{base}/jobs/{job_id}"
+
+        if job.status == "done" and job.result:
+            og_title = f"BirdVision: {job.summary}"
+            # Build description from top species in the summary label
+            species_label = job._species_summary_label()
+            if species_label:
+                og_description = f"Bird identification results: {species_label}"
+            else:
+                og_description = "Bird identification results from BirdVision."
+
+            # Pick a representative annotated image
+            og_image_url = None
+            if job.media_type == "images":
+                images = job.result.get("images") or []
+                for img in images:
+                    af = img.get("annotated_file")
+                    if af:
+                        og_image_url = f"{base}/jobs/{job_id}/crops/{af}"
+                        break
+            else:
+                gallery = job.result.get("frame_gallery") or []
+                if gallery:
+                    first_file = gallery[0].get("file")
+                    if first_file:
+                        og_image_url = f"{base}/jobs/{job_id}/crops/{first_file}"
+        else:
+            status_label = job.status
+            og_title = f"BirdVision \u2014 Job {status_label}"
+            og_description = f"Job is {status_label}."
+            og_image_url = None
+
+        return render_template(request, "job.html", {
+            "job": job,
+            "og_title": og_title,
+            "og_description": og_description,
+            "og_url": og_url,
+            "og_image_url": og_image_url,
+        })
 
     return app
 
@@ -1165,12 +1252,14 @@ async def _worker(
     pipeline: BirdIdentificationPipeline,
     config_path: Optional[Path] = None,
     results_dir: Optional[Path] = None,
+    asset_store: Optional["AssetStore"] = None,
 ):
     while True:
         job = await _queue.get()
         job.status = "running"
         logger.info(f"Processing job {job.id}: {job.filename}")
         try:
+            fresh_config: dict = {}
             if config_path and config_path.exists():
                 fresh_config = yaml.safe_load(config_path.read_text()) or {}
                 await loop.run_in_executor(_executor, lambda: pipeline.apply_config(fresh_config))
@@ -1193,6 +1282,29 @@ async def _worker(
                 )
             else:
                 video_asset = job.assets[0]
+                transcode_enabled = fresh_config.get("webapp", {}).get(
+                    "transcode_incompatible_video", True
+                )
+                codec = video_asset.get("video_codec")
+                if transcode_enabled and codec and codec not in SAFARI_COMPATIBLE_CODECS:
+                    logger.info(
+                        f"Job {job.id}: codec {codec!r} is not Safari-compatible, transcoding to H.264"
+                    )
+                    transcoded = await loop.run_in_executor(
+                        _executor,
+                        lambda: transcode_to_h264(Path(video_asset["stored_path"])),
+                    )
+                    if transcoded:
+                        video_asset["stored_path"] = str(transcoded)
+                        video_asset["video_codec"] = "avc1"
+                        if asset_store:
+                            asset_store.update_transcoded_path(
+                                video_asset["sha256"], str(transcoded), "avc1"
+                            )
+                    else:
+                        logger.warning(
+                            f"Job {job.id}: transcode failed, proceeding with original {codec!r} file"
+                        )
                 result = await loop.run_in_executor(
                     _executor,
                     lambda: pipeline.process_video(

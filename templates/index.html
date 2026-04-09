@@ -261,7 +261,7 @@
       <span class="badge badge-media">{{ job.media_label }}</span>
       <a class="job-name" href="/jobs/{{ job.id }}/{{ job.slug }}">
         {{ job.summary }}
-        <span class="job-time">{{ job.created_at.strftime("%b %-d, %H:%M") }}</span>
+        <time class="job-time" datetime="{{ job.created_at.strftime('%Y-%m-%dT%H:%M:%S') }}Z">{{ job.created_at.strftime("%b %-d, %H:%M") }}</time>
       </a>
     </li>
     {% endfor %}
@@ -688,6 +688,18 @@ zone.addEventListener('drop', (e) => {
     return el.innerHTML;
   }
 
+  function formatJobTime(iso) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function localiseJobTimes() {
+    document.querySelectorAll('time.job-time[datetime]').forEach(el => {
+      el.textContent = formatJobTime(el.getAttribute('datetime'));
+    });
+  }
+
   function renderJobs(data) {
     const container = document.getElementById('jobs-card');
     if (!data.jobs.length) {
@@ -701,7 +713,7 @@ zone.addEventListener('drop', (e) => {
         + '<span class="badge badge-media">' + escapeHtml(job.media_label) + '</span>'
         + '<a class="job-name" href="/jobs/' + escapeHtml(job.id) + '/' + escapeHtml(job.slug) + '">'
         + escapeHtml(job.summary)
-        + '<span class="job-time">' + escapeHtml(job.created_at) + '</span>'
+        + '<time class="job-time" datetime="' + escapeHtml(job.created_at) + '">' + escapeHtml(formatJobTime(job.created_at)) + '</time>'
         + '</a></li>';
     }
     html += '</ul>';
@@ -727,6 +739,7 @@ zone.addEventListener('drop', (e) => {
     if (polling) setTimeout(poll, 5000);
   }
 
+  localiseJobTimes();
   if (polling) setTimeout(poll, 5000);
 })();
 </script>
