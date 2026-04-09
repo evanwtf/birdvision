@@ -5,6 +5,7 @@ services:
     build: .
     image: birdvision:latest
     runtime: nvidia
+    restart: unless-stopped
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
