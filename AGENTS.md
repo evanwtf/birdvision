@@ -1,4 +1,4 @@
-# BirdVision — Claude Code Context
+# BirdVision — Agent Context
 
 ## What this project is
 
@@ -16,42 +16,46 @@ supported region.
 
 ```
 src/
-  detector.py       — YOLOv8 object detection (COCO bird class), returns bbox + crop
-  tracker.py        — multi-frame tracker with IoU matching plus centroid-
-                      distance fallback; stores both raw (pre-prior) and
-                      weighted (post-prior) prediction history per track
-  classifier.py     — BioCLIP zero-shot classifier; pre-computes text embeddings
-                      for all species at startup; batched inference
-  metadata.py       — eBird bar chart priors; maps date → 1-of-48 annual periods,
-                      applies priors only inside a rough Long Island bounding box,
-                      averages Kings/Queens/Nassau/Suffolk frequencies there, and
-                      otherwise falls back to visual-only scoring; zero-frequency
-                      species floored at 0.01
-  pipeline.py       — orchestrates all stages; center-weights classification
-                      events by bbox proximity to frame center; applies adaptive
-                      crop padding + confidence/crop-size gates; generates both
-                      video-level species summaries and per-track explanations;
-                      for image jobs emits per-photo summaries, annotated
-                      full-photo JPEGs, and browser overlay metadata; for video
-                      jobs extracts annotated stills snapped to tracked frames
-  video_metadata.py — ExifTool/OpenCV metadata helpers; extracts recording date,
-                      GPS, camera info, video codec, dimensions, and duration/fps
-  webapp.py         — FastAPI web UI + JSON API; content-addressed asset store +
-                      persisted hash index; two-phase inspect/finalize upload flow;
-                      multi-video uploads split into one job per video;
-                      in-memory job queue restored from results JSON on startup;
-                      hot-reloads config before each job; Google OAuth upload
-                      gating; cookie-backed theme selector; per-request access
-                      logging with forwarded IPs and signed-in email.
-                      API routes:
-                        POST /api/v1/videos  — token-authenticated video ingest
-                          from external clients (X-API-Token against
-                          webapp.api_tokens_file); returns 202 JSON with job_id
+  detector.py            — YOLOv8 object detection (COCO bird class), bbox + crop
+  tracker.py             — multi-frame tracker; IoU + centroid-distance matching;
+                           stores raw and weighted prediction history per track
+  classifier.py          — BioCLIP zero-shot classifier; pre-computed text
+                           embeddings; batched inference
+  hf_classifier.py       — generic HuggingFace image-classification backend;
+                           wraps AutoModelForImageClassification with fuzzy
+                           label mapping to the project species list
+  gemma_classifier.py    — Gemma 4 vision-language classifier backend
+  ensemble_classifier.py — weighted geometric-mean ensemble of BioCLIP + a
+                           secondary HF classifier; per-model score breakdown
+                           in results JSON
+  metadata.py            — eBird bar chart priors; seasonal or location-only
+                           mode; local prior overrides via YAML file; Long
+                           Island bounding-box gating for GPS-driven jobs
+  pipeline.py            — orchestrates detect/track/classify; center-weighted
+                           scoring; adaptive crop padding; video-level summaries
+                           + per-track detail; image jobs emit per-photo
+                           summaries, annotated JPEGs, and overlay metadata;
+                           video jobs extract annotated stills
+  pipeline_defaults.py   — default species list (Northeast NA, ~150 species)
+  tuner.py               — single-video parameter tuner; grid-searches
+                           hot-reloadable params against a known-species asset
+  video_metadata.py      — ExifTool/OpenCV metadata helpers
+  webapp.py              — FastAPI web UI + JSON API; content-addressed asset
+                           store; two-phase upload; Google OAuth gating;
+                           paginated job listing; friendly slug URLs; Open Graph
+                           metadata; theme switcher; per-request access logging.
+                           API: POST /api/v1/videos (token-authenticated)
 
 scripts/
-  serve.py                    — uvicorn entry point for web UI (port 3587)
-  identify_videos.py          — CLI batch processor
-  import_ebird_barchart.py    — parses eBird bar chart TSVs → SQLite DB
+  serve.py                  — uvicorn entry point (port 3587)
+  identify_videos.py        — CLI batch processor
+  import_ebird_barchart.py  — eBird bar chart TSVs -> SQLite DB
+  tune_single_video.py      — CLI for tuner.py
+
+eval/                       — model comparison eval container
+  eval_runner.py            — runs multiple classifier backends on a test set
+  report_generator.py       — generates comparison reports from eval results
+  Dockerfile, docker-compose.yml, config.yaml
 
 templates/
   base.html, index.html, job.html  — Jinja2, mobile-friendly
@@ -59,10 +63,10 @@ templates/
 ebird_data/
   ebird_US-NY-{047,059,061,081,103}__*_barchart.txt
   — Kings, Nassau, Manhattan, Queens, Suffolk counties
-  — Imported at Docker build time → data/ebird_priors.db (gitignored)
+  — Imported at Docker build time -> data/ebird_priors.db (gitignored)
 
 data/
-  species_lists/north_america_common.txt  — 238 Northeast species
+  species_lists/north_america_common.txt  — species list (text format)
   ebird_priors.db  — generated, not committed
 ```
 
@@ -71,121 +75,103 @@ data/
 - **No video output** — text logs + JSON results + JPEG crops only
 - **Classify every 10 frames** per track, not every frame
 - **Center weighting** — classification events weighted by Gaussian based on
-  distance of bbox center from frame center (`scoring.center_weight_strength`)
-- **Adaptive crop padding** — smaller/distant birds get more surrounding
-  context; close-up birds get less background
-- **Video-level summary + per-track detail** — UI and console now lead with a
-  video-level species summary; fragmented tracks remain available as debug detail
-- **Image jobs are photo-first** — the job page shows per-photo species tables,
-  the original photo with overlaid detection boxes, and CSS overlay labels tied
-  to each classified box; photos with no detections show the original in a
-  collapsed view
-- **Video jobs have annotated stills** — evenly-spaced stills (min(10,
-  duration/2)) are extracted and snapped to the nearest tracked frame within
-  +/-1s, then annotated with the same bounding box overlay as photos; the video
-  is also embedded as a player on the results page
-- **Upload flow is inspect then finalize** — the upload page inspects each
-  candidate asset, surfaces duplicate status plus metadata, and offers
-  Select All / Select None / Select New batch controls; multiple videos create
-  one job per video
-- **Managed uploads are content-addressed** — uploaded media are stored and
-  reused by `sha256` under the webapp upload directory, with a persisted index;
-  duplicate uploads reuse existing canonical files instead of creating copies;
-  API uploads go through the same store so identical clips deduplicate
-- **API ingest is token-authenticated** — `POST /api/v1/videos` accepts an
-  `X-API-Token` header validated against `webapp.api_tokens_file`
-  (`api_tokens.yaml`, gitignored); disabled (503) if not configured; browser
-  OAuth routes are unaffected; API jobs tagged `submitted_by=<name>@api`
-- **eBird priors** are multiplicative — visual prob × frequency, then renormalized;
-  species with 0 frequency are floored at `zero_floor=0.01` (not zeroed out)
-- **Long Island-only eBird gating for GPS-driven jobs** — when photo/video GPS is
-  present, priors are only applied inside a rough Long Island bounding box using
-  a virtual region averaged across Kings, Queens, Nassau, and Suffolk; outside
-  that area the system stays visual-only
-- **Job state** is in-memory but reconstructed from results JSON on startup;
-  the job listing auto-refreshes while any job is pending/running
-- **Job listing shows species** — completed jobs display date + top species
-  (e.g. "2024-02-03: Mourning Dove, Blue Jay, 2 others") instead of filename
-- **Recording date comes from media metadata** — EXIF/QuickTime dates are used
-  for seasonal eBird weighting; no manual date input in the upload form
-- **Video codec warning** — non-Safari-compatible codecs (VP9, AV1) are detected
-  at upload time and a warning is shown on the job page
-- **Theme switcher** — the header exposes `Default`, `Birdy`, and
-  `Super Birdy`; theme choice is stored in a cookie and applies across pages
-- **OAuth callback can be explicit** — `auth.redirect_uri` / `GOOGLE_REDIRECT_URI`
-  can override request-derived callback URLs for reverse-proxied HTTPS deploys
-- **Access logs include identity hints** — each request logs proxy IP, best-effort
-  real client IP from forwarded headers, and signed-in email when a session exists
-- **Config hot-reload** — config.yaml is re-read before each job; model/device
-  changes still require restart
-- **Species name normalization** happens at eBird import time (NAME_OVERRIDES
-  dict in import_ebird_barchart.py), not at query time
+  bbox center distance from frame center (`scoring.center_weight_strength`)
+- **Adaptive crop padding** — smaller/distant birds get more context
+- **Ensemble classifier** — BioCLIP + secondary model combined via weighted
+  geometric mean; per-model score breakdown preserved in results JSON;
+  species outside the secondary model's vocabulary get a uniform floor
+- **Video-level summary + per-track detail** — UI leads with video-level
+  species summary; fragmented tracks available as debug detail
+- **Image jobs are photo-first** — per-photo species tables, original photo
+  with overlaid detection boxes, CSS overlay labels; no-detection photos
+  show original in a collapsed view
+- **Video jobs have annotated stills** — evenly-spaced stills snapped to
+  tracked frames, annotated with bounding boxes; video embedded as player
+- **Upload flow is inspect then finalize** — surfaces duplicate status +
+  metadata; Select All / Select None / Select New controls; multiple videos
+  create one job per video
+- **Content-addressed asset store** — uploads stored by sha256; deduplication
+  across browser and API uploads
+- **API ingest** — `POST /api/v1/videos` with `X-API-Token` header validated
+  against `webapp.api_tokens_file`; jobs tagged `submitted_by=<name>@api`
+- **eBird priors** — multiplicative (visual * frequency, renormalized);
+  zero-frequency species floored at 0.01; supports seasonal (default) or
+  location-only mode via `prior_mode` config
+- **Local prior overrides** — YAML file with per-location species frequency
+  adjustments, applied on top of eBird data
+- **Long Island-only GPS gating** — priors applied inside a rough Long Island
+  bounding box (Kings/Queens/Nassau/Suffolk average); visual-only outside
+- **Friendly job URLs** — jobs get slug URLs; bare ID links redirect
+- **Open Graph metadata** — job pages include share card metadata
+- **Paginated job listing** — with media type labels and species summaries
+- **Job state** — in-memory, reconstructed from results JSON on startup;
+  auto-refreshes while jobs are pending/running
+- **Recording date from metadata** — EXIF/QuickTime dates for seasonal priors
+- **Video codec warning** — non-Safari codecs detected at upload time
+- **Theme switcher** — Default, Birdy, Super Birdy; cookie-backed
+- **OAuth callback override** — `auth.redirect_uri` for reverse-proxied deploys
+- **Access logs** — proxy IP, forwarded client IP, signed-in email
+- **Config hot-reload** — re-read before each job; model/device changes
+  require restart
+- **Species name normalization** at eBird import time (NAME_OVERRIDES dict)
 
 ## Docker
 
 - Base image: `cgr.dev/chainguard/python:latest-dev` (Wolfi/Alpine)
-- `USER root` required before `apk add`; drop back to `nonroot` before CMD
-- venv layer is separate from source layers — dependency changes are slow,
-  source-only changes are fast
-- `config.yaml` is bind-mounted from host (`./config.yaml:/data/config.yaml:ro`)
-- Writable volumes: `./videos`, `./results`, `./models` — must be chmod 777
-  on host (Docker creates them as root)
-- eBird SQLite DB is built during `docker compose build` via import script
+- `USER root` before `apk add`; drop to `nonroot` before CMD
+- venv layer separate from source layers for fast rebuilds
+- `config.yaml` bind-mounted (`./config.yaml:/data/config.yaml:ro`)
+- Writable volumes: `./videos`, `./results`, `./models` (chmod 777 on host)
+- eBird SQLite DB built during `docker compose build`
 
 ## Config (config.yaml)
 
-Current defaults change as tuning evolves; treat `config.yaml` as the source of
-truth rather than this document.
+Treat `config.yaml` as the source of truth for current defaults.
 
-Hot-reloadable settings currently include:
+Hot-reloadable: detector threshold, classifier cadence/padding/gates, tracker
+thresholds, scoring weights, metadata coords/FIPS/results dir, auth emails,
+prior_mode, local_priors_file.
 
-- detector confidence threshold
-- classifier cadence, crop padding, crop-size gate, and event-confidence gate
-- tracker disappearance/IoU/centroid thresholds and reporting thresholds
-- scoring.center-weight strength
-- metadata latitude/longitude/FIPS and results directory
-- auth allowed_emails
-
-Model path / model name / device changes still require restart. OAuth client
-ID/secret, redirect URI, and session secret also require restart.
+Require restart: model path/name/device, OAuth credentials, session secret.
 
 ## Workflow notes for AI/code assistants
 
-- **Unit tests**: run `uv run pytest` (167 tests, ~2s, no GPU/model needed).
-  Tests cover tracker math, eBird metadata priors, pipeline helpers,
-  video metadata formatting, and webapp auth/upload logic. Heavy dependencies
-  (YOLO, BioCLIP, ExifTool) are monkeypatched in test fixtures.
-- **Smoke checks** for full-stack validation:
+- **Unit tests**: `uv run pytest` (243 tests, ~4s, no GPU needed). Tests cover
+  tracker, metadata priors, pipeline helpers, video metadata, webapp
+  auth/upload, ensemble classifier. Heavy deps monkeypatched in fixtures.
+- **Smoke checks**:
   - `uv run scripts/import_ebird_barchart.py ebird_data/ --db /tmp/ebird_priors.db`
   - `uv run scripts/serve.py --config config.yaml --port 3587`
   - `uv run scripts/identify_videos.py <video-or-dir> --config config.yaml`
-- **Pipeline startup is heavyweight**: model init/download happens at runtime
-  (BioCLIP + YOLO). Avoid unnecessary full end-to-end runs for small edits.
-- **Default `config.yaml` targets container paths** (`/data/...`). For local uv
-  runs, use local path overrides (`videos/`, `results/`, `data/ebird_priors.db`)
-  or an alternate config file.
-- **Preserve result filename conventions** used by startup reconstruction:
-  - JSON pattern: `{job_id}_{original_stem}_results.json`
-  - Video track crops: `<results_dir>/<video_stem>_crops/track_<track_id>.jpg`
-  - Image-job artifacts live under `<results_dir>/<job_id>_crops/` and
-    include per-bird crops plus annotated full-photo JPEGs
-  - Video stills: `still_{idx}_{frame}_annotated.jpg` in the crops dir
-- **Jobs now reference explicit asset records**, not `{job_id}_filename`
-  upload paths. Reprocess should reuse the same canonical asset descriptors.
-- **Webapp processing is intentionally serial** (`ThreadPoolExecutor(max_workers=1)`).
-  Changing concurrency affects queue behavior and GPU memory pressure.
-- **Keep generated artifacts out of commits**: model weights, `results/`,
-  `videos/` (including `videos/assets/` and `videos/asset_index.json`), and
-  generated `data/ebird_priors.db` are intentionally gitignored.
+- **Pipeline startup is heavyweight**: model init/download at runtime. Avoid
+  unnecessary full runs for small edits.
+- **Default config targets container paths** (`/data/...`). For local runs use
+  local path overrides or an alternate config file.
+- **Result filename conventions** (used by startup reconstruction):
+  - JSON: `{job_id}_{original_stem}_results.json`
+  - Video crops: `<results_dir>/<video_stem>_crops/track_<track_id>.jpg`
+  - Image crops: `<results_dir>/<job_id>_crops/` (bird crops + annotated JPEGs)
+  - Video stills: `still_{idx}_{frame}_annotated.jpg` in crops dir
+- **Jobs reference explicit asset records**, not `{job_id}_filename` paths.
+- **Serial processing** (`ThreadPoolExecutor(max_workers=1)`). Changing
+  concurrency affects queue behavior and GPU memory.
+- **Keep out of commits**: model weights, `results/`, `videos/` (including
+  `videos/assets/` and `videos/asset_index.json`), `data/ebird_priors.db`.
 
 ## GitHub
 
 Repo: https://github.com/evandhoffman/birdvision (private)
+CI: GitHub Actions runs unit tests on push/PR (manual dispatch only).
 
 ## What's not done yet
 
-- Broader eBird region coverage and more generic GPS -> place naming are still
-  open; GPS-driven priors currently only recognize rough Long Island coverage
+Key open issues (see GitHub for full backlog):
+
+- Broader eBird region coverage beyond Long Island (#18)
+- Video-level summary robustness to noisy track fragments (#9)
+- Species-group rollups and UI (#33, #32)
+- Small-bird recall via tiled/zoomed fallback detection (#26)
+- Tuner improvements: species-group optimization (#34), trial logging (#28)
+- Fine-tuning detector/classifier on BirdVision data (#7, #30)
+- Human-in-the-loop active learning workflow (#31)
 - Live camera feed support (currently batch/upload only)
-- Bird-specific classifier replacement/evaluation is still open work; see GitHub
-  issues for the current backlog rather than relying on this file

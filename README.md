@@ -7,8 +7,8 @@ Aimed at the Long Island / Northeast US region, no cloud dependencies.
 
 1. **Detection** — finds birds in each frame
 2. **Tracking** — assigns stable IDs across frames, classifies every N frames
-3. **Classification** — zero-shot species ID from cropped bird images; events are weighted by proximity to frame center (centered bird = better crop = more weight)
-4. **eBird priors** — observed species frequency for the recording location and week re-ranks predictions; e.g. Herring Gull at 44% checklist frequency in Nassau County in March outweighs a visually-similar but implausible species
+3. **Classification** — zero-shot species ID from cropped bird images via BioCLIP, optionally ensembled with a secondary HuggingFace classifier (weighted geometric mean); events are weighted by proximity to frame center (centered bird = better crop = more weight)
+4. **eBird priors** — observed species frequency for the recording location and week re-ranks predictions; supports seasonal (default) or location-only mode, plus user-defined local prior overrides via YAML
 5. **Explanation** — each result includes a plain-English summary of what the model saw visually vs. what the location/season data contributed
 
 Models download automatically on first run (~600 MB + ~6 MB).
@@ -131,6 +131,16 @@ the system falls back to visual-only scoring.
 If GPS is unavailable, the fallback county is set via `metadata.ebird_fips` in
 `config.yaml`.
 
+Set `metadata.prior_mode` to `location_only` to use annual frequency averages
+instead of the default seasonal (per-week) weighting.
+
+### Local prior overrides
+
+You can supply a `metadata.local_priors_file` pointing to a YAML file with
+per-location species frequency adjustments. These are applied on top of the
+eBird data, letting you boost or suppress species you know are present or
+absent at a specific feeder or site.
+
 To add more counties, download the bar chart from `ebird.org/barchart`,
 drop the file in `ebird_data/`, and rebuild the image.
 
@@ -153,6 +163,8 @@ next job, but model/device changes still require a restart. Key settings:
 | `tracker.min_confidence_to_report` | `0.6` | Override min_frames for high-confidence single detections |
 | `scoring.center_weight_strength` | `2.0` | How much to favor center-frame detections (0 = off) |
 | `metadata.ebird_fips` | `US-NY-059` | Fallback county for eBird priors when GPS is unavailable |
+| `metadata.prior_mode` | `seasonal` | `seasonal` (per-week) or `location_only` (annual average) eBird weighting |
+| `metadata.local_priors_file` | `""` | Path to YAML file with per-location species frequency overrides |
 | `webapp.debug` | `false` | Local/debug bypass for auth checks on upload and reprocess endpoints |
 | `auth.redirect_uri` | `""` | Optional explicit OAuth callback URL to use behind HTTPS reverse proxies |
 | `auth.allowed_emails` | `[]` | Signed-in Google accounts allowed to upload and reprocess jobs |
@@ -217,13 +229,25 @@ send `X-Forwarded-For` and/or `X-Real-IP`.
 
 ### Videos
 
-- aggregate species score at the top of the results page
+- aggregate species score at the top of the results page, with per-model
+  score breakdown when using the ensemble classifier
 - embedded video player with codec compatibility warning for Safari
 - annotated stills extracted at evenly-spaced intervals, snapped to frames
   with active tracked detections, rendered with the same bounding box overlay
   style as photos
 - representative frame gallery and per-track detail in a collapsible section
 - camera, date, and GPS metadata displayed when available from EXIF
+
+## Web UI features
+
+- **Friendly job URLs** — jobs get human-readable slug URLs (e.g.
+  `/jobs/abc123-mourning-dove-blue-jay`); bare ID links redirect
+- **Open Graph metadata** — job pages include share card metadata for social
+  media previews
+- **Paginated job listing** — with media type labels (photo/video) and species
+  summaries; jobs sorted by creation date
+- **Job attribution** — uploaded jobs show the submitter's email (visible to
+  signed-in users)
 
 ## Upload review and duplicate handling
 
@@ -332,7 +356,8 @@ will download the model weights before the eval run starts.
   backyard feeder (Redhead, Horned Grebe, Atlantic Puffin, etc.) are highlighted
   in red
 - **Filter buttons** — show all clips, disagreements only, or implausible only
-- **Per-model top-5 predictions** with confidence scores per track
+- **Per-model top-5 predictions** with confidence scores and individual model
+  score breakdowns per track
 
 ## Single-video tuner
 
