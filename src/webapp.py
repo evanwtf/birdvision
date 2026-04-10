@@ -49,6 +49,12 @@ DEFAULT_THEME_ID = "super-birdy"
 VALID_THEME_IDS = {theme["id"] for theme in THEME_OPTIONS}
 
 
+def slugify_job_label(label: str) -> str:
+    """Normalize a filename or species label into a URL slug."""
+    slug = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
+    return slug or "job"
+
+
 @dataclass
 class Job:
     id: str
@@ -70,10 +76,39 @@ class Job:
 
     @property
     def slug(self) -> str:
-        """URL-friendly slug derived from filename, without extension."""
-        stem = Path(self.filename).stem
-        slug = re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-")
-        return slug or "job"
+        """URL-friendly slug derived from a high-confidence species or filename."""
+        return slugify_job_label(self._slug_label())
+
+    def _slug_label(self) -> str:
+        species_label = self._high_confidence_species_label()
+        if species_label:
+            return species_label
+        return Path(self.filename).stem
+
+    def _high_confidence_species_label(self) -> Optional[str]:
+        """Return the top species label when confidence is strictly above 90%."""
+        if self.status != "done" or not self.result:
+            return None
+
+        best_species = ""
+        best_prob = 0.0
+        if self.result.get("type") == "images":
+            for img in self.result.get("images", []):
+                for pred in img.get("species_summary", []):
+                    species = pred.get("species", "")
+                    prob = pred.get("probability", 0)
+                    if species and prob > best_prob:
+                        best_species = species
+                        best_prob = prob
+        else:
+            top_prediction = next(iter(self.result.get("video_predictions", [])), None)
+            if top_prediction:
+                best_species = top_prediction.get("species", "")
+                best_prob = top_prediction.get("presence_probability", 0)
+
+        if best_species and best_prob > 0.9:
+            return best_species
+        return None
 
     @property
     def has_detections(self) -> bool:
@@ -888,6 +923,9 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         job = _jobs.get(job_id)
         if job is None:
             return HTMLResponse("Job not found", status_code=404)
+        expected_slug = job.slug
+        if slug != expected_slug:
+            return RedirectResponse(url=f"/jobs/{job_id}/{expected_slug}", status_code=301)
 
         base = str(request.base_url).rstrip("/")
         og_url = f"{base}/jobs/{job_id}"

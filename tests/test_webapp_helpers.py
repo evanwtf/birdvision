@@ -559,6 +559,35 @@ class TestJobSlug:
     def _make_job(self, filename: str) -> Job:
         return Job(id="abc123", filename=filename)
 
+    def _make_done_video_job(self, filename: str, species: str, probability: float) -> Job:
+        job = self._make_job(filename)
+        job.status = "done"
+        job.result = {
+            "type": "video",
+            "tracks": [{"track_id": 1}],
+            "video_predictions": [{
+                "species": species,
+                "presence_probability": probability,
+                "supporting_tracks": 1,
+            }],
+        }
+        return job
+
+    def _make_done_image_job(self, filename: str, species: str, probability: float) -> Job:
+        job = Job(id="abc123", filename=filename, media_type="images")
+        job.status = "done"
+        job.result = {
+            "type": "images",
+            "images": [{
+                "species_summary": [{
+                    "species": species,
+                    "probability": probability,
+                }],
+                "detections": [{"bbox": [0, 0, 10, 10]}],
+            }],
+        }
+        return job
+
     def test_simple_filename(self):
         assert self._make_job("blue-jay.mp4").slug == "blue-jay"
 
@@ -589,6 +618,22 @@ class TestJobSlug:
         import re as _re
         slug = self._make_job("bird@photo#2024.jpg").slug
         assert _re.match(r"^[a-z0-9-]+$", slug)
+
+    def test_done_video_uses_top_species_when_above_90_percent(self):
+        slug = self._make_done_video_job("8a7c4f19.mp4", "Blue Jay", 0.9342).slug
+        assert slug == "blue-jay"
+
+    def test_done_video_with_species_id_style_still_slugifies_cleanly(self):
+        slug = self._make_done_video_job("8a7c4f19.mp4", "Blue_Jay", 0.9342).slug
+        assert slug == "blue-jay"
+
+    def test_done_video_falls_back_at_90_percent(self):
+        slug = self._make_done_video_job("8a7c4f19.mp4", "Blue Jay", 0.9).slug
+        assert slug == "8a7c4f19"
+
+    def test_done_image_uses_top_species_when_above_90_percent(self):
+        slug = self._make_done_image_job("d2f01a7b.jpg", "Northern Cardinal", 0.951).slug
+        assert slug == "northern-cardinal"
 
 
 # ---------------------------------------------------------------------------

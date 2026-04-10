@@ -7,6 +7,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 import src.webapp as webapp_module
+from src.webapp import Job
 
 
 class _FakePipeline:
@@ -179,3 +180,45 @@ class TestApiVideoUpload:
             assert len(stored) == 1, "asset store should dedup identical uploads"
             # Two distinct jobs were still created
             assert len(webapp_module._jobs) == 2
+
+
+class TestJobSlugRoutes:
+    def test_job_redirect_uses_high_confidence_species_slug(self, tmp_path):
+        with _make_client(tmp_path) as client:
+            job = Job(id="a" * 32, filename="8a7c4f19.mp4", media_type="video")
+            job.status = "done"
+            job.result = {
+                "type": "video",
+                "tracks": [{"track_id": 1}],
+                "video_predictions": [{
+                    "species": "Blue Jay",
+                    "presence_probability": 0.9731,
+                    "supporting_tracks": 1,
+                }],
+            }
+            webapp_module._jobs[job.id] = job
+
+            response = client.get(f"/jobs/{job.id}", follow_redirects=False)
+
+            assert response.status_code == 301
+            assert response.headers["location"] == f"/jobs/{job.id}/blue-jay"
+
+    def test_noncanonical_job_slug_redirects_to_current_species_slug(self, tmp_path):
+        with _make_client(tmp_path) as client:
+            job = Job(id="b" * 32, filename="8a7c4f19.mp4", media_type="video")
+            job.status = "done"
+            job.result = {
+                "type": "video",
+                "tracks": [{"track_id": 1}],
+                "video_predictions": [{
+                    "species": "Blue Jay",
+                    "presence_probability": 0.9731,
+                    "supporting_tracks": 1,
+                }],
+            }
+            webapp_module._jobs[job.id] = job
+
+            response = client.get(f"/jobs/{job.id}/random-gibberish", follow_redirects=False)
+
+            assert response.status_code == 301
+            assert response.headers["location"] == f"/jobs/{job.id}/blue-jay"
