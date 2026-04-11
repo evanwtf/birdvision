@@ -363,6 +363,23 @@ class TestValidateAssetBatch:
         result = validate_asset_batch(assets)
         assert result["valid"] is False
 
+    def test_unprocessable_video_only_returns_info(self):
+        assets = [{"media_type": "video", "processable": False}]
+        result = validate_asset_batch(assets)
+        assert result["valid"] is False
+        assert result["message_level"] == "info"
+        assert "could not be opened for processing" in result["error"]
+
+    def test_processable_assets_ignore_unprocessable_ones(self):
+        assets = [
+            {"media_type": "image", "processable": True},
+            {"media_type": "video", "processable": False},
+        ]
+        result = validate_asset_batch(assets)
+        assert result["valid"] is True
+        assert result["media_type"] == "image"
+        assert "could not be opened for processing" in result["info"]
+
 
 # ---------------------------------------------------------------------------
 # classify_media_type

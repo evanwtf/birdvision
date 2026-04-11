@@ -13,6 +13,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from http import HTTPStatus
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Optional
@@ -32,13 +33,16 @@ except ImportError:  # pragma: no cover - keeps app importable until deps are in
     OAuth = None
 
 from .pipeline import BirdIdentificationPipeline
-from .video_metadata import VideoMetadata, inspect_media
+from .video_metadata import MediaMetadata, VideoMetadata, inspect_media
 
 logger = logging.getLogger(__name__)
 access_logger = logging.getLogger("birdvision.access")
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".wmv"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
+KNOWN_UPLOAD_EXTENSIONS = VIDEO_EXTENSIONS | IMAGE_EXTENSIONS
+MAX_IMAGE_UPLOAD_COUNT = 20
+MAX_UPLOAD_FILE_BYTES = 50 * 1024 * 1024
 GOOGLE_SERVER_METADATA_URL = "https://accounts.google.com/.well-known/openid-configuration"
 THEME_COOKIE_NAME = "birdvision_theme"
 THEME_OPTIONS = (
@@ -312,6 +316,7 @@ class AssetStore:
             stored_path.write_bytes(data)
 
         inspected = inspect_media(str(stored_path))
+        processing_issue = asset_processing_issue(media_type, inspected)
         record = {
             "sha256": sha256,
             "stored_path": str(stored_path),
@@ -328,6 +333,8 @@ class AssetStore:
             "camera_info": inspected.camera_info,
             "video_codec": inspected.video_codec,
             "metadata_error": inspected.metadata_error,
+            "processable": processing_issue is None,
+            "processing_issue": processing_issue,
             "original_names": sorted({
                 safe_name,
                 *(existing.get("original_names", []) if existing else []),
@@ -335,13 +342,18 @@ class AssetStore:
             "created_at": (existing or {}).get("created_at") or utc_now_iso(),
             "last_seen_at": utc_now_iso(),
         }
-        self._assets[sha256] = record
-        self._save_index()
+        if processing_issue is not None:
+            stored_path.unlink(missing_ok=True)
+            self._assets.pop(sha256, None)
+            self._save_index()
+        else:
+            self._assets[sha256] = record
+            self._save_index()
 
         return {
             "sha256": sha256,
             "original_filename": safe_name,
-            "stored_path": str(stored_path),
+            "stored_path": str(stored_path) if processing_issue is None else None,
             "media_type": media_type,
             "size_bytes": len(data),
             "width": record["width"],
@@ -354,14 +366,16 @@ class AssetStore:
             "camera_info": record["camera_info"],
             "metadata_status": "partial" if record["metadata_error"] else "ok",
             "metadata_error": record["metadata_error"],
+            "processable": record["processable"],
+            "processing_issue": record["processing_issue"],
             "resolution_warning": resolution_warning_text(
                 media_type=media_type,
                 width=record["width"],
                 height=record["height"],
             ),
-            "duplicate": duplicate,
-            "duplicate_status": "existing" if duplicate else "new",
-            "canonical_path": str(stored_path),
+            "duplicate": duplicate if processing_issue is None else False,
+            "duplicate_status": ("existing" if duplicate else "new") if processing_issue is None else "rejected",
+            "canonical_path": str(stored_path) if processing_issue is None else None,
         }
 
     def ingest_path(self, path: str, original_filename: Optional[str] = None) -> dict[str, Any]:
@@ -610,9 +624,34 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             return auth_response
         files, client_metadata = await _parse_upload_form(request)
         if not files:
-            return JSONResponse({"error": "No file uploaded"}, status_code=400)
+            return JSONResponse({"error": "No file uploaded"}, status_code=HTTPStatus.BAD_REQUEST)
+        selection_error = validate_upload_selection(files)
+        if selection_error is not None:
+            await log_rejected_upload_batch(request, files, reason=selection_error)
+            return JSONResponse({"error": selection_error}, status_code=HTTPStatus.BAD_REQUEST)
 
-        inspected_assets = await _inspect_files(files, client_metadata, asset_store)
+        try:
+            inspected_assets = await _inspect_files(files, client_metadata, asset_store)
+        except RejectedUploadError as exc:
+            log_rejected_upload(
+                request,
+                reason=exc.reason,
+                filename=exc.filename,
+                size_bytes=exc.size_bytes,
+                sha256=exc.sha256,
+                content_type=exc.content_type,
+            )
+            return JSONResponse({"error": exc.reason}, status_code=HTTPStatus.BAD_REQUEST)
+        for asset in inspected_assets:
+            if not asset_is_processable(asset):
+                log_rejected_upload(
+                    request,
+                    reason=asset["processing_issue"],
+                    filename=asset["original_filename"],
+                    size_bytes=asset["size_bytes"],
+                    sha256=asset["sha256"],
+                    content_type=None,
+                )
         batch = validate_asset_batch(inspected_assets)
         return JSONResponse({
             "assets": inspected_assets,
@@ -627,10 +666,23 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         payload = await request.json()
         selected_assets = payload.get("assets") or []
         if not isinstance(selected_assets, list):
-            return JSONResponse({"error": "Invalid asset selection"}, status_code=400)
+            return JSONResponse({"error": "Invalid asset selection"}, status_code=HTTPStatus.BAD_REQUEST)
 
         # Split multiple videos into one job per video
         groups = _split_asset_groups(selected_assets, asset_store)
+        if not groups:
+            selected_count = sum(1 for asset in selected_assets if asset.get("selected", True))
+            if selected_count == 0:
+                return JSONResponse(
+                    {"error": "Select at least one asset to process."},
+                    status_code=HTTPStatus.BAD_REQUEST,
+                )
+            return JSONResponse({
+                "job_id": None,
+                "redirect_url": None,
+                "jobs_created": 0,
+                "info_message": unprocessable_assets_message(selected_count),
+            })
 
         submitter_email = current_user_email(request)
         created_jobs: list[Job] = []
@@ -664,12 +716,40 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             return auth_response
         files, client_metadata = await _parse_upload_form(request)
         if not files:
-            return HTMLResponse("No file uploaded", status_code=400)
+            return HTMLResponse("No file uploaded", status_code=HTTPStatus.BAD_REQUEST)
+        selection_error = validate_upload_selection(files)
+        if selection_error is not None:
+            await log_rejected_upload_batch(request, files, reason=selection_error)
+            return HTMLResponse(selection_error, status_code=HTTPStatus.BAD_REQUEST)
 
-        inspected_assets = await _inspect_files(files, client_metadata, asset_store)
+        try:
+            inspected_assets = await _inspect_files(files, client_metadata, asset_store)
+        except RejectedUploadError as exc:
+            log_rejected_upload(
+                request,
+                reason=exc.reason,
+                filename=exc.filename,
+                size_bytes=exc.size_bytes,
+                sha256=exc.sha256,
+                content_type=exc.content_type,
+            )
+            return HTMLResponse(exc.reason, status_code=HTTPStatus.BAD_REQUEST)
+        for asset in inspected_assets:
+            if not asset_is_processable(asset):
+                log_rejected_upload(
+                    request,
+                    reason=asset["processing_issue"],
+                    filename=asset["original_filename"],
+                    size_bytes=asset["size_bytes"],
+                    sha256=asset["sha256"],
+                    content_type=None,
+                )
         batch = validate_asset_batch(inspected_assets)
         if not batch["valid"]:
-            return HTMLResponse(batch["error"], status_code=400)
+            status_code = (
+                HTTPStatus.OK if batch.get("message_level") == "info" else HTTPStatus.BAD_REQUEST
+            )
+            return HTMLResponse(batch["error"], status_code=status_code)
 
         selected_assets = [
             {
@@ -682,6 +762,8 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
 
         submitter_email = current_user_email(request)
         groups = _split_asset_groups(selected_assets, asset_store)
+        if not groups:
+            return HTMLResponse(batch.get("info") or "No processable assets selected.", status_code=HTTPStatus.OK)
         created_jobs: list[Job] = []
         for group in groups:
             job = await _create_job_from_selection(
@@ -701,6 +783,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
 
     @app.post("/api/v1/videos")
     async def api_upload_video(
+        request: Request,
         file: UploadFile = File(...),
         captured_at: str = Form(...),
         latitude: Optional[float] = Form(None),
@@ -714,28 +797,71 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
         # gate. If no tokens are configured the endpoint is disabled.
         if not api_tokens:
             raise HTTPException(
-                status_code=503,
+                status_code=HTTPStatus.SERVICE_UNAVAILABLE,
                 detail="API ingest is not configured (set webapp.api_tokens_file)",
             )
         if not x_api_token or x_api_token not in api_tokens:
-            raise HTTPException(status_code=401, detail="Invalid or missing X-API-Token")
+            raise HTTPException(
+                status_code=HTTPStatus.UNAUTHORIZED,
+                detail="Invalid or missing X-API-Token",
+            )
         client_name = api_tokens[x_api_token]
+        actor = f"{source or client_name}@api"
 
         # ── Validate captured_at ──────────────────────────────────────────
         try:
             video_date = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
         except ValueError:
             raise HTTPException(
-                status_code=400,
+                status_code=HTTPStatus.BAD_REQUEST,
                 detail=f"captured_at must be ISO-8601, got: {captured_at!r}",
             )
 
         # ── Read file and ingest into the content-addressed asset store ───
         contents = await file.read()
         if not contents:
-            raise HTTPException(status_code=400, detail="Empty file")
-
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail="Empty file")
         original_filename = Path(file.filename or "upload.mp4").name
+        sha256 = hashlib.sha256(contents).hexdigest()
+
+        extension_error = validate_upload_extension(original_filename)
+        if extension_error is not None:
+            log_rejected_upload(
+                request,
+                reason=extension_error,
+                filename=original_filename,
+                size_bytes=len(contents),
+                sha256=sha256,
+                content_type=file.content_type,
+                actor=actor,
+            )
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=extension_error)
+
+        size_error = validate_upload_size(original_filename, len(contents))
+        if size_error is not None:
+            log_rejected_upload(
+                request,
+                reason=size_error,
+                filename=original_filename,
+                size_bytes=len(contents),
+                sha256=sha256,
+                content_type=file.content_type,
+                actor=actor,
+            )
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=size_error)
+
+        if Path(original_filename).suffix.lower() not in VIDEO_EXTENSIONS:
+            reason = "Expected a video upload with a supported video file extension."
+            log_rejected_upload(
+                request,
+                reason=reason,
+                filename=original_filename,
+                size_bytes=len(contents),
+                sha256=sha256,
+                content_type=file.content_type,
+                actor=actor,
+            )
+            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=reason)
         inspected = asset_store.inspect_bytes(
             original_filename=original_filename,
             content_type=file.content_type,
@@ -743,9 +869,33 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
             client_metadata=None,
         )
         if inspected.get("media_type") != "video":
+            reason = f"Expected a video upload, got media_type={inspected.get('media_type')}"
+            log_rejected_upload(
+                request,
+                reason=reason,
+                filename=original_filename,
+                size_bytes=len(contents),
+                sha256=inspected["sha256"],
+                content_type=file.content_type,
+                actor=actor,
+            )
             raise HTTPException(
-                status_code=400,
-                detail=f"Expected a video upload, got media_type={inspected.get('media_type')}",
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=reason,
+            )
+        if not asset_is_processable(inspected):
+            log_rejected_upload(
+                request,
+                reason=inspected["processing_issue"],
+                filename=original_filename,
+                size_bytes=len(contents),
+                sha256=inspected["sha256"],
+                content_type=file.content_type,
+                actor=actor,
+            )
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=inspected["processing_issue"],
             )
 
         # ── Build a Job through the same path as the browser flow ────────
@@ -779,7 +929,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
 
         # Surface the API client as the submitter so the existing
         # "Submitted by" UI works without special-casing API jobs.
-        job.submitted_by = f"{source or client_name}@api"
+        job.submitted_by = actor
         job.source_event_id = source_event_id
 
         _jobs[job.id] = job
@@ -1053,6 +1203,54 @@ def safe_current_user_email(request: Request) -> str:
     return normalize_email(session.get("email")) or "-"
 
 
+def log_rejected_upload(
+    request: Request,
+    *,
+    reason: str,
+    filename: str,
+    size_bytes: int,
+    sha256: str,
+    content_type: Optional[str],
+    actor: Optional[str] = None,
+) -> None:
+    proxy_ip, real_ip, forwarded_for, x_real_ip = extract_request_ips(request)
+    logger.warning(
+        "rejected_upload reason=%s filename=%s sha256=%s size_bytes=%s content_type=%s proxy_ip=%s real_ip=%s x_forwarded_for=%s x_real_ip=%s email=%s",
+        reason,
+        filename,
+        sha256,
+        size_bytes,
+        content_type or "-",
+        proxy_ip,
+        real_ip,
+        forwarded_for,
+        x_real_ip,
+        actor or safe_current_user_email(request),
+    )
+
+
+async def log_rejected_upload_batch(
+    request: Request,
+    files: list[StarletteUploadFile],
+    *,
+    reason: str,
+    actor: Optional[str] = None,
+) -> None:
+    for upload in files:
+        filename = Path(upload.filename or "upload").name
+        contents = await upload.read()
+        sha256 = hashlib.sha256(contents).hexdigest() if contents else "-"
+        log_rejected_upload(
+            request,
+            reason=reason,
+            filename=filename,
+            size_bytes=len(contents),
+            sha256=sha256,
+            content_type=upload.content_type,
+            actor=actor,
+        )
+
+
 def split_forwarded_for(value: Optional[str]) -> list[str]:
     if not value:
         return []
@@ -1077,6 +1275,15 @@ def can_upload_email(email: Optional[str], settings: AuthSettings) -> bool:
     if not settings.enabled:
         return True
     return bool(email and email in settings.allowed_emails)
+
+
+@dataclass
+class RejectedUploadError(Exception):
+    reason: str
+    filename: str
+    size_bytes: int
+    sha256: str
+    content_type: Optional[str] = None
 
 
 def normalize_theme(value: Any) -> str:
@@ -1397,8 +1604,28 @@ async def _inspect_files(
     for idx, upload in enumerate(files):
         client_meta = client_metadata[idx] if idx < len(client_metadata) else None
         contents = await upload.read()
+        filename = upload.filename or "upload"
+        sha256 = hashlib.sha256(contents).hexdigest() if contents else "-"
+        extension_error = validate_upload_extension(filename)
+        if extension_error is not None:
+            raise RejectedUploadError(
+                reason=extension_error,
+                filename=Path(filename).name,
+                size_bytes=len(contents),
+                sha256=sha256,
+                content_type=upload.content_type,
+            )
+        size_error = validate_upload_size(filename, len(contents))
+        if size_error is not None:
+            raise RejectedUploadError(
+                reason=size_error,
+                filename=Path(filename).name,
+                size_bytes=len(contents),
+                sha256=sha256,
+                content_type=upload.content_type,
+            )
         inspected_assets.append(asset_store.inspect_bytes(
-            original_filename=upload.filename or "upload",
+            original_filename=filename,
             content_type=upload.content_type,
             data=contents,
             client_metadata=client_meta,
@@ -1425,39 +1652,59 @@ async def _create_job_from_selection(
             return JSONResponse({"error": f"Asset {sha256} is no longer available."}, status_code=404)
         resolved_assets.append(build_job_asset(indexed, selection.get("original_filename")))
 
+    processable_assets = [asset for asset in resolved_assets if asset_is_processable(asset)]
     batch = validate_asset_batch(resolved_assets)
     if not batch["valid"]:
         return JSONResponse({"error": batch["error"]}, status_code=400)
 
     media_type = "images" if batch["media_type"] == "image" else "video"
     job_id = uuid.uuid4().hex
-    display_name = build_job_display_name(resolved_assets, media_type)
+    display_name = build_job_display_name(processable_assets, media_type)
     job = Job(job_id, display_name, media_type)
-    job.assets = resolved_assets
-    job.image_paths = [asset["stored_path"] for asset in resolved_assets if asset["media_type"] == "image"]
-    job.video_meta = build_video_meta_from_asset(resolved_assets[0])
+    job.assets = processable_assets
+    job.image_paths = [asset["stored_path"] for asset in processable_assets if asset["media_type"] == "image"]
+    job.video_meta = build_video_meta_from_asset(processable_assets[0])
     job.selected_date = (
-        datetime.fromisoformat(resolved_assets[0]["recorded_at"])
-        if resolved_assets[0].get("recorded_at") else None
+        datetime.fromisoformat(processable_assets[0]["recorded_at"])
+        if processable_assets[0].get("recorded_at") else None
     )
-    job.result_stem = f"{job_id}_{slugify_result_name(result_name_seed(resolved_assets, media_type))}"
+    job.result_stem = f"{job_id}_{slugify_result_name(result_name_seed(processable_assets, media_type))}"
     return job
 
 
 def validate_asset_batch(assets: list[dict[str, Any]]) -> dict[str, Any]:
-    media_types = {asset.get("media_type") for asset in assets if asset.get("media_type") in {"image", "video"}}
+    processable_assets = [asset for asset in assets if asset_is_processable(asset)]
+    media_types = {
+        asset.get("media_type")
+        for asset in processable_assets
+        if asset.get("media_type") in {"image", "video"}
+    }
+    unprocessable_count = len(assets) - len(processable_assets)
     if not assets:
         return {"valid": False, "error": "No assets selected.", "media_type": None}
+    if not processable_assets:
+        return {
+            "valid": False,
+            "error": unprocessable_assets_message(unprocessable_count),
+            "media_type": None,
+            "message_level": "info",
+        }
     if not media_types:
         return {"valid": False, "error": "BirdVision only supports common image and video uploads.", "media_type": None}
     if len(media_types) > 1:
-        return {
+        result = {
             "valid": True,
             "error": None,
             "media_type": "mixed",
         }
+        if unprocessable_count:
+            result["info"] = unprocessable_assets_message(unprocessable_count)
+        return result
     media_type = next(iter(media_types))
-    return {"valid": True, "error": None, "media_type": media_type}
+    result = {"valid": True, "error": None, "media_type": media_type}
+    if unprocessable_count:
+        result["info"] = unprocessable_assets_message(unprocessable_count)
+    return result
 
 
 def _split_asset_groups(
@@ -1471,6 +1718,8 @@ def _split_asset_groups(
         if not asset.get("selected", True):
             continue
         indexed = asset_store.get(asset.get("sha256", ""))
+        if not indexed or not asset_is_processable(indexed):
+            continue
         if indexed and indexed.get("media_type") == "video":
             videos.append(asset)
         else:
@@ -1513,6 +1762,8 @@ def build_job_asset(indexed: dict[str, Any], original_filename: Optional[str]) -
         "latitude": indexed.get("latitude"),
         "longitude": indexed.get("longitude"),
         "video_codec": indexed.get("video_codec"),
+        "processable": indexed.get("processable", True),
+        "processing_issue": indexed.get("processing_issue"),
         "resolution_warning": resolution_warning_text(
             media_type=indexed["media_type"],
             width=indexed.get("width"),
@@ -1568,6 +1819,62 @@ def first_value(server_value: Any, client_metadata: Optional[dict[str, Any]], ke
     if client_metadata and client_metadata.get(key) is not None:
         return client_metadata[key]
     return None
+
+
+def asset_is_processable(asset: dict[str, Any]) -> bool:
+    return asset.get("processable", True)
+
+
+def asset_processing_issue(media_type: str, inspected: MediaMetadata) -> Optional[str]:
+    if media_type != "video":
+        return None
+    if any(
+        value is not None
+        for value in (
+            inspected.width,
+            inspected.height,
+            inspected.duration_s,
+            inspected.fps,
+            inspected.video_codec,
+        )
+    ):
+        return None
+    return (
+        "This video file could not be opened for processing. "
+        "It may be corrupt, incomplete, or unsupported."
+    )
+
+
+def unprocessable_assets_message(count: int) -> str:
+    noun = "file" if count == 1 else "files"
+    return (
+        f"{count} selected {noun} could not be opened for processing. "
+        "They may be corrupt, incomplete, or unsupported."
+    )
+
+
+def validate_upload_selection(files: list[StarletteUploadFile]) -> Optional[str]:
+    image_count = sum(
+        1 for upload in files if Path(upload.filename or "").suffix.lower() in IMAGE_EXTENSIONS
+    )
+    if image_count > MAX_IMAGE_UPLOAD_COUNT:
+        return f"Select at most {MAX_IMAGE_UPLOAD_COUNT} photos per upload."
+    return None
+
+
+def validate_upload_size(filename: str, size_bytes: int) -> Optional[str]:
+    if size_bytes <= MAX_UPLOAD_FILE_BYTES:
+        return None
+    return f"{Path(filename).name} exceeds the 50 MB upload limit."
+
+
+def validate_upload_extension(filename: str) -> Optional[str]:
+    if Path(filename).suffix.lower() in KNOWN_UPLOAD_EXTENSIONS:
+        return None
+    return (
+        f"{Path(filename).name} has an unsupported file extension. "
+        "Upload a common photo or video format."
+    )
 
 
 def resolution_warning_text(

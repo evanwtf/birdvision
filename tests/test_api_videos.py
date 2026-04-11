@@ -1,5 +1,6 @@
 """Integration tests for POST /api/v1/videos."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 
 import src.webapp as webapp_module
 from src.webapp import Job
+from src.video_metadata import MediaMetadata
 
 
 class _FakePipeline:
@@ -28,6 +30,17 @@ def _reset_jobs(monkeypatch):
     """Reset module-level _jobs and stub the pipeline factory for every test."""
     monkeypatch.setattr(webapp_module, "_jobs", {})
     monkeypatch.setattr(webapp_module, "_init_pipeline", lambda c: _FakePipeline())
+    monkeypatch.setattr(
+        webapp_module,
+        "inspect_media",
+        lambda path: MediaMetadata(
+            width=1920,
+            height=1080,
+            duration_s=1.0,
+            fps=30.0,
+            video_codec="avc1",
+        ),
+    )
 
 
 def _make_client(tmp_path: Path, *, with_tokens: bool = True) -> TestClient:
@@ -113,7 +126,7 @@ class TestApiVideoUpload:
                 data={"captured_at": _VALID_TS},
             )
             assert r.status_code == 400
-            assert "media_type" in r.json()["detail"]
+            assert "unsupported file extension" in r.json()["detail"]
 
     def test_happy_path_returns_202_and_creates_job(self, tmp_path):
         with _make_client(tmp_path) as client:
@@ -180,6 +193,101 @@ class TestApiVideoUpload:
             assert len(stored) == 1, "asset store should dedup identical uploads"
             # Two distinct jobs were still created
             assert len(webapp_module._jobs) == 2
+
+    def test_api_rejects_unreadable_video_and_deletes_asset(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(webapp_module, "inspect_media", lambda path: MediaMetadata())
+
+        with _make_client(tmp_path) as client:
+            response = client.post(
+                "/api/v1/videos",
+                headers={"X-API-Token": "secret-token"},
+                files={"file": ("clip.mp4", b"not-a-real-video", "video/mp4")},
+                data={"captured_at": _VALID_TS},
+            )
+
+        assert response.status_code == 400
+        assert "could not be opened for processing" in response.json()["detail"]
+        assert not list((tmp_path / "videos" / "assets").glob("*"))
+        payload = json.loads((tmp_path / "videos" / "asset_index.json").read_text())
+        assert payload["assets"] == {}
+
+    def test_browser_inspect_reports_bad_video_without_persisting_asset(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(webapp_module, "inspect_media", lambda path: MediaMetadata())
+
+        with _make_client(tmp_path) as client:
+            inspect_response = client.post(
+                "/api/uploads/inspect",
+                files={"file": ("clip.mp4", b"not-a-real-video", "video/mp4")},
+            )
+
+        assert inspect_response.status_code == 200
+        body = inspect_response.json()
+        assert body["assets"][0]["processable"] is False
+        assert "could not be opened for processing" in body["assets"][0]["processing_issue"]
+        assert body["batch"]["valid"] is False
+        assert body["batch"]["message_level"] == "info"
+        assert not list((tmp_path / "videos" / "assets").glob("*"))
+        payload = json.loads((tmp_path / "videos" / "asset_index.json").read_text())
+        assert payload["assets"] == {}
+
+    def test_browser_finalize_returns_info_when_only_bad_assets_selected(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(webapp_module, "inspect_media", lambda path: MediaMetadata())
+
+        with _make_client(tmp_path) as client:
+            inspect_response = client.post(
+                "/api/uploads/inspect",
+                files={"file": ("clip.mp4", b"not-a-real-video", "video/mp4")},
+            )
+            asset = inspect_response.json()["assets"][0]
+            finalize_response = client.post(
+                "/api/uploads/finalize",
+                json={
+                    "assets": [{
+                        "sha256": asset["sha256"],
+                        "original_filename": asset["original_filename"],
+                        "selected": True,
+                    }]
+                },
+            )
+
+        assert finalize_response.status_code == 200
+        body = finalize_response.json()
+        assert body["jobs_created"] == 0
+        assert "could not be opened for processing" in body["info_message"]
+
+    def test_browser_inspect_rejects_more_than_twenty_photos(self, tmp_path):
+        files = [
+            ("file", (f"photo-{idx}.jpg", b"jpeg-bytes", "image/jpeg"))
+            for idx in range(21)
+        ]
+
+        with _make_client(tmp_path) as client:
+            response = client.post("/api/uploads/inspect", files=files)
+
+        assert response.status_code == 400
+        assert response.json()["error"] == "Select at most 20 photos per upload."
+
+    def test_browser_inspect_rejects_unsupported_extension(self, tmp_path):
+        with _make_client(tmp_path) as client:
+            response = client.post(
+                "/api/uploads/inspect",
+                files={"file": ("payload.exe", b"junk", "application/octet-stream")},
+            )
+
+        assert response.status_code == 400
+        assert "unsupported file extension" in response.json()["error"]
+
+    def test_browser_inspect_rejects_oversized_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(webapp_module, "MAX_UPLOAD_FILE_BYTES", 4)
+
+        with _make_client(tmp_path) as client:
+            response = client.post(
+                "/api/uploads/inspect",
+                files={"file": ("clip.mp4", b"12345", "video/mp4")},
+            )
+
+        assert response.status_code == 400
+        assert "50 MB upload limit" in response.json()["error"] or "upload limit" in response.json()["error"]
 
 
 class TestJobSlugRoutes:

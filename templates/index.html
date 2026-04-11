@@ -430,11 +430,13 @@ function updateReviewSummary() {
     return;
   }
   const { total, selectedCount, selectedVideos, selectedImages, selectedJobs, duplicates } = getSelectionStats();
+  const unprocessable = state.inspection.assets.filter((asset) => asset.processable === false).length;
   const parts = [`${selectedCount}/${total} selected`];
   if (selectedVideos) parts.push(`${selectedVideos} video${selectedVideos === 1 ? '' : 's'}`);
   if (selectedImages) parts.push(`${selectedImages} photo${selectedImages === 1 ? '' : 's'}`);
   if (selectedJobs > 1) parts.push(`${selectedJobs} jobs`);
   if (duplicates) parts.push(`${duplicates} duplicate${duplicates === 1 ? '' : 's'} will be reused`);
+  if (unprocessable) parts.push(`${unprocessable} bad file${unprocessable === 1 ? '' : 's'} skipped`);
   reviewSummary.textContent = parts.join(' · ');
 }
 
@@ -449,9 +451,11 @@ function renderReview() {
   setHidden(reviewWrap, false);
   updateReviewSummary();
 
-  if (inspection.batch && !inspection.batch.valid) {
-    reviewMessage.textContent = inspection.batch.error;
-    reviewMessage.className = 'message message-error';
+  if (inspection.batch && (!inspection.batch.valid || inspection.batch.info)) {
+    reviewMessage.textContent = inspection.batch.error || inspection.batch.info;
+    reviewMessage.className = inspection.batch.message_level === 'info'
+      ? 'message message-info'
+      : 'message message-error';
     setHidden(reviewMessage, false);
   } else {
     setHidden(reviewMessage, true);
@@ -468,6 +472,7 @@ function renderReview() {
       ? '<span class="meta-pill meta-pill-dup">duplicate: existing asset reused</span>'
       : '<span class="meta-pill meta-pill-new">new asset</span>');
     if (asset.metadata_status !== 'ok') meta.push('<span class="meta-pill meta-pill-error">metadata partial</span>');
+    if (asset.processable === false) meta.push('<span class="meta-pill meta-pill-error">won’t be processed</span>');
 
     const notes = [];
     const recordedAt = formatDate(asset.recorded_at);
@@ -475,12 +480,13 @@ function renderReview() {
     const gps = formatGps(asset);
     if (gps) notes.push(`GPS: ${escapeHtml(gps)}`);
     if (asset.metadata_error) notes.push(`Metadata issue: ${escapeHtml(asset.metadata_error)}`);
+    if (asset.processing_issue) notes.push(`<span class="asset-note-warning">${escapeHtml(asset.processing_issue)}</span>`);
     if (asset.resolution_warning) notes.push(`<span class="asset-note-warning">${escapeHtml(asset.resolution_warning)}</span>`);
 
     return `
       <div class="asset-card">
         <div class="asset-row">
-          <input class="asset-check" type="checkbox" data-index="${index}" ${asset.selected === false ? '' : 'checked'}>
+          <input class="asset-check" type="checkbox" data-index="${index}" ${asset.selected === false ? '' : 'checked'} ${asset.processable === false ? 'disabled' : ''}>
           <div class="asset-main">
             <div class="asset-name">${escapeHtml(asset.original_filename)}</div>
             <div class="asset-meta">${meta.join('')}</div>
@@ -563,6 +569,10 @@ async function collectClientMetadata(file) {
 function selectAssets(mode) {
   if (!state.inspection) return;
   state.inspection.assets.forEach((asset) => {
+    if (asset.processable === false) {
+      asset.selected = false;
+      return;
+    }
     if (mode === 'all') asset.selected = true;
     else if (mode === 'none') asset.selected = false;
     else if (mode === 'new') asset.selected = !asset.duplicate;
@@ -609,10 +619,14 @@ async function inspectSelection() {
     if (!response.ok) {
       throw new Error(payload.error || 'Inspection failed.');
     }
-    payload.assets = (payload.assets || []).map((asset) => ({ ...asset, selected: true }));
+    payload.assets = (payload.assets || []).map((asset) => ({
+      ...asset,
+      selected: asset.processable !== false,
+    }));
     state.inspection = payload;
     const videoCount = (payload.assets || []).filter((a) => a.media_type === 'video').length;
     const photoCount = (payload.assets || []).filter((a) => a.media_type === 'image').length;
+    const badCount = (payload.assets || []).filter((a) => a.processable === false).length;
     const jobCount = videoCount + (photoCount > 0 ? 1 : 0);
     if (payload.batch && payload.batch.valid) {
       if (jobCount > 1) {
@@ -629,8 +643,13 @@ async function inspectSelection() {
       } else {
         inspectMessage.textContent = 'Review the photo below, then process it.';
       }
+      if (badCount) {
+        inspectMessage.textContent += ` ${badCount} bad file${badCount === 1 ? '' : 's'} will be skipped.`;
+      }
     } else {
-      inspectMessage.textContent = 'Review the batch issue below before processing.';
+      inspectMessage.textContent = payload.batch && payload.batch.message_level === 'info'
+        ? (payload.batch.error || 'Review the file issue below.')
+        : 'Review the batch issue below before processing.';
     }
     renderReview();
   } catch (error) {
@@ -670,9 +689,16 @@ form.addEventListener('submit', async (event) => {
     if (!response.ok) {
       throw new Error(payload.error || 'Could not create job.');
     }
+    if (!payload.redirect_url) {
+      reviewMessage.textContent = payload.info_message || 'No processable assets were selected.';
+      reviewMessage.className = 'message message-info';
+      setHidden(reviewMessage, false);
+      return;
+    }
     window.location.href = payload.redirect_url;
   } catch (error) {
     reviewMessage.textContent = error.message || 'Could not create job.';
+    reviewMessage.className = 'message message-error';
     setHidden(reviewMessage, false);
   } finally {
     state.finalizing = false;
