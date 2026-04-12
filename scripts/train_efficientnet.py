@@ -188,10 +188,14 @@ def evaluate(model: nn.Module, loader: DataLoader, device: torch.device) -> tupl
 def export_onnx(model: nn.Module, output_path: Path, device: torch.device) -> None:
     model.eval()
     dummy = torch.zeros(1, 3, IMG_SIZE, IMG_SIZE, device=device)
+    # dynamo=False forces the legacy TorchScript-based exporter, which produces
+    # a simpler graph compatible with Hailo DFC 3.33.1. The newer dynamo exporter
+    # (default in PyTorch 2.5+) generates patterns the DFC parser can't handle.
     torch.onnx.export(
         model,
         dummy,
         str(output_path),
+        dynamo=False,
         opset_version=11,
         input_names=["input"],
         output_names=["output"],
