@@ -16,7 +16,7 @@ supported region.
 **Raspberry Pi 5 (real-time streaming pipeline)**
 - Hailo-8 AI Processor (PCIe, 26 TOPS INT8), 8GB RAM, aarch64 Ubuntu 24.04
 - Elgato Cam Link 4K (HDMI→USB capture), Samsung camcorder via HDMI
-- HailoRT firmware: 4.20.0
+- HailoRT firmware: 4.23.0 (upgraded from 4.20.0)
 
 ## Architecture
 
@@ -223,7 +223,9 @@ Key open issues (see GitHub for full backlog):
   `hailo-all` from Pi repo conflicts with Ubuntu 24.04 (Python 3.11 vs 3.12, Debian media libs);
   use Hailo developer zone Ubuntu .deb for the runtime library in the container.
 - ~~Cam Link 4K verification (#73)~~ ✓ done — /dev/video0 (capture), /dev/video1 (metadata).
-- YOLOv8 → Hailo HEF (on desktop) (#74)
+- YOLOv8 → Hailo HEF (on desktop) (#74) — try `hailomz download yolov8n` first (pre-built in
+  Model Zoo since v2.7). If compiling: use `--hw-arch hailo8` (hardware arch string for HAILO8).
+  Pi is on HailoRT 4.23.0; verify HEF loads on the Pi before committing to a custom compile.
 - EfficientNet-S fine-tune + HEF (on desktop) (#75, #77)
 - Pi inference backends (#76, #77)
 - Live capture module + real-time pipeline (#78, #79)

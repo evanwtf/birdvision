@@ -31,7 +31,9 @@ dev = [
     "pytest>=9.0.2",
 ]
 pi = [
-    "hailort>=4.20.0",   # Linux aarch64 only — install with: uv sync --group pi
+    "hailort==4.23.0",   # Linux aarch64 + Python 3.13 only
+                         # Wheel from Hailo developer zone (not PyPI)
+                         # Install: uv python install 3.13 && uv sync --python 3.13 --group pi
 ]
 
 [tool.pytest.ini_options]
