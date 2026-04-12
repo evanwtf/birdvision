@@ -654,6 +654,78 @@ class TestJobSlug:
 
 
 # ---------------------------------------------------------------------------
+# Job.thumbnail_url
+# ---------------------------------------------------------------------------
+
+class TestJobThumbnailUrl:
+    def test_pending_job_has_no_thumbnail(self):
+        job = Job(id="abc123", filename="clip.mp4", media_type="video")
+        assert job.thumbnail_url is None
+
+    def test_image_job_uses_highest_confidence_annotated_photo(self):
+        job = Job(id="abc123", filename="batch.jpg", media_type="images")
+        job.status = "done"
+        job.result = {
+            "type": "images",
+            "images": [
+                {
+                    "annotated_file": "img0_annotated.jpg",
+                    "species_summary": [{"species": "Blue Jay", "probability": 0.91}],
+                    "detections": [{"bbox": [0, 0, 10, 10]}],
+                },
+                {
+                    "annotated_file": "img1_annotated.jpg",
+                    "species_summary": [{"species": "Northern Cardinal", "probability": 0.96}],
+                    "detections": [{"bbox": [0, 0, 10, 10]}],
+                },
+            ],
+        }
+
+        assert job.thumbnail_url == "/jobs/abc123/crops/img1_annotated.jpg"
+
+    def test_video_job_uses_highest_confidence_annotated_still(self):
+        job = Job(id="abc123", filename="clip.mp4", media_type="video")
+        job.status = "done"
+        job.result = {
+            "type": "video",
+            "tracks": [{"track_id": 1}],
+            "video_stills": [
+                {
+                    "annotated_file": "still_00_000010_annotated.jpg",
+                    "detections": [
+                        {"species": [{"species": "Blue Jay", "probability": 0.88}]},
+                    ],
+                },
+                {
+                    "annotated_file": "still_01_000020_annotated.jpg",
+                    "detections": [
+                        {"species": [{"species": "Northern Cardinal", "probability": 0.93}]},
+                        {"species": [{"species": "Mourning Dove", "probability": 0.97}]},
+                    ],
+                },
+            ],
+        }
+
+        assert job.thumbnail_url == "/jobs/abc123/crops/still_01_000020_annotated.jpg"
+
+    def test_thumbnail_url_quotes_special_characters(self):
+        job = Job(id="abc123", filename="batch.jpg", media_type="images")
+        job.status = "done"
+        job.result = {
+            "type": "images",
+            "images": [
+                {
+                    "annotated_file": "img 1 annotated.jpg",
+                    "species_summary": [{"species": "Blue Jay", "probability": 0.92}],
+                    "detections": [{"bbox": [0, 0, 10, 10]}],
+                },
+            ],
+        }
+
+        assert job.thumbnail_url == "/jobs/abc123/crops/img%201%20annotated.jpg"
+
+
+# ---------------------------------------------------------------------------
 # Job.submitted_by
 # ---------------------------------------------------------------------------
 

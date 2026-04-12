@@ -311,6 +311,50 @@ class TestJobSlugRoutes:
             assert response.status_code == 301
             assert response.headers["location"] == f"/jobs/{job.id}/blue-jay"
 
+
+class TestRecentVisitorsListing:
+    def test_index_and_api_include_recent_visitors_thumbnail(self, tmp_path):
+        with _make_client(tmp_path) as client:
+            job = Job(id="c" * 32, filename="clip.mp4", media_type="video")
+            job.status = "done"
+            job.result = {
+                "type": "video",
+                "tracks": [{"track_id": 1}],
+                "video_predictions": [{
+                    "species": "Blue Jay",
+                    "presence_probability": 0.9731,
+                    "supporting_tracks": 1,
+                }],
+                "video_stills": [
+                    {
+                        "annotated_file": "still_00_000010_annotated.jpg",
+                        "detections": [
+                            {"species": [{"species": "Blue Jay", "probability": 0.88}]},
+                        ],
+                    },
+                    {
+                        "annotated_file": "still_01_000020_annotated.jpg",
+                        "detections": [
+                            {"species": [{"species": "Northern Cardinal", "probability": 0.94}]},
+                        ],
+                    },
+                ],
+            }
+            webapp_module._jobs[job.id] = job
+
+            page = client.get("/")
+            assert page.status_code == 200
+            assert "Recent Visitors" in page.text
+            assert f'/jobs/{job.id}/crops/still_01_000020_annotated.jpg' in page.text
+            assert "Recent Jobs" not in page.text
+
+            api = client.get("/api/jobs")
+            assert api.status_code == 200
+            payload = api.json()
+            assert payload["jobs"][0]["thumbnail_url"] == (
+                f"/jobs/{job.id}/crops/still_01_000020_annotated.jpg"
+            )
+
     def test_noncanonical_job_slug_redirects_to_current_species_slug(self, tmp_path):
         with _make_client(tmp_path) as client:
             job = Job(id="b" * 32, filename="8a7c4f19.mp4", media_type="video")

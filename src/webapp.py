@@ -192,6 +192,51 @@ class Job:
 
         return species_text
 
+    @property
+    def thumbnail_url(self) -> Optional[str]:
+        filename = self._thumbnail_filename()
+        if not filename:
+            return None
+        return f"/jobs/{self.id}/crops/{quote(filename)}"
+
+    def _thumbnail_filename(self) -> Optional[str]:
+        if not self.result or self.status != "done":
+            return None
+
+        best_filename = None
+        best_prob = -1.0
+
+        if self.result.get("type") == "images":
+            for img in self.result.get("images", []):
+                annotated_file = img.get("annotated_file")
+                if not annotated_file:
+                    continue
+                prob = max(
+                    (float(pred.get("probability", 0) or 0) for pred in img.get("species_summary", [])),
+                    default=0.0,
+                )
+                if prob > best_prob:
+                    best_prob = prob
+                    best_filename = annotated_file
+        else:
+            for still in self.result.get("video_stills", []):
+                annotated_file = still.get("annotated_file")
+                if not annotated_file:
+                    continue
+                prob = max(
+                    (
+                        float(pred.get("probability", 0) or 0)
+                        for det in still.get("detections", [])
+                        for pred in det.get("species", [])
+                    ),
+                    default=0.0,
+                )
+                if prob > best_prob:
+                    best_prob = prob
+                    best_filename = annotated_file
+
+        return best_filename
+
 
 @dataclass(frozen=True)
 class AuthSettings:
@@ -548,6 +593,7 @@ def create_app(config: dict, templates_dir: str = "templates", config_path: Opti
                     "media_label": j.media_label,
                     "media_type": j.media_type,
                     "summary": j.summary,
+                    "thumbnail_url": j.thumbnail_url,
                     "created_at": j.created_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 }
                 for j in jobs_page

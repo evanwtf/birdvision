@@ -188,6 +188,23 @@
   white-space: nowrap;
   min-width: 0;
 }
+.job-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.job-thumb {
+  height: 150px;
+  width: auto;
+  display: block;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-soft);
+  flex-shrink: 0;
+}
 .job-name:hover { color: var(--accent); }
 .job-time {
   font-size: 0.72rem;
@@ -270,7 +287,7 @@
 <div id="jobs-card">
 {% if jobs %}
 <div class="card">
-  <h2>Recent Jobs</h2>
+  <h2>Recent Visitors</h2>
   <ul class="jobs-list">
     {% for job in jobs %}
     <li>
@@ -282,7 +299,12 @@
       <span class="job-media" aria-label="{{ 'video' if job.media_type != 'images' else 'photo' }}">{{ job.media_label }}</span>
       <a class="job-name" href="/jobs/{{ job.id }}/{{ job.slug }}">
         <span class="job-summary">{{ job.summary }}</span>
-        <time class="job-time" datetime="{{ job.created_at.strftime('%Y-%m-%dT%H:%M:%S') }}Z">{{ job.created_at.strftime("%b %-d") }}</time>
+        <span class="job-meta">
+          {% if job.thumbnail_url %}
+          <img class="job-thumb" src="{{ job.thumbnail_url }}" alt="" loading="lazy">
+          {% endif %}
+          <time class="job-time" datetime="{{ job.created_at.strftime('%Y-%m-%dT%H:%M:%S') }}Z">{{ job.created_at.strftime("%b %-d") }}</time>
+        </span>
       </a>
     </li>
     {% endfor %}
@@ -292,7 +314,7 @@
     {% if page > 1 %}
     <a href="/?page={{ page - 1 }}">&laquo; Prev</a>
     {% endif %}
-    <span class="page-info">Page {{ page }} of {{ total_pages }} ({{ total_jobs }} jobs)</span>
+    <span class="page-info">Page {{ page }} of {{ total_pages }} ({{ total_jobs }} visitors)</span>
     {% if page < total_pages %}
     <a href="/?page={{ page + 1 }}">Next &raquo;</a>
     {% endif %}
@@ -781,7 +803,7 @@ zone.addEventListener('drop', (e) => {
       container.innerHTML = '<div class="card"><p class="empty">No jobs yet \u2014 upload videos, photos, or both to get started.</p></div>';
       return;
     }
-    let html = '<div class="card"><h2>Recent Jobs</h2><ul class="jobs-list">';
+    let html = '<div class="card"><h2>Recent Visitors</h2><ul class="jobs-list">';
     for (const job of data.jobs) {
       const t = formatJobTime(job.created_at);
       let statusBadge = '';
@@ -793,19 +815,24 @@ zone.addEventListener('drop', (e) => {
       const mediaAria = job.media_type === 'images' ? 'photo' : 'video';
       let timeHtml = escapeHtml(t.primary);
       if (t.relative) timeHtml += '<span class="job-time-rel">' + escapeHtml(t.relative) + '</span>';
+      const thumbHtml = job.thumbnail_url
+        ? '<img class="job-thumb" src="' + escapeHtml(job.thumbnail_url) + '" alt="" loading="lazy">'
+        : '';
       html += '<li>'
         + statusBadge
         + '<span class="job-media" aria-label="' + mediaAria + '">' + escapeHtml(job.media_label) + '</span>'
         + '<a class="job-name" href="/jobs/' + escapeHtml(job.id) + '/' + escapeHtml(job.slug) + '">'
         + '<span class="job-summary">' + escapeHtml(job.summary) + '</span>'
+        + '<span class="job-meta">' + thumbHtml
         + '<time class="job-time" datetime="' + escapeHtml(job.created_at) + '">' + timeHtml + '</time>'
+        + '</span>'
         + '</a></li>';
     }
     html += '</ul>';
     if (data.total_pages > 1) {
       html += '<div class="pagination">';
       if (data.page > 1) html += '<a href="/?page=' + (data.page - 1) + '">&laquo; Prev</a>';
-      html += '<span class="page-info">Page ' + data.page + ' of ' + data.total_pages + ' (' + data.total_jobs + ' jobs)</span>';
+      html += '<span class="page-info">Page ' + data.page + ' of ' + data.total_pages + ' (' + data.total_jobs + ' visitors)</span>';
       if (data.page < data.total_pages) html += '<a href="/?page=' + (data.page + 1) + '">Next &raquo;</a>';
       html += '</div>';
     }
