@@ -217,8 +217,12 @@ Key open issues (see GitHub for full backlog):
 
 **Raspberry Pi real-time sub-project** (#70):
 - Scaffold Pi monorepo structure (#81) ← start here
-- OS packages + Hailo SDK on Pi (#71, #72)
-- Cam Link 4K verification (#73)
+- ~~OS packages on Pi (#71)~~ ✓ done
+- ~~Hailo PCIe kernel driver on Pi host (#72)~~ ✓ done — /dev/hailo0 present.
+  HailoRT library + Python bindings go in the container (Dockerfile.pi), not the host.
+  `hailo-all` from Pi repo conflicts with Ubuntu 24.04 (Python 3.11 vs 3.12, Debian media libs);
+  use Hailo developer zone Ubuntu .deb for the runtime library in the container.
+- ~~Cam Link 4K verification (#73)~~ ✓ done — /dev/video0 (capture), /dev/video1 (metadata).
 - YOLOv8 → Hailo HEF (on desktop) (#74)
 - EfficientNet-S fine-tune + HEF (on desktop) (#75, #77)
 - Pi inference backends (#76, #77)

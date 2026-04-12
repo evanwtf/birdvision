@@ -33,6 +33,10 @@ data/ebird_priors.db
 # API tokens (real file gitignored; api_tokens.yaml.example is committed)
 api_tokens.yaml
 
+# Pi models (compiled HEF binaries + label map — not committed)
+pi/models/*.hef
+pi/models/species_labels.json
+
 # Misc
 .DS_Store
 .env

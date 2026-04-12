@@ -1,0 +1,18 @@
+services:
+  birdvision-pi:
+    build:
+      context: .
+      dockerfile: Dockerfile.pi
+    image: birdvision-pi:latest
+    restart: unless-stopped
+    stop_grace_period: 30s
+    devices:
+      - /dev/hailo0:/dev/hailo0     # Hailo-8 PCIe AI accelerator
+      - /dev/video0:/dev/video0     # Cam Link 4K capture
+      - /dev/video1:/dev/video1     # Cam Link 4K metadata
+    volumes:
+      - ./config.pi.yaml:/app/config.pi.yaml:ro
+      - ./pi/models:/app/pi/models:ro    # HEF files + species_labels.json
+      - ./results:/data/results
+    environment:
+      - PYTHONUNBUFFERED=1

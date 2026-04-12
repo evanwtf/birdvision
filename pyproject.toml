@@ -30,6 +30,9 @@ dependencies = [
 dev = [
     "pytest>=9.0.2",
 ]
+pi = [
+    "hailort>=4.20.0",   # Linux aarch64 only — install with: uv sync --group pi
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

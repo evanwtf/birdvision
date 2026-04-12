@@ -1,0 +1,43 @@
+stream:
+  device: /dev/video0
+  format: yuyv422
+  width: 1920
+  height: 1080
+  framerate: 59.94
+
+detector:
+  hef: /app/pi/models/yolov8_birds.hef
+  confidence: 0.4
+  device: /dev/hailo0
+
+classifier:
+  hef: /app/pi/models/efficientnet_s_birds.hef
+  labels: /app/pi/models/species_labels.json
+  top_k: 20
+  classify_every_n_frames: 10
+  crop_padding_ratio: 0.18
+  crop_padding_ratio_min: 0.04
+  crop_closeup_area_ratio: 0.06
+  min_crop_area: 2500
+  min_event_confidence: 0.35
+
+tracker:
+  max_disappeared: 120
+  iou_threshold: 0.2
+  min_frames_to_report: 8
+  centroid_max_distance: 0.18
+  min_confidence_to_report: 0.6
+
+scoring:
+  center_weight_strength: 2.0
+
+metadata:
+  latitude: 40.7
+  longitude: -73.5
+  ebird_db: /app/data/ebird_priors.db
+  ebird_fips: US-NY-059
+  prior_mode: seasonal
+
+output:
+  results_dir: /data/results
+  log_interval_seconds: 1
