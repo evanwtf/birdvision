@@ -14,6 +14,7 @@ uv run --no-project \
     --with torch \
     --with torchvision \
     --with tqdm \
+    --with onnxscript \
     "$SCRIPT_DIR/train_efficientnet.py" \
     --data-dir "$DATA_DIR" \
     --output-dir "$OUTPUT_DIR" \
