@@ -36,6 +36,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms
 from torchvision.models import EfficientNet_V2_S_Weights, efficientnet_v2_s
+from tqdm import tqdm
 
 logging.basicConfig(
     level=logging.INFO,
@@ -153,7 +154,8 @@ def train_one_epoch(
     running_loss = 0.0
     correct = 0
     total = 0
-    for i, (images, labels) in enumerate(loader):
+    bar = tqdm(loader, desc=f"epoch {epoch}", unit="batch", leave=False)
+    for images, labels in bar:
         images, labels = images.to(device), labels.to(device)
         optimizer.zero_grad()
         outputs = model(images)
@@ -163,10 +165,7 @@ def train_one_epoch(
         running_loss += loss.item() * images.size(0)
         correct += (outputs.argmax(1) == labels).sum().item()
         total += images.size(0)
-        if (i + 1) % 50 == 0:
-            logger.info("  epoch %d  batch %d/%d  loss=%.4f  acc=%.3f",
-                        epoch, i + 1, len(loader),
-                        running_loss / total, correct / total)
+        bar.set_postfix(loss=f"{running_loss / total:.4f}", acc=f"{correct / total:.3f}")
     return running_loss / total
 
 
@@ -176,7 +175,7 @@ def evaluate(model: nn.Module, loader: DataLoader, device: torch.device) -> tupl
     correct_top1 = 0
     correct_top5 = 0
     total = 0
-    for images, labels in loader:
+    for images, labels in tqdm(loader, desc="val", unit="batch", leave=False):
         images, labels = images.to(device), labels.to(device)
         outputs = model(images)
         _, top5 = outputs.topk(5, dim=1)
@@ -289,13 +288,16 @@ def main() -> None:
             lr=PHASE1_LR, weight_decay=1e-4,
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.phase1_epochs)
-        for epoch in range(1, args.phase1_epochs + 1):
+        epoch_bar = tqdm(range(1, args.phase1_epochs + 1), desc="Phase 1", unit="epoch")
+        for epoch in epoch_bar:
             t0 = time.time()
             loss = train_one_epoch(model, train_loader, optimizer, criterion, device, epoch)
             top1, top5 = evaluate(model, val_loader, device)
             scheduler.step()
+            elapsed = time.time() - t0
+            epoch_bar.set_postfix(loss=f"{loss:.4f}", top1=f"{top1:.3f}", top5=f"{top5:.3f}", s=f"{elapsed:.0f}s")
             logger.info("Phase1 epoch %d/%d  loss=%.4f  val_top1=%.3f  val_top5=%.3f  %.1fs",
-                        epoch, args.phase1_epochs, loss, top1, top5, time.time() - t0)
+                        epoch, args.phase1_epochs, loss, top1, top5, elapsed)
         ckpt = args.output_dir / "efficientnet_s_birds_phase1.pt"
         torch.save(model.state_dict(), ckpt)
         logger.info("Phase 1 checkpoint saved: %s", ckpt)
@@ -308,13 +310,17 @@ def main() -> None:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.phase2_epochs)
         best_top1 = 0.0
         best_ckpt = args.output_dir / "efficientnet_s_birds_best.pt"
-        for epoch in range(1, args.phase2_epochs + 1):
+        epoch_bar = tqdm(range(1, args.phase2_epochs + 1), desc="Phase 2", unit="epoch")
+        for epoch in epoch_bar:
             t0 = time.time()
             loss = train_one_epoch(model, train_loader, optimizer, criterion, device, epoch)
             top1, top5 = evaluate(model, val_loader, device)
             scheduler.step()
+            elapsed = time.time() - t0
+            epoch_bar.set_postfix(loss=f"{loss:.4f}", top1=f"{top1:.3f}", top5=f"{top5:.3f}",
+                                  best=f"{best_top1:.3f}", s=f"{elapsed:.0f}s")
             logger.info("Phase2 epoch %d/%d  loss=%.4f  val_top1=%.3f  val_top5=%.3f  %.1fs",
-                        epoch, args.phase2_epochs, loss, top1, top5, time.time() - t0)
+                        epoch, args.phase2_epochs, loss, top1, top5, elapsed)
             if top1 > best_top1:
                 best_top1 = top1
                 torch.save(model.state_dict(), best_ckpt)
