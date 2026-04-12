@@ -87,7 +87,7 @@ def build_folder_to_species_map(species_list: list[str]) -> dict[str, str]:
 VALID_EXTS = {'.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tiff', '.webp'}
 
 
-class ImageFolderSkipEmpty(ImageFolderSkipEmpty):
+class ImageFolderSkipEmpty(datasets.ImageFolder):
     """ImageFolder that silently skips class directories with no valid images."""
 
     def find_classes(self, directory: str) -> tuple[list[str], dict[str, int]]:
