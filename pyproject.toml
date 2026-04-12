@@ -36,5 +36,11 @@ pi = [
                          # Install: uv python install 3.13 && uv sync --python 3.13 --group pi
 ]
 
+[tool.uv]
+# Both supported machines (desktop x86_64 + Pi aarch64) run Linux.
+# Restricting to Linux prevents uv from trying to resolve hailort for
+# other platforms where it doesn't exist in the package registry.
+environments = ["sys_platform == 'linux'"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
