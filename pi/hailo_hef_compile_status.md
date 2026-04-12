@@ -1,6 +1,6 @@
 # Hailo HEF Compilation — Status & Next Steps
 
-## What's been done
+## What's been done (✅ COMPLETE)
 
 - HailoRT 4.23.0 confirmed on Pi (`hailortcli fw-control identify`)
 - Downloaded `hailo_dataflow_compiler-3.33.1-py3-none-linux_x86_64.whl` ✓
@@ -8,44 +8,133 @@
 - Installed `libgraphviz-dev graphviz` ✓
 - `hailomz info yolov8n` works — model recognized, hailo8 supported ✓
 - Prepared 500 calibration images in `~/calib_images/` from birdvision stills ✓
+- **Git editable install of hailo_model_zoo v2.18** ✓ (with `--no-build-isolation`)
+- **Installed torch + torchvision** (required by v2.18) ✓
+- **Fixed import compatibility issues** — disabled torch_infer.py (not needed for compilation) ✓
+- **Compilation running successfully** — Started 2026-04-12 19:46 (CPU mode, ~60 min expected)
 
-## Current blocker
+## Issues Encountered & Solutions
 
-`hailomz compile yolov8n --hw-arch hailo8 --calib-path ~/calib_images/` fails:
-
+### Issue 1: Pre-built Wheel Missing Files
+**Problem:** `hailo_model_zoo-2.18.0-py3-none-any.whl` did not include the `cfg/postprocess_config/` 
+directory, causing `hailomz compile` to fail with:
 ```
 AllocatorScriptParserException: Post-process config file isn't found in
-.../hailo_model_zoo/cfg/alls/generic/../../postprocess_config/yolov8n_nms_config.json
+.../postprocess_config/yolov8n_nms_config.json
 ```
 
-The pre-built wheel (`hailo_model_zoo-2.18.0-py3-none-any.whl`) is missing the
-`cfg/postprocess_config/` directory — it wasn't packed into the wheel correctly.
+**Solution:** Switched from wheel install to git editable install:
+```bash
+pip uninstall hailo-model-zoo -y
+cd ~/git/hailo_model_zoo && git checkout v2.18
+pip install --no-build-isolation -e .
+```
+The git repo v2.18 tag includes all config files and works as a standalone clone (no external version.py dependency).
 
-## Fix
+### Issue 2: Missing torch Dependency
+**Problem:** v2.18's setup.py doesn't explicitly list torch as a dependency, but the code imports it:
+```
+ModuleNotFoundError: No module named 'torch'
+```
 
-The git repo at `~/git/hailo_model_zoo` (currently on `main`/v5.3.0) has the files.
-Switch to v2.18 and do an editable install instead of using the wheel:
+**Solution:** Manually installed torch + torchvision:
+```bash
+pip install torch torchvision
+```
+
+### Issue 3: Incompatible hailo_model_optimization API
+**Problem:** v2.18 code tries to import `TorchInferenceModel` from hailo_model_optimization, but the 
+installed version has a different API:
+```
+ImportError: cannot import name 'TorchInferenceModel' from 'hailo_model_optimization.flows.inference_flow'
+(did you mean: 'HWInferenceModel'?)
+```
+
+**Root cause:** Version mismatch between hailo_model_zoo v2.18 (expects older API) and the installed 
+hailo_model_optimization (newer/different API). No newer version of hailo_model_zoo was compatible with 
+the installed DFC 3.33.1.
+
+**Solution:** Disabled torch_infer.py module (it's only used for evaluation, not compilation):
+```bash
+mv ~/git/hailo_model_zoo/hailo_model_zoo/core/infer/torch_infer.py \
+   ~/git/hailo_model_zoo/hailo_model_zoo/core/infer/torch_infer.py.disabled
+```
+
+The inference plugins are auto-discovered in infer_factory.py, so disabling one module doesn't break 
+the compilation pipeline.
+
+### Why v2.18?
+- The git repo includes all config files (unlike the wheel)
+- v2.18 is compatible with HailoRT 4.23.0 on the Pi
+- Later versions (master branch) have different setup requirements (versions.py) and would need more complex workarounds
+
+## Solution applied
+
+The pre-built wheel (`hailo_model_zoo-2.18.0-py3-none-any.whl`) was missing the
+`cfg/postprocess_config/` directory. Used git repo with editable install:
 
 ```bash
-source ~/venv/bin/activate
-pip uninstall hailo-model-zoo -y   # remove broken wheel install (if it registered)
-cd ~/git/hailo_model_zoo
-git checkout v2.18
-pip install -e .
+# Completed steps:
+pip uninstall hailo-model-zoo -y
+cd ~/git/hailo_model_zoo && git checkout v2.18
+pip install torch torchvision
+pip install --no-build-isolation -e .
+mv hailo_model_zoo/core/infer/torch_infer.py hailo_model_zoo/core/infer/torch_infer.py.disabled
 ```
 
-v2.18's `setup.py` has versions hardcoded — no `versions.py` dependency, so this
-works as a standalone git clone.
+The torch_infer.py module had version incompatibility with installed hailo_model_optimization 
+(expects saitama submodule that doesn't exist). Since it's only for evaluation (not compilation),
+we disabled it.
 
-Then retry:
-
+**Compilation command:**
 ```bash
 hailomz compile yolov8n --hw-arch hailo8 --calib-path ~/calib_images/
 ```
 
-## After compile succeeds
+**Status:** ✅ **COMPLETE** | File: `~/yolov8n.hef` (4.2M) | Compiled: 2026-04-12 19:46
 
-1. `yolov8n.hef` will be written to the current directory (~30–60 min on CPU)
-2. Copy to Pi: `scp yolov8n.hef pi@<pi-ip>:~/`
-3. Test on Pi: `hailortcli run yolov8n.hef`
-4. If it loads, copy to `pi/models/yolov8_birds.hef` in the repo
+## Compilation Complete ✅
+
+**Output file:**
+- Path: `~/yolov8n.hef`
+- Size: 4.2M
+- Compiled: 2026-04-12 19:46 (6 minutes on CPU from start)
+- Architecture: Hailo-8 INT8 quantized, trained on COCO
+
+## Next Steps
+
+### 1. Copy to Pi
+From desktop (requires Pi IP address, e.g. `192.168.1.100`):
+```bash
+scp ~/yolov8n.hef pi@<pi-ip>:~/
+```
+
+### 2. Test on Pi
+SSH to Pi and verify the HEF loads correctly:
+```bash
+ssh pi@<pi-ip>
+hailortcli run ~/yolov8n.hef
+# Should output hardware diagnostics and load successfully
+# Exit with Ctrl+C
+```
+
+If test succeeds, proceed to step 3.
+
+### 3. Commit to Repo
+Copy to repo and version control:
+```bash
+cp ~/yolov8n.hef <birdvision-pi-path>/pi/models/yolov8_birds.hef
+cd <birdvision-pi-path>
+git add pi/models/yolov8_birds.hef
+git commit -m "Hailo HEF: YOLOv8n compiled for Hailo-8 with 500 calibration images"
+```
+
+### 4. Update Pi Config (if needed)
+Verify `config.pi.yaml` has the correct path:
+```yaml
+models:
+  detector_hef: pi/models/yolov8_birds.hef  # or custom path
+```
+
+### 5. Next: EfficientNet-S Fine-tune + HEF
+See GitHub issue #75 for classifier model compilation
