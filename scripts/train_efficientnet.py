@@ -35,7 +35,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms
-from torchvision.models import EfficientNet_S_Weights, efficientnet_s
+from torchvision.models import EfficientNet_V2_S_Weights, efficientnet_v2_s
 
 logging.basicConfig(
     level=logging.INFO,
@@ -102,7 +102,7 @@ def make_transforms(augment: bool) -> transforms.Compose:
 
 
 def build_model(num_classes: int) -> nn.Module:
-    model = efficientnet_s(weights=EfficientNet_S_Weights.IMAGENET1K_V1)
+    model = efficientnet_v2_s(weights=EfficientNet_V2_S_Weights.IMAGENET1K_V1)
     in_features = model.classifier[1].in_features
     model.classifier[1] = nn.Linear(in_features, num_classes)
     return model
