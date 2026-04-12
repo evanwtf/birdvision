@@ -93,48 +93,44 @@ hailomz compile yolov8n --hw-arch hailo8 --calib-path ~/calib_images/
 
 **Status:** ✅ **COMPLETE** | File: `~/yolov8n.hef` (4.2M) | Compiled: 2026-04-12 19:46
 
-## Compilation Complete ✅
+## Compilation & Testing Complete ✅
 
 **Output file:**
-- Path: `~/yolov8n.hef`
+- Path: `pi/models/yolov8_birds.hef`
 - Size: 4.2M
-- Compiled: 2026-04-12 19:46 (6 minutes on CPU from start)
-- Architecture: Hailo-8 INT8 quantized, trained on COCO
+- Compiled: 2026-04-12 19:46 (6 minutes on CPU)
+- Architecture: Hailo-8 INT8 quantized, COCO dataset
+
+**Test results on Pi (192.168.1.180):**
+```
+Model: yolov8n/yolov8n
+Frames processed: 1062
+FPS: 212.14
+Send Rate: 2085.40 Mbit/s
+Recv Rate: 2072.37 Mbit/s
+Status: ✅ PASS
+```
+
+The HEF loads successfully and delivers excellent inference performance on the Hailo-8 accelerator.
+
+## Deployment
+
+The model is now in the repo at `pi/models/yolov8_birds.hef`. 
+
+**On the Pi**, update `config.pi.yaml`:
+```yaml
+models:
+  detector_hef: pi/models/yolov8_birds.hef
+```
+
+Then run:
+```bash
+cd ~/git/birdvision-pi
+git pull
+docker compose -f docker-compose.pi.yml up
+```
 
 ## Next Steps
 
-### 1. Copy to Pi
-From desktop (requires Pi IP address, e.g. `192.168.1.100`):
-```bash
-scp ~/yolov8n.hef pi@<pi-ip>:~/
-```
-
-### 2. Test on Pi
-SSH to Pi and verify the HEF loads correctly:
-```bash
-ssh pi@<pi-ip>
-hailortcli run ~/yolov8n.hef
-# Should output hardware diagnostics and load successfully
-# Exit with Ctrl+C
-```
-
-If test succeeds, proceed to step 3.
-
-### 3. Commit to Repo
-Copy to repo and version control:
-```bash
-cp ~/yolov8n.hef <birdvision-pi-path>/pi/models/yolov8_birds.hef
-cd <birdvision-pi-path>
-git add pi/models/yolov8_birds.hef
-git commit -m "Hailo HEF: YOLOv8n compiled for Hailo-8 with 500 calibration images"
-```
-
-### 4. Update Pi Config (if needed)
-Verify `config.pi.yaml` has the correct path:
-```yaml
-models:
-  detector_hef: pi/models/yolov8_birds.hef  # or custom path
-```
-
-### 5. Next: EfficientNet-S Fine-tune + HEF
-See GitHub issue #75 for classifier model compilation
+- **EfficientNet-S fine-tune + HEF compilation** — See GitHub issue #75
+- **Realtime pipeline integration** — See GitHub issue #78
