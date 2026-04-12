@@ -130,8 +130,8 @@ def make_model_card(repo_id: str, labels: list[str], metrics: dict) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Upload BirdVision model to Hugging Face Hub")
     parser.add_argument("--model-dir", type=Path, default=Path("pi/models"))
-    parser.add_argument("--repo", default="evandhoffman/birdvision-efficientnet-s",
-                        help="HF repo id (default: evandhoffman/birdvision-efficientnet-s)")
+    parser.add_argument("--repo", default="k10z/birdvision-efficientnet-s",
+                        help="HF repo id (default: k10z/birdvision-efficientnet-s)")
     parser.add_argument("--private", action="store_true", help="Create repo as private")
     parser.add_argument("--top1", type=float, help="Val top-1 accuracy to include in model card")
     parser.add_argument("--top5", type=float, help="Val top-5 accuracy to include in model card")

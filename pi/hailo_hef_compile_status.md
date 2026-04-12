@@ -137,29 +137,20 @@ The model is now in the repo at `pi/models/yolov8n.hef`.
 - iNaturalist download running on desktop: place_id=48 (New York state),
   quality_grade=research, captive=false, max 500 photos/species, 239 species ✓
 
+## Results ✅ COMPLETE (2026-04-12)
+
+- **val top-1: 80.3%** (target: ≥70%) ✓
+- **val top-5: 94.2%** (target: ≥90%) ✓
+- 236 species trained (3 skipped — no NY iNaturalist data: Atlantic Puffin, Blue Jay, Carolina Chickadee)
+- Training data: ~9.2GB, iNaturalist NY (place_id=48), research-grade, ~500 photos/species
+- Hardware: RTX 3080 Ti, ~55 min total (5 phase-1 + 15 phase-2 epochs)
+
+**Artifacts:**
+- `pi/models/efficientnet_s_birds.onnx`
+- `pi/models/species_labels.json` (236 classes)
+- `pi/models/efficientnet_s_birds_best.pt`
+- HuggingFace backup: https://huggingface.co/k10z/birdvision-efficientnet-s
+
 ## Next Steps
 
-1. **Wait for download to finish**, then run training on desktop (3080 Ti):
-   ```bash
-   uv run --no-project --with torch --with torchvision scripts/train_efficientnet.py \
-       --data-dir ./train_data \
-       --output-dir ./pi/models
-   ```
-   Expected output: `pi/models/efficientnet_s_birds.onnx` + `pi/models/species_labels.json`
-
-2. **Verify ONNX** (install onnxruntime first):
-   ```bash
-   uv run --no-project --with onnxruntime scripts/train_efficientnet.py \
-       --data-dir ./train_data --output-dir ./pi/models --phase1-epochs 0 --phase2-epochs 0
-   ```
-   (Re-running with 0 epochs just re-exports and verifies)
-
-3. **Compile to HEF** — See issue #77 (same hailomz workflow as YOLOv8n)
-
-## Acceptance Criteria (from issue #75)
-
-- [ ] ≥70% top-1 accuracy on validation split
-- [ ] ≥90% top-5 accuracy
-- [ ] ONNX export verified with onnxruntime
-- [ ] `species_labels.json` saved alongside model
-- [ ] Model artifact in `pi/models/`
+- **Compile to HEF** — See issue #77 (same hailomz workflow as YOLOv8n)
