@@ -9,8 +9,14 @@ supported region.
 
 ## Hardware
 
-- RTX 3080 Ti (12GB VRAM), AMD Ryzen 9 7900X, 32GB RAM
+**Desktop (webapp / training / model compilation)**
+- RTX 3080 Ti (12GB VRAM), AMD Ryzen 9 7900X, 32GB RAM, x86_64 Ubuntu
 - Location: 40.7, -73.5 (Long Island / Nassau County, NY)
+
+**Raspberry Pi 5 (real-time streaming pipeline)**
+- Hailo-8 AI Processor (PCIe, 26 TOPS INT8), 8GB RAM, aarch64 Ubuntu 24.04
+- Elgato Cam Link 4K (HDMI→USB capture), Samsung camcorder via HDMI
+- HailoRT firmware: 4.20.0
 
 ## Architecture
 
@@ -46,11 +52,19 @@ src/
                            metadata; theme switcher; per-request access logging.
                            API: POST /api/v1/videos (token-authenticated)
 
+  [Pi-only — do not import from webapp or existing pipeline]
+  hailo_detector.py      — YOLOv8 detection via Hailo-8 HEF; same interface as detector.py
+  hailo_classifier.py    — EfficientNet-S classification via Hailo-8 HEF; same interface as classifier.py
+  stream_capture.py      — V4L2 live frame source (Cam Link 4K); yields (frame_no, bgr) iterator
+  realtime_pipeline.py   — orchestrates stream_capture → hailo_detector → tracker → hailo_classifier;
+                           logs top species every ~1s
+
 scripts/
   serve.py                  — uvicorn entry point (port 3587)
   identify_videos.py        — CLI batch processor
   import_ebird_barchart.py  — eBird bar chart TSVs -> SQLite DB
   tune_single_video.py      — CLI for tuner.py
+  realtime_identify.py      — [Pi] real-time streaming entry point; uses config.pi.yaml
 
 eval/                       — model comparison eval container
   eval_runner.py            — runs multiple classifier backends on a test set
@@ -68,6 +82,15 @@ ebird_data/
 data/
   species_lists/north_america_common.txt  — species list (text format)
   ebird_priors.db  — generated, not committed
+
+pi/
+  README.md             — Pi setup, OS packages, uv sync --group pi, run instructions
+  models/               — .hef files + species_labels.json (gitignored binaries)
+
+config.pi.yaml          — Pi-specific config (stream device, Hailo HEF paths, realtime settings)
+                          Separate from config.yaml; do not merge them.
+Dockerfile.pi           — arm64 image; Hailo + V4L2 device passthrough
+docker-compose.pi.yml   — Pi compose; maps /dev/hailo0 and /dev/video*
 ```
 
 ## Key design decisions
@@ -117,12 +140,20 @@ data/
 
 ## Docker
 
+**Webapp (x86_64)**
 - Base image: `cgr.dev/chainguard/python:latest-dev` (Wolfi/Alpine)
 - `USER root` before `apk add`; drop to `nonroot` before CMD
 - venv layer separate from source layers for fast rebuilds
 - `config.yaml` bind-mounted (`./config.yaml:/data/config.yaml:ro`)
 - Writable volumes: `./videos`, `./results`, `./models` (chmod 777 on host)
 - eBird SQLite DB built during `docker compose build`
+- Run: `docker compose up`
+
+**Raspberry Pi (arm64)**
+- `Dockerfile.pi` + `docker-compose.pi.yml` — separate files, do not modify main compose
+- Device passthrough required: `/dev/hailo0` (Hailo-8), `/dev/video*` (Cam Link 4K)
+- Config: `config.pi.yaml` bind-mounted
+- Run: `docker compose -f docker-compose.pi.yml up`
 
 ## Config (config.yaml)
 
@@ -147,6 +178,15 @@ Require restart: model path/name/device, OAuth credentials, session secret.
   unnecessary full runs for small edits.
 - **Default config targets container paths** (`/data/...`). For local runs use
   local path overrides or an alternate config file.
+- **Pi dependency isolation**: `hailort` and other Pi-only packages live in
+  `[dependency-groups] pi` in `pyproject.toml`. Never add them to
+  `[project.dependencies]` — they only install on Linux aarch64 and will break
+  CI and desktop `uv sync`. Install on Pi with `uv sync --group pi`.
+- **Pi code is additive**: `src/hailo_*.py`, `src/stream_capture.py`,
+  `src/realtime_pipeline.py` are new files. Do not modify existing `src/`
+  modules for Pi work — keep interfaces compatible instead.
+- **Two configs, never merged**: `config.yaml` = webapp, `config.pi.yaml` = Pi.
+  Do not add Pi-specific keys to `config.yaml`.
 - **Result filename conventions** (used by startup reconstruction):
   - JSON: `{job_id}_{original_stem}_results.json`
   - Video crops: `<results_dir>/<video_stem>_crops/track_<track_id>.jpg`
@@ -174,4 +214,13 @@ Key open issues (see GitHub for full backlog):
 - Tuner improvements: species-group optimization (#34), trial logging (#28)
 - Fine-tuning detector/classifier on BirdVision data (#7, #30)
 - Human-in-the-loop active learning workflow (#31)
-- Live camera feed support (currently batch/upload only)
+
+**Raspberry Pi real-time sub-project** (#70):
+- Scaffold Pi monorepo structure (#81) ← start here
+- OS packages + Hailo SDK on Pi (#71, #72)
+- Cam Link 4K verification (#73)
+- YOLOv8 → Hailo HEF (on desktop) (#74)
+- EfficientNet-S fine-tune + HEF (on desktop) (#75, #77)
+- Pi inference backends (#76, #77)
+- Live capture module + real-time pipeline (#78, #79)
+- ARM64 Docker image (#80)
