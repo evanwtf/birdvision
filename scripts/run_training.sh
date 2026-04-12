@@ -16,4 +16,5 @@ uv run --no-project \
     --with tqdm \
     "$SCRIPT_DIR/train_efficientnet.py" \
     --data-dir "$DATA_DIR" \
-    --output-dir "$OUTPUT_DIR"
+    --output-dir "$OUTPUT_DIR" \
+    "${@:3}"

@@ -45,7 +45,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 IMG_SIZE = 224
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 PHASE1_EPOCHS = 5
 PHASE2_EPOCHS = 15
 PHASE1_LR = 1e-3
