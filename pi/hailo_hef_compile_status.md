@@ -96,7 +96,7 @@ hailomz compile yolov8n --hw-arch hailo8 --calib-path ~/calib_images/
 ## Compilation & Testing Complete ✅
 
 **Output file:**
-- Path: `pi/models/yolov8_birds.hef`
+- Path: `pi/models/yolov8n.hef`
 - Size: 4.2M
 - Compiled: 2026-04-12 19:46 (6 minutes on CPU)
 - Architecture: Hailo-8 INT8 quantized, COCO dataset
@@ -115,22 +115,51 @@ The HEF loads successfully and delivers excellent inference performance on the H
 
 ## Deployment
 
-The model is now in the repo at `pi/models/yolov8_birds.hef`. 
+The model is now in the repo at `pi/models/yolov8n.hef`.
 
-**On the Pi**, update `config.pi.yaml`:
-```yaml
-models:
-  detector_hef: pi/models/yolov8_birds.hef
-```
-
-Then run:
-```bash
-cd ~/git/birdvision-pi
-git pull
-docker compose -f docker-compose.pi.yml up
-```
+`config.pi.yaml` references it at `/app/pi/models/yolov8n.hef` (already correct).
 
 ## Next Steps
 
-- **EfficientNet-S fine-tune + HEF compilation** — See GitHub issue #75
+- **EfficientNet-S fine-tune + HEF compilation** — See GitHub issues #75, #77
 - **Realtime pipeline integration** — See GitHub issue #78
+
+---
+
+# EfficientNet-S Fine-Tune — Status & Next Steps
+
+## What's been done (✅ COMPLETE)
+
+- `scripts/download_inat_training_data.py` — fetches research-grade bird photos from
+  iNaturalist API by species name, ImageFolder layout, resumable ✓
+- `scripts/train_efficientnet.py` — two-phase EfficientNet-S fine-tune (head-only then
+  full), ONNX export, `species_labels.json` output ✓
+- iNaturalist download running on desktop: place_id=48 (New York state),
+  quality_grade=research, captive=false, max 500 photos/species, 239 species ✓
+
+## Next Steps
+
+1. **Wait for download to finish**, then run training on desktop (3080 Ti):
+   ```bash
+   uv run --no-project --with torch --with torchvision scripts/train_efficientnet.py \
+       --data-dir ./train_data \
+       --output-dir ./pi/models
+   ```
+   Expected output: `pi/models/efficientnet_s_birds.onnx` + `pi/models/species_labels.json`
+
+2. **Verify ONNX** (install onnxruntime first):
+   ```bash
+   uv run --no-project --with onnxruntime scripts/train_efficientnet.py \
+       --data-dir ./train_data --output-dir ./pi/models --phase1-epochs 0 --phase2-epochs 0
+   ```
+   (Re-running with 0 epochs just re-exports and verifies)
+
+3. **Compile to HEF** — See issue #77 (same hailomz workflow as YOLOv8n)
+
+## Acceptance Criteria (from issue #75)
+
+- [ ] ≥70% top-1 accuracy on validation split
+- [ ] ≥90% top-5 accuracy
+- [ ] ONNX export verified with onnxruntime
+- [ ] `species_labels.json` saved alongside model
+- [ ] Model artifact in `pi/models/`
