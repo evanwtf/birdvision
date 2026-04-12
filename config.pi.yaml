@@ -7,7 +7,7 @@ stream:
 
 # HailoRT 4.23.0 — matches hailort_4.23.0_arm64.deb installed on host
 detector:
-  hef: /app/pi/models/yolov8_birds.hef
+  hef: /app/pi/models/yolov8n.hef
   confidence: 0.4
   device: /dev/hailo0
 
