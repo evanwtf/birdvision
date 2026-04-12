@@ -83,6 +83,28 @@ def build_folder_to_species_map(species_list: list[str]) -> dict[str, str]:
     return mapping
 
 
+VALID_EXTS = {'.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tiff', '.webp'}
+
+
+class ImageFolderSkipEmpty(ImageFolderSkipEmpty):
+    """ImageFolder that silently skips class directories with no valid images."""
+
+    def find_classes(self, directory: str) -> tuple[list[str], dict[str, int]]:
+        classes, _ = super().find_classes(directory)
+        non_empty = []
+        for cls in classes:
+            cls_dir = Path(directory) / cls
+            if any(f.suffix.lower() in VALID_EXTS for f in cls_dir.iterdir()):
+                non_empty.append(cls)
+            else:
+                logger.warning("Skipping empty class directory: %s", cls)
+        if len(non_empty) < len(classes):
+            logger.warning("Skipped %d empty class(es), training on %d",
+                           len(classes) - len(non_empty), len(non_empty))
+        class_to_idx = {cls: i for i, cls in enumerate(non_empty)}
+        return non_empty, class_to_idx
+
+
 def make_transforms(augment: bool) -> transforms.Compose:
     if augment:
         return transforms.Compose([
@@ -208,13 +230,13 @@ def main() -> None:
     logger.info("Device: %s  |  Species: %d  |  Data: %s", device, len(species_list), args.data_dir)
 
     # Dataset — train split uses augmentation, val split does not
-    full_dataset = datasets.ImageFolder(str(args.data_dir), transform=make_transforms(augment=True))
+    full_dataset = ImageFolderSkipEmpty(str(args.data_dir), transform=make_transforms(augment=True))
     val_size = max(1, int(len(full_dataset) * VAL_FRACTION))
     train_size = len(full_dataset) - val_size
     train_ds, val_ds = random_split(full_dataset, [train_size, val_size],
                                     generator=torch.Generator().manual_seed(42))
     # Apply non-augmenting transform to val split
-    val_ds.dataset = datasets.ImageFolder(str(args.data_dir), transform=make_transforms(augment=False))
+    val_ds.dataset = ImageFolderSkipEmpty(str(args.data_dir), transform=make_transforms(augment=False))
 
     # Map dataset folder-name classes → ordered species list
     # dataset.classes are folder names (sorted); build label→species mapping
