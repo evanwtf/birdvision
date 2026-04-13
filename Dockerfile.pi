@@ -81,12 +81,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install HailoRT system runtime library (provides libhailort.so).
-# The Python wheel links against this at runtime.
+# Use --unpack instead of -i to extract files without running the post-install
+# script, which calls systemctl and fails in a container environment.
+# ldconfig is run manually afterward to register the shared library.
 COPY pi/deps/hailort_4.23.0_arm64.deb /tmp/hailort.deb
-RUN apt-get update && \
-    dpkg -i /tmp/hailort.deb || apt-get install -f -y && \
-    rm /tmp/hailort.deb && \
-    rm -rf /var/lib/apt/lists/*
+RUN dpkg --unpack /tmp/hailort.deb && \
+    ldconfig && \
+    rm /tmp/hailort.deb
 
 WORKDIR /app
 
