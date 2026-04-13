@@ -6,13 +6,37 @@ services:
     image: birdvision-pi:latest
     restart: unless-stopped
     stop_grace_period: 30s
+
+    # Device passthrough — all three must be present on the host
     devices:
-      - /dev/hailo0:/dev/hailo0     # Hailo-8 PCIe AI accelerator
-      - /dev/video0:/dev/video0     # Cam Link 4K capture
-      - /dev/video1:/dev/video1     # Cam Link 4K metadata
+      - /dev/hailo0:/dev/hailo0   # Hailo-8 PCIe AI accelerator
+      - /dev/video0:/dev/video0   # Elgato Cam Link 4K — primary capture node
+      - /dev/video1:/dev/video1   # Elgato Cam Link 4K — metadata/control node
+
+    # Device group access.
+    # The nonroot user (uid=1000) inside the container needs r/w access to
+    # /dev/video* and /dev/hailo0.  Add the host video group GID here.
+    # Check GIDs on the Pi with: stat -c '%g' /dev/video0 /dev/hailo0
+    # Common values: video=44, hailo varies (check /etc/group on host).
+    group_add:
+      - "44"    # video group — grants /dev/video* access
+
+    # Uncomment if hailo0 is not world-accessible and has its own group:
+    # - "109"   # example hailo group GID — check with: stat -c '%g' /dev/hailo0
+
     volumes:
+      # Config file (read-only)
       - ./config.pi.yaml:/app/config.pi.yaml:ro
-      - ./pi/models:/app/pi/models:ro    # HEF files + species_labels.json
+      # HEF model files + species labels (gitignored, download separately)
+      - ./pi/models:/app/pi/models:ro
+      # Results output (writable)
       - ./results:/data/results
+
     environment:
       - PYTHONUNBUFFERED=1
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"

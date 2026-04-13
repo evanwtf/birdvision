@@ -33,20 +33,35 @@ Only two things must be installed on the Pi host (not in the container):
 
 Everything else (HailoRT library, Python bindings, app code) runs in the container.
 
-## Models
+---
 
-HEF files are gitignored. Download from HuggingFace or recompile from source:
+## Docker setup (recommended)
 
-| File | Description | Benchmark | Source |
-|---|---|---|---|
-| `pi/models/yolov8n.hef` | YOLOv8n detector, Hailo-8 INT8 | 212 FPS | Compiled per #74 |
-| `pi/models/efficientnet_s_birds.hef` | EfficientNet-V2-S classifier, 237 species | 22 FPS / 44ms | Retrained after #75 and recompiled |
-| `pi/models/species_labels.json` | 237-entry class index (must match training) | — | Produced by latest retrain |
+### Step 1 — Place assets
 
-Download from HuggingFace:
+Three sets of files must be present before building the image. None are committed to git.
+
+#### 1a. HailoRT Python wheel
+
+The `hailort` Python package is not on PyPI. Download from:
+
+> https://hailo.ai/developer-zone/ → SW Downloads → HailoRT → Python package
+
+Select the `linux_aarch64` wheel matching your Python version (cp312 or cp313).
+Place it at:
+
+```
+pi/deps/hailort-4.23.0-cp3XX-cp3XX-linux_aarch64.whl
+```
+
+Only one `.whl` file should be in `pi/deps/` at a time.
+
+#### 1b. EfficientNet-S classifier HEF + labels
+
+Download from HuggingFace (run from the repo root):
 
 ```bash
-pip install huggingface_hub
+pip install huggingface_hub   # or: uv pip install huggingface_hub
 python -c "
 from huggingface_hub import hf_hub_download
 hf_hub_download('k10z/birdvision-efficientnet-s', 'efficientnet_s_birds.hef', local_dir='pi/models')
@@ -54,8 +69,77 @@ hf_hub_download('k10z/birdvision-efficientnet-s', 'species_labels.json', local_d
 "
 ```
 
-The YOLOv8n HEF is not on HuggingFace — recompile using `scripts/compile_yolov8n_hef.sh`
-or retrieve from a previous build.
+#### 1c. YOLOv8n detector HEF
+
+The YOLOv8n HEF is not on HuggingFace. Copy it from a previous build or recompile:
+
+```bash
+# If you have a previous build on this machine:
+cp ~/yolov8n.hef pi/models/yolov8n.hef
+
+# To recompile from scratch (x86_64 desktop, Hailo DFC 3.33.1 required):
+hailomz compile yolov8n --hw-arch hailo8 --calib-path ~/calib_images/
+cp yolov8n.hef pi/models/yolov8n.hef
+```
+
+See `pi/hailo_hef_compile_status.md` for full compilation notes.
+
+#### Asset checklist
+
+Before building, verify all required files are in place:
+
+```
+pi/
+  deps/
+    hailort-4.23.0-*-linux_aarch64.whl   ← from hailo.ai/developer-zone
+  models/
+    yolov8n.hef                           ← compiled (see above)
+    efficientnet_s_birds.hef              ← from HuggingFace
+    species_labels.json                   ← from HuggingFace
+```
+
+### Step 2 — Check device group permissions
+
+The container runs as uid=1000 (nonroot). It needs read/write access to
+`/dev/video0` and `/dev/hailo0`. Check the group IDs on the Pi:
+
+```bash
+stat -c '%G %g' /dev/video0 /dev/hailo0
+```
+
+`docker-compose.pi.yml` already includes `group_add: ["44"]` (the standard
+video group GID on Ubuntu). If `/dev/hailo0` is owned by a different group,
+add its GID to the `group_add` list in the compose file.
+
+### Step 3 — Build and run
+
+```bash
+# Build the image (run from repo root)
+docker compose -f docker-compose.pi.yml build
+
+# Run (foreground, Ctrl-C to stop)
+docker compose -f docker-compose.pi.yml up
+
+# Run in background
+docker compose -f docker-compose.pi.yml up -d
+
+# Follow logs
+docker compose -f docker-compose.pi.yml logs -f
+```
+
+Results are written to `./results/` on the host.
+
+---
+
+## Models
+
+| File | Description | Benchmark | Source |
+|---|---|---|---|
+| `pi/models/yolov8n.hef` | YOLOv8n detector, Hailo-8 INT8 | 212 FPS | Compiled per #74 |
+| `pi/models/efficientnet_s_birds.hef` | EfficientNet-V2-S classifier, 237 species | 22 FPS / 44ms | HuggingFace k10z/birdvision-efficientnet-s |
+| `pi/models/species_labels.json` | 237-entry class index (must match HEF) | — | HuggingFace k10z/birdvision-efficientnet-s |
+
+---
 
 ## Compilation (on desktop x86_64)
 
@@ -83,33 +167,34 @@ the exact `tail -f` command at startup.
 
 Requires Hailo Dataflow Compiler 3.33.1 (x86_64 only, from https://hailo.ai/developer-zone/).
 
-## Python setup
-
-Pi-only packages (HailoRT Python bindings) live in the `pi` dependency group:
-
-```bash
-# On the Pi only:
-uv sync --group pi
-```
-
-Do not add Pi packages to `[project.dependencies]` — `hailort` is not on PyPI
-and will break `uv sync` on any non-Pi machine.
-
-## Running (Docker)
-
-```bash
-docker compose -f docker-compose.pi.yml up
-```
-
-Requires `/dev/hailo0` and `/dev/video0` on the host.
+---
 
 ## Running (bare metal, for development)
 
+Install Pi-only packages on the Pi first:
+
 ```bash
+# Install hailort wheel directly (not via uv sync — it's not on PyPI)
+uv pip install pi/deps/hailort-4.23.0-*-linux_aarch64.whl
+
+# Run
 uv run scripts/realtime_identify.py --config config.pi.yaml
+
+# Debug logging
+uv run scripts/realtime_identify.py --config config.pi.yaml --debug
 ```
+
+---
 
 ## Config
 
 `config.pi.yaml` — Pi-specific settings (stream device, HEF paths, Hailo device).
 Never merge keys into `config.yaml` (webapp config).
+
+Key sections:
+- `stream:` — V4L2 device, resolution, framerate
+- `detector:` — YOLOv8n HEF path, confidence threshold
+- `classifier:` — EfficientNet HEF path, labels path, classify cadence
+- `tracker:` — IoU/centroid thresholds, disappear timeout
+- `metadata:` — eBird priors DB, FIPS code, lat/lon, prior mode
+- `output:` — results dir, log interval

@@ -11,6 +11,9 @@ Usage:
 import argparse
 import logging
 import sys
+from pathlib import Path
+
+import yaml
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,11 +25,24 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     parser = argparse.ArgumentParser(description="BirdVision real-time Pi pipeline")
     parser.add_argument("--config", required=True, help="Path to config.pi.yaml")
+    parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging")
     args = parser.parse_args()
 
-    logger.info("BirdVision real-time pipeline starting (config: %s)", args.config)
-    logger.warning("Pipeline not yet implemented — see issues #76, #78, #79")
-    sys.exit(1)
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    config_path = Path(args.config)
+    if not config_path.exists():
+        logger.error("Config file not found: %s", config_path)
+        sys.exit(1)
+
+    config = yaml.safe_load(config_path.read_text())
+    logger.info("Loaded config: %s", config_path)
+
+    from src.realtime_pipeline import RealtimePipeline
+
+    pipeline = RealtimePipeline(config)
+    pipeline.run()
 
 
 if __name__ == "__main__":

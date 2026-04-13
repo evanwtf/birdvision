@@ -1,56 +1,105 @@
 # BirdVision — Raspberry Pi 5 / Hailo-8 runtime image
 # Architecture: linux/arm64
-# Build on Pi or cross-compile with: docker buildx build --platform linux/arm64
+#
+# Prerequisites (place files before running docker compose build):
+#
+#   1. HailoRT Python wheel (not on PyPI — proprietary):
+#      Download from https://hailo.ai/developer-zone/
+#        → SW Downloads → HailoRT → Python package (linux_aarch64, cp3xx)
+#      Place at: pi/deps/hailort-4.23.0-*-linux_aarch64.whl
+#
+#   2. HEF model files (gitignored):
+#      pi/models/yolov8n.hef
+#      pi/models/efficientnet_s_birds.hef
+#      pi/models/species_labels.json
+#      (download from HuggingFace or recompile — see pi/README.md)
+#
+# Build:
+#   docker compose -f docker-compose.pi.yml build
+#
+# Cross-compile on x86_64:
+#   docker buildx build --platform linux/arm64 -f Dockerfile.pi -t birdvision-pi .
 
-# ── builder ───────────────────────────────────────────────────────────────────
+# ── builder ───────────────────────────────────────────────────────────────
 FROM ubuntu:24.04 AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Build deps only
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
     python3-dev \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY pyproject.toml uv.lock ./
-# Install only Pi dependency group; skip x86-only packages
-RUN uv sync --frozen --no-install-project --group pi
+# Create venv and install lightweight Pi pipeline deps.
+# requirements.pi.txt lists only what the real-time pipeline needs:
+#   numpy, opencv-python-headless, pillow, pyyaml
+# Heavy webapp deps (torch, ultralytics, fastapi, etc.) are intentionally excluded.
+COPY requirements.pi.txt ./
+RUN uv venv .venv && \
+    VIRTUAL_ENV=/app/.venv uv pip install --no-cache -r requirements.pi.txt
 
-# ── runtime ───────────────────────────────────────────────────────────────────
+# Install hailort Python bindings from local wheel.
+# The wheel is not on PyPI — download from Hailo developer zone (see header above).
+# Glob matches any cp3xx build; ensure only one .whl is present in pi/deps/.
+COPY pi/deps/ ./pi/deps/
+RUN whl=$(ls pi/deps/hailort-4.23.0-*-linux_aarch64.whl 2>/dev/null | head -1) && \
+    [ -n "$whl" ] || { echo "ERROR: hailort wheel not found in pi/deps/. See Dockerfile.pi header."; exit 1; } && \
+    VIRTUAL_ENV=/app/.venv uv pip install --no-cache "$whl"
+
+# Build eBird priors DB (import_ebird_barchart.py uses only stdlib — no venv needed)
+COPY ebird_data/ ./ebird_data/
+COPY scripts/import_ebird_barchart.py ./scripts/
+RUN mkdir -p data && \
+    python3 scripts/import_ebird_barchart.py ebird_data/ --db data/ebird_priors.db
+
+# ── runtime ───────────────────────────────────────────────────────────────
 FROM ubuntu:24.04 AS runtime
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Runtime system deps
-# TODO (#72): install HailoRT runtime .deb from Hailo developer zone
-# e.g.: COPY hailort_4.20.0_arm64.deb /tmp/
-#        RUN apt-get install -y /tmp/hailort_4.20.0_arm64.deb
+# Runtime system packages:
+#   libgl1 + libglib2.0-0 — required by OpenCV even in headless mode
+#   libsm6 + libxext6     — additional OpenCV runtime deps
+#   v4l-utils             — V4L2 device inspection (useful for debugging)
+#   ffmpeg                — video utilities (frame extraction etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
-    ffmpeg \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
     v4l-utils \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
+# Copy venv — cached independently of source changes
 COPY --from=builder /app/.venv /app/.venv
 
+# Copy eBird priors DB built in builder stage
+COPY --from=builder /app/data/ebird_priors.db ./data/ebird_priors.db
+
+# Application source (only what the Pi pipeline needs)
 COPY src/ ./src/
 COPY scripts/ ./scripts/
-COPY data/ ./data/
 
-# Pi models directory — bind-mount or copy HEF files here at runtime
+# Pi models directory — bind-mounted at runtime from host (HEF files are gitignored)
 RUN mkdir -p /app/pi/models
 
-RUN useradd -m -u 1000 nonroot && chown -R nonroot:nonroot /app
-RUN mkdir -p /data/results && chown nonroot:nonroot /data/results
+# Writable data directories
+RUN mkdir -p /data/results && \
+    useradd -m -u 1000 nonroot && \
+    chown -R nonroot:nonroot /app /data
 
 VOLUME ["/data/results"]
 
 USER nonroot
 
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH"
 
-CMD ["/usr/local/bin/uv", "run", "scripts/realtime_identify.py", "--config", "/app/config.pi.yaml"]
+CMD ["python", "scripts/realtime_identify.py", "--config", "/app/config.pi.yaml"]

@@ -1,0 +1,9 @@
+# Lightweight dependencies for the Pi real-time pipeline.
+# Used by Dockerfile.pi — avoids pulling in torch/ultralytics/webapp deps.
+# hailort is NOT listed here; it must be installed separately from a local wheel.
+# See: pi/deps/hailort-4.23.0-*-linux_aarch64.whl (download from hailo.ai/developer-zone)
+
+numpy>=1.24.0
+opencv-python-headless>=4.8.0
+pillow>=10.0.0
+pyyaml>=6.0.3
