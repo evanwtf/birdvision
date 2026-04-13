@@ -153,4 +153,33 @@ The model is now in the repo at `pi/models/yolov8n.hef`.
 
 ## Next Steps
 
-- **Compile to HEF** — See issue #77 (same hailomz workflow as YOLOv8n)
+- **Compile to HEF** — See issue #77 ✅ Complete (see below)
+
+---
+
+# EfficientNet-S HEF Compilation — Status
+
+## Complete ✅ (2026-04-13)
+
+**Script:** `scripts/compile_efficientnet_hef.py`
+
+**Issues encountered:**
+- PyTorch dynamo ONNX exporter incompatible with DFC 3.33.1 — fixed with `dynamo=False`
+- Calibration data must be NHWC `(224, 224, 3)`, not NCHW
+
+**Benchmark on Pi (HailoRT 4.23.0):**
+```
+FPS     (hw_only)   = 22.29
+        (streaming) = 22.29
+Latency (hw)        = 43.69 ms
+Contexts            = 4
+```
+
+**Artifacts:**
+- `pi/models/efficientnet_s_birds.hef` (22.1 MB)
+- `src/hailo_classifier.py` — drop-in for `BirdClassifier`, Pi inference backend
+- HuggingFace: https://huggingface.co/k10z/birdvision-efficientnet-s
+
+## Next Steps
+
+- **Live capture + real-time pipeline** — See issues #78, #79
