@@ -394,6 +394,22 @@ or no single-parameter improvement remains.
 
 BirdVision runs on a Raspberry Pi 5 with a Hailo-8 AI accelerator for
 real-time inference from a live HDMI video feed (Elgato Cam Link 4K).
+The pipeline runs at ~27–34 FPS end-to-end, classifying every 10 frames
+per tracked bird. eBird seasonal priors and local feeder overrides are applied
+to re-rank visual predictions, matching the same prior system used by the
+desktop pipeline.
+
+### How it works
+
+```
+V4L2 capture → YOLOv8n (Hailo-8) → BirdTracker → EfficientNet-S (Hailo-8) → eBird priors
+     60fps             212 FPS          multi-frame        22 FPS / 44ms        + local overrides
+                                        IoU+centroid                             → 1s log summary
+```
+
+Both models share a single `VDevice` handle — the Hailo-8 chip can only be
+opened once per process. Detection and classification run as separate network
+groups on the same hardware.
 
 ### Models
 
@@ -402,16 +418,34 @@ real-time inference from a live HDMI video feed (Elgato Cam Link 4K).
 | YOLOv8n detector | `pi/models/yolov8n.hef` | 212 FPS on Hailo-8 |
 | EfficientNet-V2-S classifier | `pi/models/efficientnet_s_birds.hef` | 22 FPS / 44ms |
 
-The current EfficientNet-S classifier is fine-tuned on 237 North American bird
-species using iNaturalist research-grade photos (New York state). The refreshed
-retrain added Blue Jay after fixing the iNaturalist downloader to resolve
-species by stable taxon id before fetching observations. Trained weights and
-HEF are available on HuggingFace: https://huggingface.co/k10z/birdvision-efficientnet-s
+The EfficientNet-S classifier is fine-tuned on 237 North American bird species
+using iNaturalist research-grade photos (New York state).
+Trained weights and HEF: https://huggingface.co/k10z/birdvision-efficientnet-s
 
-**Latest validation accuracy:** 80.7% top-1, 94.0% top-5
+**Validation accuracy:** 80.7% top-1, 94.0% top-5
 
-The retraining workflow now has logged entry points that print a log file path
-you can `tail -f` while a long-running job is active:
+### Log format
+
+```
+# Every ~1 second:
+top_species=Mourning Dove confidence=0.63 tracks=1 fps=27.8
+no_detection tracks=0 fps=33.4
+
+# Every 30 seconds:
+system temp=70.5C load=4.58/3.65 cpu=43% freq=1500MHz mem=15% fan=7610rpm
+```
+
+### Setup
+
+See `pi/README.md` for full setup instructions, model download, and run commands.
+
+```bash
+# Build and run on Pi
+docker compose -f docker-compose.pi.yml build
+docker compose -f docker-compose.pi.yml up
+```
+
+### Retraining
 
 ```bash
 ./scripts/run_training.sh
@@ -422,11 +456,5 @@ you can `tail -f` while a long-running job is active:
   --output pi/models/efficientnet_s_birds.hef
 ```
 
-### Setup
-
-See `pi/README.md` for full setup instructions, model download, and run commands.
-
-```bash
-# Run on Pi
-docker compose -f docker-compose.pi.yml up
-```
+Each script writes a timestamped log file under `logs/retraining/` and prints
+the `tail -f` command at startup.

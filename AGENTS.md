@@ -57,15 +57,16 @@ src/
                            API: POST /api/v1/videos (token-authenticated)
 
   [Pi-only — do not import from webapp or existing pipeline]
-  hailo_detector.py      — YOLOv8 detection via Hailo-8 HEF; same interface
-                           as detector.py [#76 — not yet implemented]
+  hailo_detector.py      — YOLOv8n detection via Hailo-8 HEF; same interface
+                           as detector.py; shares VDevice with classifier
   hailo_classifier.py    — EfficientNet-S classification via Hailo-8 HEF;
-                           same interface as classifier.py [done]
+                           same interface as classifier.py; shares VDevice
   stream_capture.py      — V4L2 live frame source (Cam Link 4K); yields
-                           (frame_no, bgr) iterator [#78 — not yet implemented]
+                           (frame_no, bgr) iterator; YUYV capture
   realtime_pipeline.py   — orchestrates stream_capture → hailo_detector →
-                           tracker → hailo_classifier; logs top species every
-                           ~1s [#79 — not yet implemented]
+                           tracker → hailo_classifier; 1s summary logs;
+                           system stats (temp/load/fan) every 30s; clean
+                           SIGINT/SIGTERM shutdown
 
 scripts/
   serve.py                       — uvicorn entry point (port 3587)
@@ -265,18 +266,21 @@ Key open issues (see GitHub for full backlog):
 - Fine-tuning detector/classifier on BirdVision data (#7, #30)
 - Human-in-the-loop active learning workflow (#31)
 
-**Raspberry Pi real-time sub-project** (#70):
+**Raspberry Pi real-time sub-project** (#70) — v0.2.0, pipeline working end-to-end:
 - ~~Scaffold Pi monorepo structure (#81)~~ done
 - ~~OS packages on Pi (#71)~~ done
 - ~~Hailo PCIe kernel driver on Pi host (#72)~~ done — `/dev/hailo0` present
 - ~~Cam Link 4K verification (#73)~~ done — `/dev/video0` present
 - ~~YOLOv8n to Hailo HEF (#74)~~ done — `pi/models/yolov8n.hef`, 212 FPS on Pi
-- ~~EfficientNet-S fine-tune (#75)~~ done — refreshed retrain now at 80.7% top-1,
-  94.0% top-5, 237 species
-- ~~EfficientNet-S to HEF + classifier backend (#77)~~ done — `pi/models/efficientnet_s_birds.hef`,
-  22 FPS / 44ms on Pi; `src/hailo_classifier.py` written
+- ~~EfficientNet-S fine-tune (#75)~~ done — 80.7% top-1, 94.0% top-5, 237 species
+- ~~EfficientNet-S to HEF + classifier backend (#77)~~ done — 22 FPS / 44ms on Pi
 - ~~Upload model to HuggingFace (#82)~~ done — https://huggingface.co/k10z/birdvision-efficientnet-s
-- **Hailo-8 detection backend hailo_detector.py (#76)** — not yet
-- **Live video capture stream_capture.py (#78)** — not yet
-- **Real-time pipeline realtime_pipeline.py (#79)** — not yet
-- **ARM64 Docker image (#80)** — not yet
+- ~~Hailo-8 detection backend hailo_detector.py (#76)~~ done — YOLOv8n via shared VDevice
+- ~~Live video capture stream_capture.py (#78)~~ done — YUYV V4L2 at 1920×1080 60fps
+- ~~Real-time pipeline realtime_pipeline.py (#79)~~ done — ~27–34 FPS end-to-end, verified live
+- ~~ARM64 Docker image (#80)~~ done — Dockerfile.pi + docker-compose.pi.yml
+
+**Next Pi milestones:**
+- Raspberry Pi Touch Display integration — show live detection overlays on a local screen (#TBD)
+- Power monitoring via INA219/USB-C meter for battery runtime estimation (#86)
+- Evaluate accuracy against known-species footage (#85)
