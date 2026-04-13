@@ -40,11 +40,14 @@ IMAGENET_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
 def preprocess_image(path: Path) -> np.ndarray:
-    """Load and preprocess one image to float32 NCHW, ImageNet-normalized."""
+    """Load and preprocess one image to float32 HWC, ImageNet-normalized.
+
+    DFC expects calibration data in NHWC format (H, W, C).
+    """
     img = Image.open(path).convert("RGB").resize((IMG_SIZE, IMG_SIZE), Image.BILINEAR)
     arr = np.array(img, dtype=np.float32) / 255.0         # HWC [0,1]
-    arr = (arr - IMAGENET_MEAN) / IMAGENET_STD             # normalize
-    return arr.transpose(2, 0, 1)                          # HWC → CHW
+    arr = (arr - IMAGENET_MEAN) / IMAGENET_STD             # normalize, stay HWC
+    return arr
 
 
 def sample_calibration_images(
