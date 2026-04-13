@@ -196,12 +196,39 @@ class HailoDetector:
 
         val = next(iter(raw_output.values()))
 
-        # ---- Primary: list of per-class arrays from yolov8_nms_postprocess ---- #
+        # ---- Primary: list output from yolov8_nms_postprocess ---- #
+        # Two sub-formats observed:
+        #   A) list of 80 per-class arrays: val[14] → (N,5) [y1,x1,y2,x2,score]
+        #   B) list of 1 element which is itself a list of all-class detections:
+        #      val[0] → [[y1,x1,y2,x2,score,class_id], ...]
         if isinstance(val, list):
+            # Sub-format B: outer list has 1 element containing all detections
+            if len(val) == 1 and isinstance(val[0], (list, np.ndarray)):
+                inner = val[0]
+                if len(inner) == 0:
+                    return []
+                arr = np.array(inner).reshape(-1, np.array(inner).shape[-1] if hasattr(inner, '__len__') else 1)
+                for row in arr:
+                    if len(row) >= 6:
+                        y1, x1, y2, x2, score, cls = row[0], row[1], row[2], row[3], row[4], row[5]
+                        if int(cls) != BIRD_CLASS_ID:
+                            continue
+                    elif len(row) == 5:
+                        y1, x1, y2, x2, score = row
+                    else:
+                        continue
+                    if float(score) < self.threshold:
+                        continue
+                    d = self._make_detection(x1, y1, x2, y2, float(score), frame_w, frame_h)
+                    if d is not None:
+                        detections.append(d)
+                return detections
+
+            # Sub-format A: 80 per-class arrays
             if BIRD_CLASS_ID >= len(val):
                 logger.warning("NMS output list has %d classes, expected >= %d", len(val), BIRD_CLASS_ID + 1)
                 return []
-            bird_arr = val[BIRD_CLASS_ID]  # shape (N, 5): [y1, x1, y2, x2, score]
+            bird_arr = val[BIRD_CLASS_ID]  # (N, 5): [y1, x1, y2, x2, score]
             if bird_arr is None or len(bird_arr) == 0:
                 return []
             arr = np.array(bird_arr).reshape(-1, 5)

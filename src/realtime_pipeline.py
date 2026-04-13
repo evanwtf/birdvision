@@ -130,8 +130,8 @@ class RealtimePipeline:
         meta_cfg = config.get("metadata", {})
         if meta_cfg.get("ebird_db"):
             try:
-                from .metadata import MetadataWeighter
-                self._metadata = MetadataWeighter(
+                from .metadata import MetadataPrior
+                self._metadata = MetadataPrior(
                     db_path=meta_cfg["ebird_db"],
                     fips=meta_cfg.get("ebird_fips", "US-NY-059"),
                     prior_mode=meta_cfg.get("prior_mode", "seasonal"),
@@ -199,7 +199,7 @@ class RealtimePipeline:
                     track.last_classified_frame = frame_no
 
                     if self._metadata is not None:
-                        preds = self._metadata.weight(preds)
+                        preds = self._metadata.apply(preds)
 
                     top_species, top_score = preds[0] if preds else ("unknown", 0.0)
                     if top_score >= self._min_event_conf:
