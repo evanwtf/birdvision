@@ -108,6 +108,16 @@ for i in top5:
 {num_classes} species — Northeast North America focus (Long Island / NY area).
 See `species_labels.json` for the full list.
 
+## Hailo-8 HEF (Raspberry Pi 5)
+
+A compiled `efficientnet_s_birds.hef` for the [Hailo-8](https://hailo.ai/products/hailo-8/)
+AI accelerator is included in this repo.
+
+Benchmark on Raspberry Pi 5 (HailoRT 4.23.0):
+- **22.3 FPS** hardware throughput
+- **43.7 ms** hardware latency
+- 4 contexts, 8 clusters
+
 ## License
 
 Model weights derived from iNaturalist training data licensed
@@ -157,9 +167,10 @@ def main() -> None:
 
     # Files to upload
     uploads = [
-        ("efficientnet_s_birds.onnx", "efficientnet_s_birds.onnx"),
-        ("species_labels.json",       "species_labels.json"),
-        ("efficientnet_s_birds_best.pt",   "efficientnet_s_birds_best.pt"),
+        ("efficientnet_s_birds.onnx",    "efficientnet_s_birds.onnx"),
+        ("efficientnet_s_birds.hef",     "efficientnet_s_birds.hef"),
+        ("species_labels.json",          "species_labels.json"),
+        ("efficientnet_s_birds_best.pt", "efficientnet_s_birds_best.pt"),
     ]
     # Phase 1 checkpoint is optional
     phase1 = args.model_dir / "efficientnet_s_birds_phase1.pt"
