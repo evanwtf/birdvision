@@ -152,7 +152,9 @@ class HailoClassifier:
         """Preprocess crops, run Hailo inference, return softmax probs (N, classes)."""
         from hailo_platform import InferVStreams
 
-        batch = np.stack([_preprocess_crop(c) for c in crops_bgr])  # (N, 3, 224, 224)
+        batch = np.ascontiguousarray(
+            np.stack([_preprocess_crop(c) for c in crops_bgr])  # (N, 3, 224, 224)
+        )
 
         t0 = time.perf_counter()
         with InferVStreams(
