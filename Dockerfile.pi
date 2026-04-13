@@ -118,6 +118,7 @@ VOLUME ["/data/results"]
 USER nonroot
 
 ENV PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH=/app
 
 CMD ["python", "scripts/realtime_identify.py", "--config", "/app/config.pi.yaml"]
