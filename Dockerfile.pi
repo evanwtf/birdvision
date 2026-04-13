@@ -8,7 +8,7 @@
 #        → SW Downloads → HailoRT
 #      Place both files at:
 #        pi/deps/hailort_4.23.0_arm64.deb          ← system runtime library
-#        pi/deps/hailort-4.23.0-*-linux_aarch64.whl ← Python bindings
+#        pi/deps/hailort-4.23.0-*-linux_aarch64.whl ← Python bindings (cp313)
 #
 #   2. HEF model files (gitignored):
 #      pi/models/yolov8n.hef
@@ -27,48 +27,51 @@ FROM ubuntu:24.04 AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
+# Store uv-managed Python at a fixed path so the runtime stage can COPY it.
+# The hailort wheel is cp313-only, so we must use Python 3.13.
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-dev \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Download and install Python 3.13 via uv (ubuntu:24.04 ships 3.12 only)
+RUN uv python install 3.13
+
 WORKDIR /app
 
-# Create venv and install lightweight Pi pipeline deps.
+# Create venv with Python 3.13 and install lightweight Pi pipeline deps.
 # requirements.pi.txt lists only what the real-time pipeline needs:
 #   numpy, opencv-python-headless, pillow, pyyaml
 # Heavy webapp deps (torch, ultralytics, fastapi, etc.) are intentionally excluded.
 COPY requirements.pi.txt ./
-RUN uv venv .venv && \
+RUN uv venv --python 3.13 .venv && \
     VIRTUAL_ENV=/app/.venv uv pip install --no-cache -r requirements.pi.txt
 
-# Install hailort Python bindings from local wheel.
-# The wheel is not on PyPI — download from Hailo developer zone (see header above).
-# Glob matches any cp3xx build; ensure only one .whl is present in pi/deps/.
+# Install hailort Python bindings from local wheel (cp313, not on PyPI).
+# Glob matches the version; ensure only one .whl is in pi/deps/.
 COPY pi/deps/ ./pi/deps/
 RUN whl=$(ls pi/deps/hailort-4.23.0-*-linux_aarch64.whl 2>/dev/null | head -1) && \
     [ -n "$whl" ] || { echo "ERROR: hailort wheel not found in pi/deps/. See Dockerfile.pi header."; exit 1; } && \
     VIRTUAL_ENV=/app/.venv uv pip install --no-cache "$whl"
 
-# Build eBird priors DB (import_ebird_barchart.py uses only stdlib — no venv needed)
+# Build eBird priors DB (import_ebird_barchart.py uses only stdlib — runs with system python3)
 COPY ebird_data/ ./ebird_data/
 COPY scripts/import_ebird_barchart.py ./scripts/
-RUN mkdir -p data && \
-    python3 scripts/import_ebird_barchart.py ebird_data/ --db data/ebird_priors.db
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p data \
+    && python3 scripts/import_ebird_barchart.py ebird_data/ --db data/ebird_priors.db
 
 # ── runtime ───────────────────────────────────────────────────────────────
 FROM ubuntu:24.04 AS runtime
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Runtime system packages:
 #   libgl1 + libglib2.0-0 — required by OpenCV even in headless mode
 #   libsm6 + libxext6     — additional OpenCV runtime deps
 #   v4l-utils             — V4L2 device inspection (useful for debugging)
-#   ffmpeg                — video utilities (frame extraction etc.)
+#   ffmpeg                — video utilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
@@ -86,6 +89,10 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Copy uv-managed Python 3.13 from builder (same path — venv symlinks resolve correctly)
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
+COPY --from=builder /opt/uv-python /opt/uv-python
 
 # Copy venv — cached independently of source changes
 COPY --from=builder /app/.venv /app/.venv
