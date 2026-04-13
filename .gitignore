@@ -41,8 +41,9 @@ pi/models/*.har
 pi/models/*.onnx
 pi/models/species_labels.json
 
-# Pi deps (proprietary Hailo wheels — download from hailo.ai/developer-zone)
+# Pi deps (proprietary Hailo packages — download from hailo.ai/developer-zone)
 pi/deps/*.whl
+pi/deps/*.deb
 
 # Misc
 .DS_Store

@@ -3,10 +3,12 @@
 #
 # Prerequisites (place files before running docker compose build):
 #
-#   1. HailoRT Python wheel (not on PyPI — proprietary):
+#   1. HailoRT packages (not on PyPI — proprietary):
 #      Download from https://hailo.ai/developer-zone/
-#        → SW Downloads → HailoRT → Python package (linux_aarch64, cp3xx)
-#      Place at: pi/deps/hailort-4.23.0-*-linux_aarch64.whl
+#        → SW Downloads → HailoRT
+#      Place both files at:
+#        pi/deps/hailort_4.23.0_arm64.deb          ← system runtime library
+#        pi/deps/hailort-4.23.0-*-linux_aarch64.whl ← Python bindings
 #
 #   2. HEF model files (gitignored):
 #      pi/models/yolov8n.hef
@@ -74,6 +76,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     v4l-utils \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
+
+# Install HailoRT system runtime library (provides libhailort.so).
+# The Python wheel links against this at runtime.
+COPY pi/deps/hailort_4.23.0_arm64.deb /tmp/hailort.deb
+RUN apt-get update && \
+    dpkg -i /tmp/hailort.deb || apt-get install -f -y && \
+    rm /tmp/hailort.deb && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

@@ -41,19 +41,20 @@ Everything else (HailoRT library, Python bindings, app code) runs in the contain
 
 Three sets of files must be present before building the image. None are committed to git.
 
-#### 1a. HailoRT Python wheel
+#### 1a. HailoRT packages
 
-The `hailort` Python package is not on PyPI. Download from:
+The HailoRT packages are not on PyPI. Download both from:
 
-> https://hailo.ai/developer-zone/ → SW Downloads → HailoRT → Python package
+> https://hailo.ai/developer-zone/ → SW Downloads → HailoRT
 
-Select the `linux_aarch64` wheel matching your Python version (cp312 or cp313).
-Place it at:
+Place both files in `pi/deps/`:
 
 ```
-pi/deps/hailort-4.23.0-cp3XX-cp3XX-linux_aarch64.whl
+pi/deps/hailort_4.23.0_arm64.deb             ← system runtime library (libhailort.so)
+pi/deps/hailort-4.23.0-cp3XX-cp3XX-linux_aarch64.whl  ← Python bindings
 ```
 
+Select the `.whl` matching your Python version (cp312 or cp313).
 Only one `.whl` file should be in `pi/deps/` at a time.
 
 #### 1b. EfficientNet-S classifier HEF + labels
@@ -91,6 +92,7 @@ Before building, verify all required files are in place:
 ```
 pi/
   deps/
+    hailort_4.23.0_arm64.deb             ← from hailo.ai/developer-zone
     hailort-4.23.0-*-linux_aarch64.whl   ← from hailo.ai/developer-zone
   models/
     yolov8n.hef                           ← compiled (see above)
@@ -98,18 +100,23 @@ pi/
     species_labels.json                   ← from HuggingFace
 ```
 
-### Step 2 — Check device group permissions
+### Step 2 — Verify device permissions
 
-The container runs as uid=1000 (nonroot). It needs read/write access to
-`/dev/video0` and `/dev/hailo0`. Check the group IDs on the Pi:
+Check the permissions on the Pi:
 
 ```bash
-stat -c '%G %g' /dev/video0 /dev/hailo0
+ls -l /dev/hailo0 /dev/video0
 ```
 
-`docker-compose.pi.yml` already includes `group_add: ["44"]` (the standard
-video group GID on Ubuntu). If `/dev/hailo0` is owned by a different group,
-add its GID to the `group_add` list in the compose file.
+Expected (confirmed on this hardware):
+```
+crw-rw-rw- 1 root root  234, 0  /dev/hailo0   ← world r/w, no group needed
+crw-rw---- 1 root video  81, 19  /dev/video0   ← video group required
+```
+
+`docker-compose.pi.yml` adds the container user to the `video` group, which
+covers `/dev/video0`. Since `/dev/hailo0` is world-accessible, no extra group
+is needed for Hailo. If your setup differs, adjust `group_add` in the compose file.
 
 ### Step 3 — Build and run
 

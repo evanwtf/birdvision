@@ -14,15 +14,11 @@ services:
       - /dev/video1:/dev/video1   # Elgato Cam Link 4K — metadata/control node
 
     # Device group access.
-    # The nonroot user (uid=1000) inside the container needs r/w access to
-    # /dev/video* and /dev/hailo0.  Add the host video group GID here.
-    # Check GIDs on the Pi with: stat -c '%g' /dev/video0 /dev/hailo0
-    # Common values: video=44, hailo varies (check /etc/group on host).
+    # /dev/hailo0 is crw-rw-rw- (world r/w) — no group needed.
+    # /dev/video0 is crw-rw---- owned by group 'video' — add it here.
+    # Both host and container are ubuntu:24.04, so group names resolve correctly.
     group_add:
-      - "44"    # video group — grants /dev/video* access
-
-    # Uncomment if hailo0 is not world-accessible and has its own group:
-    # - "109"   # example hailo group GID — check with: stat -c '%g' /dev/hailo0
+      - "video"
 
     volumes:
       # Config file (read-only)
