@@ -137,8 +137,14 @@ class HailoDetector:
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
         if not self._output_logged:
-            for name, arr in raw_output.items():
-                logger.info("Output tensor '%s' shape=%s dtype=%s", name, arr.shape, arr.dtype)
+            for name, val in raw_output.items():
+                if isinstance(val, list):
+                    logger.info("Output '%s': list len=%d, element type=%s",
+                                name, len(val), type(val[0]).__name__ if val else "empty")
+                    if val and hasattr(val[0], 'shape'):
+                        logger.info("  element[0].shape=%s dtype=%s", val[0].shape, val[0].dtype)
+                else:
+                    logger.info("Output tensor '%s' shape=%s dtype=%s", name, val.shape, val.dtype)
             self._output_logged = True
 
         logger.debug("Hailo detect: %.1f ms", elapsed_ms)
@@ -176,37 +182,42 @@ class HailoDetector:
     def _parse_detections(self, raw_output: dict, frame_h: int, frame_w: int) -> List[Detection]:
         """Decode Hailo NMS output into Detection objects.
 
-        Tries two formats emitted by hailomz-compiled yolov8n:
-          A) Per-class tensors (one entry per COCO class, index 14 = bird)
-          B) Combined tensor (all classes, class_id in last column)
+        yolov8_nms_postprocess returns a single key whose value is a Python list
+        of per-class numpy arrays (one array per COCO class, 80 total):
+            raw_output['yolov8n/yolov8_nms_postprocess'] → list[ndarray]
+            list[14] → bird class array, shape (N, 5): [y1, x1, y2, x2, score]
 
-        Coordinates are assumed to be normalized [0, 1]; multiplied by frame dims
-        to get pixel coords. If detections look like pixel coords already (values
-        consistently > 1.0) they are used as-is.
+        Coordinates are normalized [0, 1].
+
+        Fallback: if the value is a numpy array instead of a list (single combined
+        tensor), tries (N, 6) format with [y1, x1, y2, x2, score, class_id].
         """
         detections: List[Detection] = []
 
-        # ---- Format A: per-class output (80 tensors) ---- #
-        if len(raw_output) >= 80:
-            # Keys may be ordered; bird class is at index BIRD_CLASS_ID (14)
-            keys = list(raw_output.keys())
-            if BIRD_CLASS_ID < len(keys):
-                bird_tensor = raw_output[keys[BIRD_CLASS_ID]]
-                # Shape variants: (1,1,max_dets,5) or (1,max_dets,5)
-                arr = bird_tensor.reshape(-1, 5) if bird_tensor.ndim >= 3 else bird_tensor.reshape(-1, 5)
-                for row in arr:
-                    score = float(row[4])
-                    if score < self.threshold:
-                        continue
-                    y1, x1, y2, x2 = row[0], row[1], row[2], row[3]
-                    detections.append(self._make_detection(x1, y1, x2, y2, score, frame_w, frame_h))
-            return [d for d in detections if d is not None]
+        val = next(iter(raw_output.values()))
 
-        # ---- Format B: single combined output tensor ---- #
-        if len(raw_output) == 1:
-            arr = next(iter(raw_output.values()))
-            # Shape: (1, max_dets, 6) or (1, 1, max_dets, 6)
-            arr = arr.reshape(-1, arr.shape[-1])
+        # ---- Primary: list of per-class arrays from yolov8_nms_postprocess ---- #
+        if isinstance(val, list):
+            if BIRD_CLASS_ID >= len(val):
+                logger.warning("NMS output list has %d classes, expected >= %d", len(val), BIRD_CLASS_ID + 1)
+                return []
+            bird_arr = val[BIRD_CLASS_ID]  # shape (N, 5): [y1, x1, y2, x2, score]
+            if bird_arr is None or len(bird_arr) == 0:
+                return []
+            arr = np.array(bird_arr).reshape(-1, 5)
+            for row in arr:
+                score = float(row[4])
+                if score < self.threshold:
+                    continue
+                y1, x1, y2, x2 = row[0], row[1], row[2], row[3]
+                d = self._make_detection(x1, y1, x2, y2, score, frame_w, frame_h)
+                if d is not None:
+                    detections.append(d)
+            return detections
+
+        # ---- Fallback: single combined numpy tensor ---- #
+        if isinstance(val, np.ndarray):
+            arr = val.reshape(-1, val.shape[-1])
             ncols = arr.shape[1]
             for row in arr:
                 if ncols == 6:
@@ -214,23 +225,18 @@ class HailoDetector:
                     if int(cls) != BIRD_CLASS_ID:
                         continue
                 elif ncols == 5:
-                    # No class column — assume bird-only model
                     y1, x1, y2, x2, score = row
                 else:
-                    logger.warning("Unexpected detection row length %d — skipping", ncols)
+                    logger.warning("Unexpected detection row width %d", ncols)
                     continue
                 if float(score) < self.threshold:
                     continue
-                detections.append(self._make_detection(x1, y1, x2, y2, float(score), frame_w, frame_h))
-            return [d for d in detections if d is not None]
+                d = self._make_detection(x1, y1, x2, y2, float(score), frame_w, frame_h)
+                if d is not None:
+                    detections.append(d)
+            return detections
 
-        # ---- Fallback: log and return empty ---- #
-        logger.warning(
-            "Unrecognized output format: %d tensors with shapes %s — "
-            "edit _parse_detections() to match. Returning no detections.",
-            len(raw_output),
-            {k: v.shape for k, v in raw_output.items()},
-        )
+        logger.warning("Unrecognized NMS output type: %s — returning no detections", type(val))
         return []
 
     @staticmethod
