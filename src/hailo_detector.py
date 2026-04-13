@@ -29,8 +29,15 @@ import time
 from typing import List
 
 import numpy as np
+from dataclasses import dataclass
 
-from .detector import Detection
+
+@dataclass
+class Detection:
+    """Bird detection result — mirrors detector.py Detection for interface compatibility."""
+    bbox: np.ndarray   # [x1, y1, x2, y2] pixel coords
+    confidence: float
+    crop: np.ndarray   # BGR image crop
 
 logger = logging.getLogger(__name__)
 
