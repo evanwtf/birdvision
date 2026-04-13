@@ -101,6 +101,9 @@ COPY --from=builder /app/.venv /app/.venv
 # Copy eBird priors DB built in builder stage
 COPY --from=builder /app/data/ebird_priors.db ./data/ebird_priors.db
 
+# Local species frequency overrides (applied on top of eBird priors)
+COPY data/local_priors.yaml ./data/local_priors.yaml
+
 # Application source (only what the Pi pipeline needs)
 COPY src/ ./src/
 COPY scripts/ ./scripts/

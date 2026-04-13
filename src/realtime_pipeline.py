@@ -139,6 +139,7 @@ class RealtimePipeline:
                     prior_mode=meta_cfg.get("prior_mode", "seasonal"),
                     latitude=meta_cfg.get("latitude"),
                     longitude=meta_cfg.get("longitude"),
+                    local_priors_file=meta_cfg.get("local_priors_file"),
                 )
                 logger.info("eBird priors loaded from %s", meta_cfg["ebird_db"])
             except Exception as exc:

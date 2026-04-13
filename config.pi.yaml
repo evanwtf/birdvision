@@ -38,6 +38,7 @@ metadata:
   ebird_db: /app/data/ebird_priors.db
   ebird_fips: US-NY-059
   prior_mode: seasonal
+  local_priors_file: /app/data/local_priors.yaml
 
 output:
   results_dir: /data/results
