@@ -76,8 +76,12 @@ scripts/
   download_inat_training_data.py — fetch iNaturalist training photos by species
   train_efficientnet.py          — fine-tune EfficientNet-V2-S, export ONNX
   compile_efficientnet_hef.py    — compile ONNX to Hailo HEF via DFC SDK
+  verify_efficientnet_onnx.py    — onnxruntime shape/label-count verification
   upload_model_to_hf.py          — upload model artifacts to HuggingFace Hub
   run_training.sh                — convenience wrapper for train_efficientnet.py
+  run_verify_efficientnet_onnx.sh — logged wrapper for ONNX verification
+  run_compile_efficientnet_hef.sh — logged wrapper for HEF compilation
+  log_utils.py                   — shared file logging + ETA helpers for long jobs
 
 eval/                       — model comparison eval container
   eval_runner.py            — runs multiple classifier backends on a test set
@@ -117,8 +121,8 @@ docker-compose.pi.yml  — Pi compose; maps /dev/hailo0 and /dev/video*
 | File | Description | Benchmark |
 |---|---|---|
 | `pi/models/yolov8n.hef` | YOLOv8n detector, Hailo-8 INT8 | 212 FPS on Pi |
-| `pi/models/efficientnet_s_birds.hef` | EfficientNet-V2-S classifier, 236 species | 22 FPS / 44ms |
-| `pi/models/species_labels.json` | 236-entry class index for classifier | — |
+| `pi/models/efficientnet_s_birds.hef` | EfficientNet-V2-S classifier, 237 species | 22 FPS / 44ms |
+| `pi/models/species_labels.json` | 237-entry class index for classifier | — |
 
 Trained model + HEF: https://huggingface.co/k10z/birdvision-efficientnet-s
 
@@ -218,6 +222,10 @@ Require restart: model path/name/device, OAuth credentials, session secret.
   `uv sync`. Do not remove this.
 - **Pi scripts that don't need the project**: use `uv run --no-project --with <pkg>`
   to avoid project dep resolution entirely (e.g. training and download scripts).
+- **Long-running retraining steps log to files**: `run_training.sh`,
+  `run_verify_efficientnet_onnx.sh`, and `run_compile_efficientnet_hef.sh`
+  print a timestamped log file under `logs/retraining/` so users can `tail -f`
+  while Codex-launched jobs are running.
 - **Pi code is additive**: `src/hailo_*.py`, `src/stream_capture.py`,
   `src/realtime_pipeline.py` are new files. Do not modify existing `src/`
   modules for Pi work — keep interfaces compatible instead.
@@ -263,7 +271,8 @@ Key open issues (see GitHub for full backlog):
 - ~~Hailo PCIe kernel driver on Pi host (#72)~~ done — `/dev/hailo0` present
 - ~~Cam Link 4K verification (#73)~~ done — `/dev/video0` present
 - ~~YOLOv8n to Hailo HEF (#74)~~ done — `pi/models/yolov8n.hef`, 212 FPS on Pi
-- ~~EfficientNet-S fine-tune (#75)~~ done — 80.3% top-1, 94.2% top-5, 236 species
+- ~~EfficientNet-S fine-tune (#75)~~ done — refreshed retrain now at 80.7% top-1,
+  94.0% top-5, 237 species
 - ~~EfficientNet-S to HEF + classifier backend (#77)~~ done — `pi/models/efficientnet_s_birds.hef`,
   22 FPS / 44ms on Pi; `src/hailo_classifier.py` written
 - ~~Upload model to HuggingFace (#82)~~ done — https://huggingface.co/k10z/birdvision-efficientnet-s

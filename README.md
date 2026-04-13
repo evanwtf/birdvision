@@ -402,11 +402,25 @@ real-time inference from a live HDMI video feed (Elgato Cam Link 4K).
 | YOLOv8n detector | `pi/models/yolov8n.hef` | 212 FPS on Hailo-8 |
 | EfficientNet-V2-S classifier | `pi/models/efficientnet_s_birds.hef` | 22 FPS / 44ms |
 
-The EfficientNet-S classifier is fine-tuned on 236 North American bird species
-using iNaturalist research-grade photos (New York state). Trained weights and
-HEF available on HuggingFace: https://huggingface.co/k10z/birdvision-efficientnet-s
+The current EfficientNet-S classifier is fine-tuned on 237 North American bird
+species using iNaturalist research-grade photos (New York state). The refreshed
+retrain added Blue Jay after fixing the iNaturalist downloader to resolve
+species by stable taxon id before fetching observations. Trained weights and
+HEF are available on HuggingFace: https://huggingface.co/k10z/birdvision-efficientnet-s
 
-**Accuracy (validation set):** 80.3% top-1, 94.2% top-5
+**Latest validation accuracy:** 80.7% top-1, 94.0% top-5
+
+The retraining workflow now has logged entry points that print a log file path
+you can `tail -f` while a long-running job is active:
+
+```bash
+./scripts/run_training.sh
+./scripts/run_verify_efficientnet_onnx.sh
+./scripts/run_compile_efficientnet_hef.sh \
+  --onnx pi/models/efficientnet_s_birds.onnx \
+  --train-dir train_data \
+  --output pi/models/efficientnet_s_birds.hef
+```
 
 ### Setup
 

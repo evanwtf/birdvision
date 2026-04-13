@@ -40,8 +40,8 @@ HEF files are gitignored. Download from HuggingFace or recompile from source:
 | File | Description | Benchmark | Source |
 |---|---|---|---|
 | `pi/models/yolov8n.hef` | YOLOv8n detector, Hailo-8 INT8 | 212 FPS | Compiled per #74 |
-| `pi/models/efficientnet_s_birds.hef` | EfficientNet-V2-S classifier, 236 species | 22 FPS / 44ms | Compiled per #77 |
-| `pi/models/species_labels.json` | 236-entry class index (must match training) | — | Produced per #75 |
+| `pi/models/efficientnet_s_birds.hef` | EfficientNet-V2-S classifier, 237 species | 22 FPS / 44ms | Retrained after #75 and recompiled |
+| `pi/models/species_labels.json` | 237-entry class index (must match training) | — | Produced by latest retrain |
 
 Download from HuggingFace:
 
@@ -68,13 +68,18 @@ See `pi/hailo_hef_compile_status.md` for full notes on both model compilations.
 # 1. Train (produces pi/models/efficientnet_s_birds.onnx + species_labels.json)
 ./scripts/run_training.sh
 
-# 2. Compile to HEF
-uv run --no-project --with numpy --with pillow --with tqdm \
-    scripts/compile_efficientnet_hef.py \
+# 2. Verify ONNX export
+./scripts/run_verify_efficientnet_onnx.sh
+
+# 3. Compile to HEF
+./scripts/run_compile_efficientnet_hef.sh \
     --onnx pi/models/efficientnet_s_birds.onnx \
     --train-dir train_data \
     --output pi/models/efficientnet_s_birds.hef
 ```
+
+These wrapper scripts write timestamped logs under `logs/retraining/` and print
+the exact `tail -f` command at startup.
 
 Requires Hailo Dataflow Compiler 3.33.1 (x86_64 only, from https://hailo.ai/developer-zone/).
 
