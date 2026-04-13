@@ -3,6 +3,10 @@
 Bird species identification from video and photos using local computer vision models.
 Aimed at the Long Island / Northeast US region, no cloud dependencies.
 
+Two deployment targets:
+- **Desktop / webapp** — upload video or photos via browser or API; BioCLIP + ensemble classifier on GPU
+- **Raspberry Pi 5** — real-time inference from a live HDMI capture feed using a Hailo-8 AI accelerator
+
 ## How it works
 
 1. **Detection** — finds birds in each frame
@@ -385,3 +389,30 @@ does a bounded coordinate search over BirdVision's hot-reloadable detector,
 classifier, tracker, and scoring settings. It stops when the target confidence
 threshold is hit, the time budget is exhausted before launching another trial,
 or no single-parameter improvement remains.
+
+## Raspberry Pi real-time pipeline
+
+BirdVision runs on a Raspberry Pi 5 with a Hailo-8 AI accelerator for
+real-time inference from a live HDMI video feed (Elgato Cam Link 4K).
+
+### Models
+
+| Model | File | Performance |
+|---|---|---|
+| YOLOv8n detector | `pi/models/yolov8n.hef` | 212 FPS on Hailo-8 |
+| EfficientNet-V2-S classifier | `pi/models/efficientnet_s_birds.hef` | 22 FPS / 44ms |
+
+The EfficientNet-S classifier is fine-tuned on 236 North American bird species
+using iNaturalist research-grade photos (New York state). Trained weights and
+HEF available on HuggingFace: https://huggingface.co/k10z/birdvision-efficientnet-s
+
+**Accuracy (validation set):** 80.3% top-1, 94.2% top-5
+
+### Setup
+
+See `pi/README.md` for full setup instructions, model download, and run commands.
+
+```bash
+# Run on Pi
+docker compose -f docker-compose.pi.yml up
+```

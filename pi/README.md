@@ -28,30 +28,67 @@ Only two things must be installed on the Pi host (not in the container):
 
 | Requirement | Status | Notes |
 |---|---|---|
-| Hailo PCIe kernel driver | ✓ present | `/dev/hailo0` exists |
-| V4L2 (Cam Link 4K) | ✓ present | `/dev/video0` exists |
+| Hailo PCIe kernel driver | present | `/dev/hailo0` exists |
+| V4L2 (Cam Link 4K) | present | `/dev/video0` exists |
 
 Everything else (HailoRT library, Python bindings, app code) runs in the container.
 
 ## Models
 
-Place compiled HEF files in `pi/models/` (gitignored):
+HEF files are gitignored. Download from HuggingFace or recompile from source:
 
-| File | Description | Source |
-|---|---|---|
-| `yolov8n_hailo8.hef` | YOLOv8n bird detector | Compiled per #74 |
-| `efficientnet_s_birds_hailo8.hef` | EfficientNet-S classifier | Compiled per #77 |
-| `species_labels.json` | Species label order (must match training) | Produced per #75 |
+| File | Description | Benchmark | Source |
+|---|---|---|---|
+| `pi/models/yolov8n.hef` | YOLOv8n detector, Hailo-8 INT8 | 212 FPS | Compiled per #74 |
+| `pi/models/efficientnet_s_birds.hef` | EfficientNet-V2-S classifier, 236 species | 22 FPS / 44ms | Compiled per #77 |
+| `pi/models/species_labels.json` | 236-entry class index (must match training) | — | Produced per #75 |
+
+Download from HuggingFace:
+
+```bash
+pip install huggingface_hub
+python -c "
+from huggingface_hub import hf_hub_download
+hf_hub_download('k10z/birdvision-efficientnet-s', 'efficientnet_s_birds.hef', local_dir='pi/models')
+hf_hub_download('k10z/birdvision-efficientnet-s', 'species_labels.json', local_dir='pi/models')
+"
+```
+
+The YOLOv8n HEF is not on HuggingFace — recompile using `scripts/compile_yolov8n_hef.sh`
+or retrieve from a previous build.
+
+## Compilation (on desktop x86_64)
+
+See `pi/hailo_hef_compile_status.md` for full notes on both model compilations.
+
+**YOLOv8n HEF** — compiled via `hailomz compile yolov8n --hw-arch hailo8 --calib-path ~/calib_images/`
+
+**EfficientNet-S HEF:**
+```bash
+# 1. Train (produces pi/models/efficientnet_s_birds.onnx + species_labels.json)
+./scripts/run_training.sh
+
+# 2. Compile to HEF
+uv run --no-project --with numpy --with pillow --with tqdm \
+    scripts/compile_efficientnet_hef.py \
+    --onnx pi/models/efficientnet_s_birds.onnx \
+    --train-dir train_data \
+    --output pi/models/efficientnet_s_birds.hef
+```
+
+Requires Hailo Dataflow Compiler 3.33.1 (x86_64 only, from https://hailo.ai/developer-zone/).
 
 ## Python setup
 
-Python dependencies are managed with `uv`. Pi-only packages (HailoRT bindings) live in
-the `pi` dependency group and must not be installed on x86_64:
+Pi-only packages (HailoRT Python bindings) live in the `pi` dependency group:
 
 ```bash
 # On the Pi only:
 uv sync --group pi
 ```
+
+Do not add Pi packages to `[project.dependencies]` — `hailort` is not on PyPI
+and will break `uv sync` on any non-Pi machine.
 
 ## Running (Docker)
 

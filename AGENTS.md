@@ -1,5 +1,8 @@
 # BirdVision — Agent Context
 
+This file is the authoritative context document for AI coding agents working
+on this repository. It is symlinked as `CLAUDE.md` for Claude Code compatibility.
+
 ## What this project is
 
 Bird species identification from video and photos. Point a camera at a bird,
@@ -12,11 +15,12 @@ supported region.
 **Desktop (webapp / training / model compilation)**
 - RTX 3080 Ti (12GB VRAM), AMD Ryzen 9 7900X, 32GB RAM, x86_64 Ubuntu
 - Location: 40.7, -73.5 (Long Island / Nassau County, NY)
+- GitHub username: evandhoffman, HuggingFace username: k10z
 
 **Raspberry Pi 5 (real-time streaming pipeline)**
 - Hailo-8 AI Processor (PCIe, 26 TOPS INT8), 8GB RAM, aarch64 Ubuntu 24.04
 - Elgato Cam Link 4K (HDMI→USB capture), Samsung camcorder via HDMI
-- HailoRT firmware: 4.23.0 (upgraded from 4.20.0)
+- HailoRT firmware: 4.23.0
 
 ## Architecture
 
@@ -42,7 +46,7 @@ src/
                            + per-track detail; image jobs emit per-photo
                            summaries, annotated JPEGs, and overlay metadata;
                            video jobs extract annotated stills
-  pipeline_defaults.py   — default species list (Northeast NA, ~150 species)
+  pipeline_defaults.py   — default species list (Northeast NA, ~242 species)
   tuner.py               — single-video parameter tuner; grid-searches
                            hot-reloadable params against a known-species asset
   video_metadata.py      — ExifTool/OpenCV metadata helpers
@@ -53,18 +57,27 @@ src/
                            API: POST /api/v1/videos (token-authenticated)
 
   [Pi-only — do not import from webapp or existing pipeline]
-  hailo_detector.py      — YOLOv8 detection via Hailo-8 HEF; same interface as detector.py
-  hailo_classifier.py    — EfficientNet-S classification via Hailo-8 HEF; same interface as classifier.py
-  stream_capture.py      — V4L2 live frame source (Cam Link 4K); yields (frame_no, bgr) iterator
-  realtime_pipeline.py   — orchestrates stream_capture → hailo_detector → tracker → hailo_classifier;
-                           logs top species every ~1s
+  hailo_detector.py      — YOLOv8 detection via Hailo-8 HEF; same interface
+                           as detector.py [#76 — not yet implemented]
+  hailo_classifier.py    — EfficientNet-S classification via Hailo-8 HEF;
+                           same interface as classifier.py [done]
+  stream_capture.py      — V4L2 live frame source (Cam Link 4K); yields
+                           (frame_no, bgr) iterator [#78 — not yet implemented]
+  realtime_pipeline.py   — orchestrates stream_capture → hailo_detector →
+                           tracker → hailo_classifier; logs top species every
+                           ~1s [#79 — not yet implemented]
 
 scripts/
-  serve.py                  — uvicorn entry point (port 3587)
-  identify_videos.py        — CLI batch processor
-  import_ebird_barchart.py  — eBird bar chart TSVs -> SQLite DB
-  tune_single_video.py      — CLI for tuner.py
-  realtime_identify.py      — [Pi] real-time streaming entry point; uses config.pi.yaml
+  serve.py                       — uvicorn entry point (port 3587)
+  identify_videos.py             — CLI batch processor
+  import_ebird_barchart.py       — eBird bar chart TSVs -> SQLite DB
+  tune_single_video.py           — CLI for tuner.py
+  realtime_identify.py           — [Pi] real-time streaming entry point
+  download_inat_training_data.py — fetch iNaturalist training photos by species
+  train_efficientnet.py          — fine-tune EfficientNet-V2-S, export ONNX
+  compile_efficientnet_hef.py    — compile ONNX to Hailo HEF via DFC SDK
+  upload_model_to_hf.py          — upload model artifacts to HuggingFace Hub
+  run_training.sh                — convenience wrapper for train_efficientnet.py
 
 eval/                       — model comparison eval container
   eval_runner.py            — runs multiple classifier backends on a test set
@@ -80,18 +93,34 @@ ebird_data/
   — Imported at Docker build time -> data/ebird_priors.db (gitignored)
 
 data/
-  species_lists/north_america_common.txt  — species list (text format)
-  ebird_priors.db  — generated, not committed
+  species_lists/north_america_common.txt  — 242-species list (Northeast NA)
+  ebird_priors.db                         — generated, not committed
 
 pi/
-  README.md             — Pi setup, OS packages, uv sync --group pi, run instructions
-  models/               — .hef files + species_labels.json (gitignored binaries)
+  README.md                    — Pi setup, hardware, model locations, run instructions
+  hailo_hef_compile_status.md  — YOLOv8n + EfficientNet-S compile history and results
+  models/                      — .hef + .har + .onnx + species_labels.json (all gitignored)
 
-config.pi.yaml          — Pi-specific config (stream device, Hailo HEF paths, realtime settings)
-                          Separate from config.yaml; do not merge them.
-Dockerfile.pi           — arm64 image; Hailo + V4L2 device passthrough
-docker-compose.pi.yml   — Pi compose; maps /dev/hailo0 and /dev/video*
+config.pi.yaml         — Pi-specific config (stream device, Hailo HEF paths, realtime settings)
+                         Separate from config.yaml; do not merge them.
+Dockerfile.pi          — arm64 image; Hailo + V4L2 device passthrough
+docker-compose.pi.yml  — Pi compose; maps /dev/hailo0 and /dev/video*
 ```
+
+## Models
+
+### Desktop pipeline (webapp)
+- **Detector**: YOLOv8n (Ultralytics, COCO)
+- **Classifier**: BioCLIP zero-shot, optionally ensembled with a secondary HF model
+
+### Raspberry Pi pipeline
+| File | Description | Benchmark |
+|---|---|---|
+| `pi/models/yolov8n.hef` | YOLOv8n detector, Hailo-8 INT8 | 212 FPS on Pi |
+| `pi/models/efficientnet_s_birds.hef` | EfficientNet-V2-S classifier, 236 species | 22 FPS / 44ms |
+| `pi/models/species_labels.json` | 236-entry class index for classifier | — |
+
+Trained model + HEF: https://huggingface.co/k10z/birdvision-efficientnet-s
 
 ## Key design decisions
 
@@ -137,6 +166,8 @@ docker-compose.pi.yml   — Pi compose; maps /dev/hailo0 and /dev/video*
 - **Config hot-reload** — re-read before each job; model/device changes
   require restart
 - **Species name normalization** at eBird import time (NAME_OVERRIDES dict)
+- **Pi classifies at 22 FPS** — sufficient for `classify_every_n_frames: 10`
+  at 60fps capture (max 6 classifications/sec per track needed)
 
 ## Docker
 
@@ -165,7 +196,7 @@ prior_mode, local_priors_file.
 
 Require restart: model path/name/device, OAuth credentials, session secret.
 
-## Workflow notes for AI/code assistants
+## Workflow notes for AI/code agents
 
 - **Unit tests**: `uv run pytest` (243 tests, ~4s, no GPU needed). Tests cover
   tracker, metadata priors, pipeline helpers, video metadata, webapp
@@ -182,6 +213,11 @@ Require restart: model path/name/device, OAuth credentials, session secret.
   `[dependency-groups] pi` in `pyproject.toml`. Never add them to
   `[project.dependencies]` — they only install on Linux aarch64 and will break
   CI and desktop `uv sync`. Install on Pi with `uv sync --group pi`.
+- **`[tool.uv] default-groups = ["dev"]`** in `pyproject.toml` — prevents uv
+  from trying to resolve `hailort` (not on PyPI) during normal `uv run` /
+  `uv sync`. Do not remove this.
+- **Pi scripts that don't need the project**: use `uv run --no-project --with <pkg>`
+  to avoid project dep resolution entirely (e.g. training and download scripts).
 - **Pi code is additive**: `src/hailo_*.py`, `src/stream_capture.py`,
   `src/realtime_pipeline.py` are new files. Do not modify existing `src/`
   modules for Pi work — keep interfaces compatible instead.
@@ -196,7 +232,13 @@ Require restart: model path/name/device, OAuth credentials, session secret.
 - **Serial processing** (`ThreadPoolExecutor(max_workers=1)`). Changing
   concurrency affects queue behavior and GPU memory.
 - **Keep out of commits**: model weights, `results/`, `videos/` (including
-  `videos/assets/` and `videos/asset_index.json`), `data/ebird_priors.db`.
+  `videos/assets/` and `videos/asset_index.json`), `data/ebird_priors.db`,
+  `pi/models/*.hef`, `pi/models/*.har`, `pi/models/*.onnx`,
+  `pi/models/species_labels.json`.
+- **Hailo DFC compilation** requires x86_64 Linux + DFC 3.33.1 from
+  https://hailo.ai/developer-zone/. ONNX must be exported with `dynamo=False`
+  (legacy TorchScript exporter) for DFC compatibility. Calibration data must
+  be NHWC `(N, 224, 224, 3)` float32.
 
 ## GitHub
 
@@ -216,17 +258,16 @@ Key open issues (see GitHub for full backlog):
 - Human-in-the-loop active learning workflow (#31)
 
 **Raspberry Pi real-time sub-project** (#70):
-- Scaffold Pi monorepo structure (#81) ← start here
-- ~~OS packages on Pi (#71)~~ ✓ done
-- ~~Hailo PCIe kernel driver on Pi host (#72)~~ ✓ done — /dev/hailo0 present.
-  HailoRT library + Python bindings go in the container (Dockerfile.pi), not the host.
-  `hailo-all` from Pi repo conflicts with Ubuntu 24.04 (Python 3.11 vs 3.12, Debian media libs);
-  use Hailo developer zone Ubuntu .deb for the runtime library in the container.
-- ~~Cam Link 4K verification (#73)~~ ✓ done — /dev/video0 (capture), /dev/video1 (metadata).
-- YOLOv8 → Hailo HEF (on desktop) (#74) — try `hailomz download yolov8n` first (pre-built in
-  Model Zoo since v2.7). If compiling: use `--hw-arch hailo8` (hardware arch string for HAILO8).
-  Pi is on HailoRT 4.23.0; verify HEF loads on the Pi before committing to a custom compile.
-- EfficientNet-S fine-tune + HEF (on desktop) (#75, #77)
-- Pi inference backends (#76, #77)
-- Live capture module + real-time pipeline (#78, #79)
-- ARM64 Docker image (#80)
+- ~~Scaffold Pi monorepo structure (#81)~~ done
+- ~~OS packages on Pi (#71)~~ done
+- ~~Hailo PCIe kernel driver on Pi host (#72)~~ done — `/dev/hailo0` present
+- ~~Cam Link 4K verification (#73)~~ done — `/dev/video0` present
+- ~~YOLOv8n to Hailo HEF (#74)~~ done — `pi/models/yolov8n.hef`, 212 FPS on Pi
+- ~~EfficientNet-S fine-tune (#75)~~ done — 80.3% top-1, 94.2% top-5, 236 species
+- ~~EfficientNet-S to HEF + classifier backend (#77)~~ done — `pi/models/efficientnet_s_birds.hef`,
+  22 FPS / 44ms on Pi; `src/hailo_classifier.py` written
+- ~~Upload model to HuggingFace (#82)~~ done — https://huggingface.co/k10z/birdvision-efficientnet-s
+- **Hailo-8 detection backend hailo_detector.py (#76)** — not yet
+- **Live video capture stream_capture.py (#78)** — not yet
+- **Real-time pipeline realtime_pipeline.py (#79)** — not yet
+- **ARM64 Docker image (#80)** — not yet
