@@ -67,10 +67,11 @@ class HailoDetector:
         threshold:  Minimum confidence to keep a detection (default 0.3)
     """
 
-    def __init__(self, hef_path: str, threshold: float = 0.3):
+    def __init__(self, hef_path: str, threshold: float = 0.3, vdevice=None):
         self.hef_path  = str(hef_path)
         self.threshold = threshold
         self._output_logged = False
+        self._shared_vdevice = vdevice
         self._init_hailo()
 
     def _init_hailo(self) -> None:
@@ -87,7 +88,10 @@ class HailoDetector:
         logger.info("Loading YOLOv8n HEF: %s", self.hef_path)
         hef = HEF(self.hef_path)
 
-        self._target = VDevice()
+        if self._shared_vdevice is not None:
+            self._target = self._shared_vdevice
+        else:
+            self._target = VDevice()
         configure_params = ConfigureParams.create_from_hef(
             hef=hef, interface=HailoStreamInterface.PCIe
         )

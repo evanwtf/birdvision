@@ -88,10 +88,17 @@ class RealtimePipeline:
             fps=int(stream_cfg.get("framerate", 60)),
         )
 
+        # Single VDevice shared by detector and classifier — the Hailo-8 chip
+        # can only be opened once; both models run as separate network groups.
+        from hailo_platform import VDevice
+        logger.info("Opening Hailo VDevice")
+        self._vdevice = VDevice()
+
         # Hailo detector
         self._detector = HailoDetector(
             hef_path=det_cfg["hef"],
             threshold=det_cfg.get("confidence", 0.4),
+            vdevice=self._vdevice,
         )
 
         # Hailo classifier
@@ -99,6 +106,7 @@ class RealtimePipeline:
             hef_path=cls_cfg["hef"],
             labels_path=cls_cfg["labels"],
             top_k=cls_cfg.get("top_k", 20),
+            vdevice=self._vdevice,
         )
 
         # Tracker

@@ -51,9 +51,11 @@ class HailoClassifier:
         labels_path: str,
         top_k: int = 5,
         device: str = "hailo",  # ignored, kept for interface compat
+        vdevice=None,           # shared VDevice instance; created if not provided
     ):
         self.top_k = top_k
         self.hef_path = str(hef_path)
+        self._shared_vdevice = vdevice
 
         logger.info("Loading species labels: %s", labels_path)
         self.species_names: List[str] = json.loads(Path(labels_path).read_text())
@@ -76,7 +78,10 @@ class HailoClassifier:
         logger.info("Loading HEF: %s", self.hef_path)
         hef = HEF(self.hef_path)
 
-        self._target = VDevice()
+        if self._shared_vdevice is not None:
+            self._target = self._shared_vdevice
+        else:
+            self._target = VDevice()
         configure_params = ConfigureParams.create_from_hef(
             hef=hef, interface=HailoStreamInterface.PCIe
         )
