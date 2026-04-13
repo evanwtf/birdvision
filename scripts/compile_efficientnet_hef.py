@@ -22,16 +22,14 @@ Usage:
 import argparse
 import logging
 import random
+import time
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
+from log_utils import add_logging_args, configure_logging, estimate_remaining, format_duration
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 IMG_SIZE = 224
@@ -67,12 +65,24 @@ def sample_calibration_images(
 
     arrays = []
     failed = 0
+    start_time = time.time()
     for path in tqdm(chosen, desc="Preprocessing calibration images"):
         try:
             arrays.append(preprocess_image(path))
         except Exception as exc:
             logger.debug("Skipping %s: %s", path, exc)
             failed += 1
+        processed = len(arrays) + failed
+        if processed and (processed % 50 == 0 or processed == len(chosen)):
+            elapsed = time.time() - start_time
+            eta = estimate_remaining(elapsed, processed, len(chosen))
+            logger.info(
+                "Calibration preprocessing %d/%d  elapsed=%s  eta=%s",
+                processed,
+                len(chosen),
+                format_duration(elapsed),
+                format_duration(eta),
+            )
 
     if failed:
         logger.warning("Skipped %d images during calibration preprocessing", failed)
@@ -135,7 +145,16 @@ def main() -> None:
                         help="Number of calibration images to sample (default: 500)")
     parser.add_argument("--save-calib", type=Path,
                         help="Save calibration numpy array to this path for reuse")
+    add_logging_args(parser)
     args = parser.parse_args()
+
+    log_path = configure_logging(
+        "compile_efficientnet_hef",
+        log_file=args.log_file,
+        log_dir=args.log_dir,
+    )
+    if log_path:
+        logger.info("File logging enabled: %s", log_path)
 
     if not args.onnx.exists():
         raise SystemExit(f"ONNX model not found: {args.onnx}")

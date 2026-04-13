@@ -141,7 +141,13 @@ The model is now in the repo at `pi/models/yolov8n.hef`.
 
 - **val top-1: 80.3%** (target: ≥70%) ✓
 - **val top-5: 94.2%** (target: ≥90%) ✓
-- 236 species trained (3 skipped — no NY iNaturalist data: Atlantic Puffin, Blue Jay, Carolina Chickadee)
+- 236 species trained in the initial run
+- Follow-up verification found that Blue Jay does have New York iNaturalist
+  research-grade photo observations; it was skipped because the original
+  downloader queried observations by `taxon_name` instead of a resolved
+  `taxon_id`
+- Under correct iNaturalist taxon-id queries, the true NY zero-data species are
+  Atlantic Puffin and Carolina Chickadee
 - Training data: ~9.2GB, iNaturalist NY (place_id=48), research-grade, ~500 photos/species
 - Hardware: RTX 3080 Ti, ~55 min total (5 phase-1 + 15 phase-2 epochs)
 

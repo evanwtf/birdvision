@@ -20,6 +20,8 @@ videos/
 results/
 output/
 models/
+train_data/
+logs/
 
 # Eval report output (generated, not committed)
 eval/report/

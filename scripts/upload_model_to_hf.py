@@ -22,11 +22,8 @@ import json
 import logging
 import os
 from pathlib import Path
+from log_utils import add_logging_args, configure_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 MODEL_CARD_TEMPLATE = """---
@@ -145,7 +142,16 @@ def main() -> None:
     parser.add_argument("--private", action="store_true", help="Create repo as private")
     parser.add_argument("--top1", type=float, help="Val top-1 accuracy to include in model card")
     parser.add_argument("--top5", type=float, help="Val top-5 accuracy to include in model card")
+    add_logging_args(parser)
     args = parser.parse_args()
+
+    log_path = configure_logging(
+        "upload_model_to_hf",
+        log_file=args.log_file,
+        log_dir=args.log_dir,
+    )
+    if log_path:
+        logger.info("File logging enabled: %s", log_path)
 
     from huggingface_hub import HfApi, login
 

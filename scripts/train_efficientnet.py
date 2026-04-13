@@ -37,11 +37,8 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms
 from torchvision.models import EfficientNet_V2_S_Weights, efficientnet_v2_s
 from tqdm import tqdm
+from log_utils import add_logging_args, configure_logging, estimate_remaining, format_duration
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 IMG_SIZE = 224
@@ -216,7 +213,16 @@ def main() -> None:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--list-species", action="store_true",
                         help="Print expected folder names and exit")
+    add_logging_args(parser)
     args = parser.parse_args()
+
+    log_path = configure_logging(
+        "train_efficientnet",
+        log_file=args.log_file,
+        log_dir=args.log_dir,
+    )
+    if log_path:
+        logger.info("File logging enabled: %s", log_path)
 
     species_list = load_species_list(args.species_list)
     folder_map = build_folder_to_species_map(species_list)
@@ -293,15 +299,27 @@ def main() -> None:
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.phase1_epochs)
         epoch_bar = tqdm(range(1, args.phase1_epochs + 1), desc="Phase 1", unit="epoch")
+        phase_start = time.time()
         for epoch in epoch_bar:
             t0 = time.time()
             loss = train_one_epoch(model, train_loader, optimizer, criterion, device, epoch)
             top1, top5 = evaluate(model, val_loader, device)
             scheduler.step()
             elapsed = time.time() - t0
+            phase_elapsed = time.time() - phase_start
+            phase_eta = estimate_remaining(phase_elapsed, epoch, args.phase1_epochs)
             epoch_bar.set_postfix(loss=f"{loss:.4f}", top1=f"{top1:.3f}", top5=f"{top5:.3f}", s=f"{elapsed:.0f}s")
-            logger.info("Phase1 epoch %d/%d  loss=%.4f  val_top1=%.3f  val_top5=%.3f  %.1fs",
-                        epoch, args.phase1_epochs, loss, top1, top5, elapsed)
+            logger.info(
+                "Phase1 epoch %d/%d  loss=%.4f  val_top1=%.3f  val_top5=%.3f  epoch=%s  elapsed=%s  eta=%s",
+                epoch,
+                args.phase1_epochs,
+                loss,
+                top1,
+                top5,
+                format_duration(elapsed),
+                format_duration(phase_elapsed),
+                format_duration(phase_eta),
+            )
         ckpt = args.output_dir / "efficientnet_s_birds_phase1.pt"
         torch.save(model.state_dict(), ckpt)
         logger.info("Phase 1 checkpoint saved: %s", ckpt)
@@ -315,16 +333,28 @@ def main() -> None:
         best_top1 = 0.0
         best_ckpt = args.output_dir / "efficientnet_s_birds_best.pt"
         epoch_bar = tqdm(range(1, args.phase2_epochs + 1), desc="Phase 2", unit="epoch")
+        phase_start = time.time()
         for epoch in epoch_bar:
             t0 = time.time()
             loss = train_one_epoch(model, train_loader, optimizer, criterion, device, epoch)
             top1, top5 = evaluate(model, val_loader, device)
             scheduler.step()
             elapsed = time.time() - t0
+            phase_elapsed = time.time() - phase_start
+            phase_eta = estimate_remaining(phase_elapsed, epoch, args.phase2_epochs)
             epoch_bar.set_postfix(loss=f"{loss:.4f}", top1=f"{top1:.3f}", top5=f"{top5:.3f}",
                                   best=f"{best_top1:.3f}", s=f"{elapsed:.0f}s")
-            logger.info("Phase2 epoch %d/%d  loss=%.4f  val_top1=%.3f  val_top5=%.3f  %.1fs",
-                        epoch, args.phase2_epochs, loss, top1, top5, elapsed)
+            logger.info(
+                "Phase2 epoch %d/%d  loss=%.4f  val_top1=%.3f  val_top5=%.3f  epoch=%s  elapsed=%s  eta=%s",
+                epoch,
+                args.phase2_epochs,
+                loss,
+                top1,
+                top5,
+                format_duration(elapsed),
+                format_duration(phase_elapsed),
+                format_duration(phase_eta),
+            )
             if top1 > best_top1:
                 best_top1 = top1
                 torch.save(model.state_dict(), best_ckpt)

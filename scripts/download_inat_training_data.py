@@ -28,11 +28,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import httpx
+from log_utils import add_logging_args, configure_logging, estimate_remaining, format_duration
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 INAT_API = "https://api.inaturalist.org/v1"
@@ -69,28 +66,90 @@ def photo_url(raw_url: str, size: str = PHOTO_SIZE) -> str:
     return re.sub(r"/(square|thumb|small|medium|large|original)\.", f"/{size}.", raw_url)
 
 
+def existing_observation_ids(folder: Path) -> set[str]:
+    """Return existing observation ids already present in a species folder."""
+    return {path.stem for path in folder.iterdir() if path.is_file()}
+
+
+def resolve_taxon(
+    client: httpx.Client,
+    species_name: str,
+) -> tuple[int, str] | None:
+    """Resolve a species name to a stable iNaturalist bird taxon id."""
+    try:
+        resp = client.get(
+            f"{INAT_API}/taxa/autocomplete",
+            params={"q": species_name, "locale": "en"},
+            timeout=CONNECT_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.warning("Taxon lookup failed for %s: %s", species_name, exc)
+        return None
+
+    target = normalize_species_name(species_name)
+    candidates: list[tuple[int, dict]] = []
+    for taxon in resp.json().get("results", []):
+        if taxon.get("iconic_taxon_name") != "Aves":
+            continue
+        if taxon.get("rank") not in {"species", "subspecies"}:
+            continue
+
+        score = 0
+        for field, bonus in (
+            ("preferred_common_name", 100),
+            ("matched_term", 80),
+            ("name", 60),
+        ):
+            value = taxon.get(field)
+            if value and normalize_species_name(value) == target:
+                score = max(score, bonus)
+        if taxon.get("rank") == "species":
+            score += 10
+        if taxon.get("is_active"):
+            score += 5
+        if score:
+            candidates.append((score, taxon))
+
+    if not candidates:
+        logger.warning("No matching bird taxon found for %s", species_name)
+        return None
+
+    candidates.sort(
+        key=lambda item: (item[0], item[1].get("observations_count", 0)),
+        reverse=True,
+    )
+    best = candidates[0][1]
+    display_name = best.get("preferred_common_name") or best.get("name") or species_name
+    return int(best["id"]), display_name
+
+
 def fetch_observation_photos(
     client: httpx.Client,
+    taxon_id: int,
     taxon_name: str,
     place_id: int,
-    max_photos: int,
+    target_total: int,
+    existing_ids: set[str],
 ) -> list[tuple[str, str]]:
-    """Return list of (observation_id, photo_url) for a species.
-
-    Paginates until max_photos reached or results exhausted.
-    """
+    """Return unseen (observation_id, photo_url) pairs up to target_total."""
     results: list[tuple[str, str]] = []
+    seen_ids = set(existing_ids)
     page = 1
+    needed = max(0, target_total - len(existing_ids))
 
-    while len(results) < max_photos:
+    if needed == 0:
+        return results
+
+    while len(results) < needed:
         params = {
-            "taxon_name": taxon_name,
+            "taxon_id": str(taxon_id),
             "quality_grade": "research",
             "captive": "false",
             "place_id": str(place_id),
             "has[]": "photos",
             "iconic_taxon_name": "Aves",
-            "per_page": str(min(API_PER_PAGE, max_photos - len(results))),
+            "per_page": str(API_PER_PAGE),
             "page": str(page),
             "order": "desc",
             "order_by": "created_at",
@@ -111,12 +170,17 @@ def fetch_observation_photos(
             photos = obs.get("photos", [])
             if photos:
                 obs_id = str(obs["id"])
+                if obs_id in seen_ids:
+                    continue
                 url = photo_url(photos[0]["url"])
                 results.append((obs_id, url))
+                seen_ids.add(obs_id)
+                if len(results) >= needed:
+                    break
 
         total = data.get("total_results", 0)
-        logger.debug("  %s page %d: %d/%d observations fetched so far (total=%d)",
-                     taxon_name, page, len(results), max_photos, total)
+        logger.debug("  %s page %d: %d/%d unseen observations fetched so far (total=%d)",
+                     taxon_name, page, len(results), needed, total)
 
         if len(observations) < API_PER_PAGE or len(results) >= total:
             break
@@ -150,21 +214,38 @@ def download_species(
     """Download photos for one species. Returns (downloaded, skipped)."""
     folder = output_dir / normalize_species_name(species_name)
     folder.mkdir(parents=True, exist_ok=True)
+    existing_ids = existing_observation_ids(folder)
+    existing_count = len(existing_ids)
 
-    photo_list = fetch_observation_photos(api_client, species_name, place_id, max_photos)
+    if existing_count >= max_photos:
+        logger.info("  already at target: %d/%d", existing_count, max_photos)
+        return 0, existing_count
+
+    resolved = resolve_taxon(api_client, species_name)
+    time.sleep(API_DELAY)
+    if resolved is None:
+        return 0, existing_count
+
+    taxon_id, resolved_name = resolved
+    logger.info("  resolved to iNat taxon %s (%s)", taxon_id, resolved_name)
+    photo_list = fetch_observation_photos(
+        api_client,
+        taxon_id,
+        species_name,
+        place_id,
+        max_photos,
+        existing_ids,
+    )
     time.sleep(API_DELAY)  # rate limit after last API call for this species
 
     to_download: list[tuple[Path, str]] = []
-    skipped = 0
     for obs_id, url in photo_list:
         dest = folder / f"{obs_id}.jpg"
-        if dest.exists():
-            skipped += 1
-        else:
-            to_download.append((dest, url))
+        to_download.append((dest, url))
 
     if not to_download:
-        return 0, skipped
+        logger.info("  no new observations available; current=%d target=%d", existing_count, max_photos)
+        return 0, existing_count
 
     downloaded = 0
     failed = 0
@@ -180,7 +261,7 @@ def download_species(
     if failed:
         logger.warning("  %s: %d download(s) failed", species_name, failed)
 
-    return downloaded, skipped
+    return downloaded, existing_count
 
 
 def main() -> None:
@@ -192,10 +273,19 @@ def main() -> None:
     parser.add_argument("--place-id", type=int, default=48,
                         help="iNaturalist place ID (default: 48 = New York state)")
     parser.add_argument("--max-per-species", type=int, default=500,
-                        help="Max photos to download per species (default: 500)")
+                        help="Target final file count per species (default: 500)")
     parser.add_argument("--species", nargs="+",
                         help="Download only these species (by common name); default: all")
+    add_logging_args(parser)
     args = parser.parse_args()
+
+    log_path = configure_logging(
+        "download_inat_training_data",
+        log_file=args.log_file,
+        log_dir=args.log_dir,
+    )
+    if log_path:
+        logger.info("File logging enabled: %s", log_path)
 
     all_species = load_species_list(args.species_list)
     if args.species:
@@ -214,21 +304,31 @@ def main() -> None:
     headers = {"User-Agent": "BirdVision-training-data-downloader/1.0"}
     total_dl = 0
     total_skip = 0
+    overall_start = time.time()
 
     with httpx.Client(headers=headers) as api_client, \
          httpx.Client(headers=headers) as dl_client:
 
         for i, species in enumerate(target_species, 1):
             logger.info("[%d/%d] %s", i, len(target_species), species)
-            dl, skip = download_species(
+            dl, existing = download_species(
                 species, args.output_dir, args.place_id,
                 args.max_per_species, api_client, dl_client,
             )
             total_dl += dl
-            total_skip += skip
-            logger.info("  → downloaded=%d  skipped=%d", dl, skip)
+            total_skip += existing
+            elapsed = time.time() - overall_start
+            eta = estimate_remaining(elapsed, i, len(target_species))
+            logger.info(
+                "  → existing=%d  downloaded=%d  final=%d  elapsed=%s  eta=%s",
+                existing,
+                dl,
+                existing + dl,
+                format_duration(elapsed),
+                format_duration(eta),
+            )
 
-    logger.info("Done. Total downloaded=%d  skipped=%d", total_dl, total_skip)
+    logger.info("Done. Total downloaded=%d  existing_before_run=%d", total_dl, total_skip)
 
 
 if __name__ == "__main__":
