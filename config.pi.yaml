@@ -42,3 +42,4 @@ metadata:
 output:
   results_dir: /data/results
   log_interval_seconds: 1
+  stats_interval_seconds: 30

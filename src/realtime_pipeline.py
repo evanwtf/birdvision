@@ -18,6 +18,7 @@ import time
 from typing import Optional
 
 import numpy as np
+import psutil
 
 from .tracker import BirdTracker
 from .stream_capture import V4L2FrameSource
@@ -124,6 +125,7 @@ class RealtimePipeline:
         self._min_crop_area       = cls_cfg.get("min_crop_area", 2500)
         self._min_event_conf      = cls_cfg.get("min_event_confidence", 0.35)
         self._log_interval        = out_cfg.get("log_interval_seconds", 1.0)
+        self._stats_interval      = out_cfg.get("stats_interval_seconds", 30.0)
 
         # eBird priors (optional — skip if db not present)
         self._metadata = None
@@ -155,6 +157,7 @@ class RealtimePipeline:
 
         frame_count         = 0
         t_window_start      = time.monotonic()
+        t_stats_last        = time.monotonic()
         window_events: list = []   # (species, score) from classify events this window
 
         for frame_no, frame in self._source.frames():
@@ -231,8 +234,60 @@ class RealtimePipeline:
                 t_window_start = now
                 window_events  = []
 
+            # --- System stats (every stats_interval_seconds) ---
+            if now - t_stats_last >= self._stats_interval:
+                self._log_system_stats()
+                t_stats_last = now
+
         self._source.stop()
         logger.info("Real-time pipeline stopped")
+
+    def _log_system_stats(self) -> None:
+        """Log Pi system health: CPU temp, load, frequency, memory."""
+        parts = []
+
+        # CPU temperature (reads /sys/class/thermal via psutil)
+        try:
+            temps = psutil.sensors_temperatures()
+            # Pi 5 exposes temp under 'cpu_thermal' or 'coretemp'
+            for key in ("cpu_thermal", "coretemp", "soc_thermal"):
+                if key in temps and temps[key]:
+                    parts.append(f"temp={temps[key][0].current:.1f}C")
+                    break
+        except (AttributeError, OSError):
+            pass
+
+        # CPU load (1-minute average from /proc/loadavg)
+        load1, load5, *_ = psutil.getloadavg()
+        parts.append(f"load={load1:.2f}/{load5:.2f}")
+
+        # CPU utilization %
+        cpu_pct = psutil.cpu_percent(interval=None)
+        parts.append(f"cpu={cpu_pct:.0f}%")
+
+        # CPU frequency
+        try:
+            freq = psutil.cpu_freq()
+            if freq:
+                parts.append(f"freq={freq.current:.0f}MHz")
+        except (AttributeError, OSError):
+            pass
+
+        # Memory
+        mem = psutil.virtual_memory()
+        parts.append(f"mem={mem.percent:.0f}%")
+
+        # Fan speed (Pi 5 fan via hwmon — not always present)
+        try:
+            fans = psutil.sensors_fans()
+            for entries in fans.values():
+                if entries:
+                    parts.append(f"fan={entries[0].current:.0f}rpm")
+                    break
+        except (AttributeError, OSError):
+            pass
+
+        logger.info("system %s", " ".join(parts))
 
     def stop(self) -> None:
         """Request a clean shutdown after the current frame."""
