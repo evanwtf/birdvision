@@ -110,7 +110,7 @@ RUN mkdir -p /app/pi/models
 
 # Writable data directories
 RUN mkdir -p /data/results && \
-    useradd -m -u 1000 nonroot && \
+    useradd -m -u 65532 -s /sbin/nologin nonroot && \
     chown -R nonroot:nonroot /app /data
 
 VOLUME ["/data/results"]
