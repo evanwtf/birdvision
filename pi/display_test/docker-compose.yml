@@ -1,0 +1,26 @@
+services:
+  display-test:
+    build: .
+    image: birdvision-display-test:latest
+    restart: "no"
+
+    devices:
+      - /dev/video0:/dev/video0   # Elgato Cam Link 4K
+      - /dev/video1:/dev/video1   # Cam Link metadata/control node
+      - /dev/fb0:/dev/fb0         # Pi Touch Display 2 framebuffer
+
+    # /dev/video* and /dev/fb0 are both owned by group 'video' on this Pi.
+    # Verified: ls -l /dev/fb0 → crw-rw---- root video
+    group_add:
+      - "video"
+
+    command: ["python", "test_display.py", "--rotate", "90"]
+
+    environment:
+      - PYTHONUNBUFFERED=1
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
