@@ -6,8 +6,31 @@ a blog post — structured chronologically, grouped by theme, with commit SHAs
 and issue numbers so we can drill down later.
 
 **Span:** 2026-03-30 through 2026-04-14 — about two weeks.
-**Hardware:** RTX 3080 Ti desktop (training/webapp) + Raspberry Pi 5 with
-Hailo-8 (real-time edge inference).
+
+## Hardware used
+
+**Desktop (webapp / training / Hailo HEF compilation)**
+- NVIDIA RTX 3080 Ti, 12 GB VRAM
+- AMD Ryzen 9 7900X
+- 32 GB RAM
+- x86_64 Ubuntu
+- Location: Long Island / Nassau County, NY (40.7, -73.5)
+
+**Raspberry Pi 5 (real-time edge pipeline)**
+- Raspberry Pi 5, 8 GB RAM, aarch64 Ubuntu 24.04
+- Hailo-8 AI accelerator (PCIe M.2, 26 TOPS INT8). HailoRT firmware 4.23.0.
+- Elgato Cam Link 4K (HDMI→USB capture) reading a Samsung camcorder over HDMI
+- Raspberry Pi Touch Display 2 for live caption overlay
+
+## Trained model, published artifacts
+
+- **Hugging Face repo:** https://huggingface.co/k10z/birdvision-efficientnet-s
+- **GitHub repo:** https://github.com/evandhoffman/birdvision (private)
+- Artifacts published to HF: `efficientnet_s_birds.onnx`, `efficientnet_s_birds.hef`
+  (Hailo-compiled), `species_labels.json`, PyTorch best + phase-1 checkpoints,
+  auto-generated model card with Pi benchmarks.
+- License: **CC-BY-NC-4.0** — inherited from iNaturalist training data.
+- HF username `k10z`; GitHub username `evandhoffman`.
 
 ---
 
@@ -161,9 +184,18 @@ The big one. Parent issue **#70** — "Adapt project for real-time streaming on 
 - `ab5ee54`/`e78a9f8` Pin uv to Linux + exclude pi group from default resolution (hailort not on PyPI) — critical for keeping desktop/CI green
 - Training cleanup: `767ea7e` v2 model name fix, `65ef10f` skip empty class dirs, `2ce9455` tqdm + ETA,
   `f28b32c` replace_all bug, `e615abd` `run_training.sh`, `c7543fa` batch size 32 for phase-2 VRAM
-- `74bc405` HF Hub upload script (#82)
+- `74bc405` **HF Hub upload script** (`scripts/upload_model_to_hf.py`) — issue #82
 - `d373076` onnxscript dep for torch.onnx.export
-- `2bd7469` **EfficientNet-S training done — 80.3% top-1**
+- `2bd7469` **EfficientNet-S training done — 80.3% top-1** (236 classes, pre-Blue-Jay fix)
+
+### Training recipe (issue #75)
+- Base: `torchvision.models.efficientnet_v2_s`, ImageNet-pretrained
+- Head: linear layer to N species; 224×224 input
+- Data: iNaturalist research-grade photos, filtered to New York (`place_id=48`)
+  via `scripts/download_inat_training_data.py`
+- Phase 1 (head only) + Phase 2 (fine-tune full network, batch size 32 for VRAM)
+- Augment: random crop, hflip, color jitter, rotation; label smoothing 0.1
+- Final run: **80.7% top-1, 94.0% top-5** on validation after Blue Jay fix
 
 ### Apr 12–13 — EfficientNet → HEF (issue #77)
 - `ecb03ea` HEF compile script + `hailo_classifier.py`
@@ -172,9 +204,21 @@ The big one. Parent issue **#70** — "Adapt project for real-time streaming on 
 - `1499dc7` HEF on HF; Pi benchmarks in model card
 - `b90ffe7` Final: **22 FPS / 44ms on Pi** for 237-species classifier
 
-### Apr 13 — retraining + real-time pipeline (issues #83, #84, #76, #78, #79, #80)
-- `530004e` Rename CLAUDE.md → AGENTS.md, symlink for compat
-- `0caa274`/`4092477` Improved retraining logging + iNat fetches (Blue Jay data fix — #83/#84)
+### Apr 13 — the Blue Jay bug + retrain (issues #83, #84)
+The first 236-class model silently dropped **Blue Jay** — the most
+recognizable bird on the property. Root cause: `download_inat_training_data.py`
+was querying iNaturalist by raw `taxon_name` string instead of resolving to a
+taxon id first, so `Cyanocitta cristata` (id `8229`) came back empty under the
+NY `place_id=48` filter. Once queries were resolved to taxon ids, 500 Blue Jay
+photos came down immediately.
+- `0caa274`/`4092477` Fixed downloader; re-ran phase-1 + phase-2 training
+- Regenerated `species_labels.json` (236 → **237 classes**) and ONNX
+- Recompiled the Hailo HEF from the new ONNX
+- Re-uploaded artifacts + updated model card to HF (`k10z/birdvision-efficientnet-s`)
+- Remaining zero-data classes under NY filter: Atlantic Puffin, Carolina Chickadee (documented, acceptable)
+- `530004e` Rename CLAUDE.md → AGENTS.md with symlink for compat
+
+### Apr 13 — real-time pipeline (issues #76, #78, #79, #80)
 - `5ca9651` **Real-time pipeline**: `hailo_detector.py` + `stream_capture.py` + `realtime_pipeline.py` + Docker
 - Runtime debugging marathon:
   - `0287b17` Install HailoRT .deb in runtime image; device group config
