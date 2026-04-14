@@ -226,8 +226,7 @@ class DisplayOverlay:
                     _BOX_COLOR, _BOX_THICK,
                 )
 
-        if caption:
-            _draw_caption(display, caption)
+        _draw_caption(display, caption if caption else "No Bird Detected")
         if self._show_fps:
             _draw_fps(display, fps)
 
