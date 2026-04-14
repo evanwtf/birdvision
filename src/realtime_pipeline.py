@@ -24,6 +24,7 @@ from .tracker import BirdTracker
 from .stream_capture import V4L2FrameSource
 from .hailo_detector import HailoDetector
 from .hailo_classifier import HailoClassifier
+from .display_overlay import DisplayOverlay
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,18 @@ class RealtimePipeline:
             except Exception as exc:
                 logger.warning("Could not load eBird priors: %s — running without", exc)
 
+        # Optional framebuffer display overlay (Pi Touch Display 2)
+        self._display: Optional[DisplayOverlay] = None
+        disp_cfg = config.get("display", {})
+        if disp_cfg.get("enabled", False):
+            self._display = DisplayOverlay(
+                device=disp_cfg.get("device", "/dev/fb0"),
+                rotate=int(disp_cfg.get("rotate", 0)),
+                show_fps=disp_cfg.get("show_fps", False),
+                show_boxes=disp_cfg.get("show_boxes", True),
+            )
+        self._caption_ttl = float(disp_cfg.get("caption_ttl_seconds", 3.0))
+
         signal.signal(signal.SIGINT,  self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
 
@@ -160,6 +173,10 @@ class RealtimePipeline:
         t_window_start      = time.monotonic()
         t_stats_last        = time.monotonic()
         window_events: list = []   # (species, score) from classify events this window
+        caption_species: Optional[str]  = None
+        caption_score:   Optional[float] = None
+        caption_expiry:  float           = 0.0
+        current_fps:     float           = 0.0
 
         for frame_no, frame in self._source.frames():
             if self._stop:
@@ -212,12 +229,30 @@ class RealtimePipeline:
                         logger.debug(
                             "track=%d  %s  %.3f", tid, top_species, top_score
                         )
+                        caption_species = top_species
+                        caption_score   = top_score
+                        caption_expiry  = time.monotonic() + self._caption_ttl
+
+            # --- Push to framebuffer display (if enabled) ---
+            if self._display is not None and self._display.enabled:
+                now_display = time.monotonic()
+                if caption_expiry and now_display >= caption_expiry:
+                    caption_species = None
+                    caption_score   = None
+                bboxes = [d.bbox for d in detections]
+                self._display.post(
+                    frame, bboxes,
+                    top_species=caption_species,
+                    top_score=caption_score,
+                    fps=current_fps,
+                )
 
             # --- 1-second summary log ---
             now = time.monotonic()
             elapsed = now - t_window_start
             if elapsed >= self._log_interval:
                 fps = frame_count / elapsed
+                current_fps = fps
                 active_tracks = len([t for t in tracks.values() if t.disappeared == 0])
 
                 if window_events:
@@ -241,6 +276,8 @@ class RealtimePipeline:
                 t_stats_last = now
 
         self._source.stop()
+        if self._display is not None:
+            self._display.close()
         logger.info("Real-time pipeline stopped")
 
     def _log_system_stats(self) -> None:

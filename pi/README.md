@@ -30,6 +30,7 @@ Only two things must be installed on the Pi host (not in the container):
 |---|---|---|
 | Hailo PCIe kernel driver | present | `/dev/hailo0` exists |
 | V4L2 (Cam Link 4K) | present | `/dev/video0` exists |
+| Framebuffer (Touch Display 2) | optional | `/dev/fb0`; set `display.enabled: false` for headless |
 
 Everything else (HailoRT library, Python bindings, app code) runs in the container.
 
@@ -112,11 +113,18 @@ Expected (confirmed on this hardware):
 ```
 crw-rw-rw- 1 root root  234, 0  /dev/hailo0   ← world r/w, no group needed
 crw-rw---- 1 root video  81, 19  /dev/video0   ← video group required
+crw-rw---- 1 root video  29,  0  /dev/fb0     ← video group (Touch Display 2 framebuffer)
 ```
 
 `docker-compose.pi.yml` adds the container user to the `video` group, which
-covers `/dev/video0`. Since `/dev/hailo0` is world-accessible, no extra group
-is needed for Hailo. If your setup differs, adjust `group_add` in the compose file.
+covers both `/dev/video0` and `/dev/fb0`. Since `/dev/hailo0` is world-accessible,
+no extra group is needed for Hailo. If your setup differs, adjust `group_add` in
+the compose file.
+
+If the Pi has no Touch Display 2 attached, set `display.enabled: false` in
+`config.pi.yaml`; the container will still run and `/dev/fb0` passthrough is
+harmless when the node is absent (compose will fail at startup though — comment
+out the `/dev/fb0` line for headless hosts).
 
 ### Step 3 — Build and run
 

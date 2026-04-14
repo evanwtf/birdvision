@@ -44,3 +44,13 @@ output:
   results_dir: /data/results
   log_interval_seconds: 1
   stats_interval_seconds: 30
+
+# Pi Touch Display 2 overlay — live feed + CC-style species caption on /dev/fb0.
+# Set enabled: false for headless/SSH deployments without a framebuffer.
+display:
+  enabled: true
+  device: /dev/fb0
+  rotate: 90              # 0/90/180/270 — physical display is landscape via 90° CW
+  show_fps: false
+  show_boxes: true
+  caption_ttl_seconds: 3  # how long a species label stays on screen after last event

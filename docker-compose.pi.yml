@@ -12,6 +12,7 @@ services:
       - /dev/hailo0:/dev/hailo0   # Hailo-8 PCIe AI accelerator
       - /dev/video0:/dev/video0   # Elgato Cam Link 4K — primary capture node
       - /dev/video1:/dev/video1   # Elgato Cam Link 4K — metadata/control node
+      - /dev/fb0:/dev/fb0         # Pi Touch Display 2 framebuffer (overlay)
 
     # Device group access.
     # /dev/hailo0 is crw-rw-rw- (world r/w) — no group needed.
