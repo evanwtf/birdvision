@@ -1,8 +1,8 @@
 # Teaching a Raspberry Pi to identify birds in my backyard
 
-I've got a lot of birds in my backyard. We have a feeder, a bird bath, and a
-perpetually-annoyed cat watching from the window. The birds don't care about
-the cat. Over the past couple of years I've gotten slightly obsessed with
+I've got a lot of birds in my backyard. We have a feeder, we have a bird
+bath, we have whatever is growing in the yard that the birds apparently
+like. Over the past couple of years I've gotten slightly obsessed with
 figuring out what the visitors actually are — beyond "sparrow, sparrow,
 sparrow, huh that's a weird one."
 
@@ -64,8 +64,8 @@ couldn't carry my desktop out into the backyard.
 ## The Pi as an edge device
 
 The plan was always: take the pipeline I have on the desktop and make it run
-on the Pi, live, off a camera, cheap enough in power that I can run it off a
-battery in the yard. The trouble is that BioCLIP is way too big for a Pi
+on the Pi, live, off a camera, ideally cheap enough in power that I could
+run it off a battery in the yard. The trouble is that BioCLIP is way too big for a Pi
 — it needs a GPU to be interactive, and a CPU-only Pi would give you maybe
 one classification every few seconds. The Hailo-8 changes that, but only if
 you can get your model onto it, and the Hailo compiler is picky.
@@ -394,12 +394,19 @@ lesson is to always spot-check your training data before you train on it.
 
 **What's next?** A few things. I want to evaluate the retrained 237-class
 model against the desktop BioCLIP ensemble to see how close it actually is
-(the validation accuracy is a proxy, not the real thing). I want to hook up
-a USB power meter so I can tell people how long this thing runs off a USB-C
-battery pack — my guess is 5-6 hours of continuous inference. And I want to
-get the live video stream onto the display, not just the caption, so I can
-set the whole thing up on the deck and use it as a weird birdwatching
-monitor.
+(validation accuracy is a proxy, not the real thing). I want to get the
+live video stream onto the display, not just the caption, so I can set the
+whole thing up on the deck and use it as a weird birdwatching monitor.
+
+And I want to figure out the battery situation. My first attempt was a
+generic USB-C PD battery pack, and the Pi wasn't impressed — at boot it
+flashes a warning that the power supply isn't providing the full 5 amps it
+wants, and refuses to enable the full USB power budget for accessories. The
+Cam Link 4K pulls enough current that this matters. The Pi 5 really wants
+the official 27W USB-C supply or something equivalent that can actually
+negotiate 5V @ 5A over PD, and most portable batteries I own top out at 3A.
+So for now the whole setup is tethered to a wall outlet, which is fine in
+the kitchen window but not great on the deck. I'll figure it out.
 
 But the core system is working. I pointed it at my window this morning,
 walked away for a cup of coffee, and came back to a log full of House
