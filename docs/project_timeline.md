@@ -17,10 +17,15 @@ and issue numbers so we can drill down later.
 - Location: Long Island / Nassau County, NY (40.7, -73.5)
 
 **Raspberry Pi 5 (real-time edge pipeline)**
-- Raspberry Pi 5, 8 GB RAM, aarch64 Ubuntu 24.04
-- Hailo-8 AI accelerator (PCIe M.2, 26 TOPS INT8). HailoRT firmware 4.23.0.
+- **CanaKit Raspberry Pi 5 8GB Quick-Start AI Kit — 26 TOPS** (SKU `PI5-8GB-AI128-C4-WHT-26T`) — $379.95
+  - Raspberry Pi 5, 8 GB RAM, aarch64 Ubuntu 24.04
+  - Hailo-8 AI accelerator (PCIe M.2, 26 TOPS INT8). HailoRT firmware 4.23.0.
+  - 128 GB storage, case with active cooling
+- **Raspberry Pi Touch Display 2, 5" Portrait** (SKU `RSP-DISPLAY-V2-5`) — $52.95
 - Elgato Cam Link 4K (HDMI→USB capture) reading a Samsung camcorder over HDMI
-- Raspberry Pi Touch Display 2 for live caption overlay
+- Ordered Tue Apr 7, 2026 — total **$454.85** including shipping. Project
+  started three days before the hardware arrived; code stack was ready when
+  the box showed up.
 
 ## Trained model, published artifacts
 
