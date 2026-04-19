@@ -2,6 +2,7 @@
 Extract date/time, GPS coordinates, and basic media metadata using ExifTool.
 """
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,24 @@ import cv2
 import exiftool
 
 logger = logging.getLogger(__name__)
+
+_et_lock = threading.RLock()
+_et_instance: Optional[exiftool.ExifToolHelper] = None
+
+
+def _get_exiftool() -> exiftool.ExifToolHelper:
+    global _et_instance
+    with _et_lock:
+        if _et_instance is None or not _et_instance.running:
+            if _et_instance is not None:
+                try:
+                    _et_instance.terminate()
+                except Exception:
+                    pass
+            _et_instance = exiftool.ExifToolHelper()
+            _et_instance.run()
+        return _et_instance
+
 
 DATETIME_FORMATS = [
     "%Y:%m:%d %H:%M:%S",
@@ -92,8 +111,8 @@ class MediaMetadata:
 def inspect_media(path: str) -> MediaMetadata:
     meta = MediaMetadata()
     try:
-        with exiftool.ExifToolHelper() as et:
-            tags = et.get_metadata(path)[0]
+        with _et_lock:
+            tags = _get_exiftool().get_metadata(path)[0]
 
         # Date — prefer QuickTime CreateDate, fall back to other fields
         for key in ("QuickTime:CreateDate", "EXIF:DateTimeOriginal", "File:FileModifyDate"):
