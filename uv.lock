@@ -6,6 +6,10 @@ resolution-markers = [
     "sys_platform != 'win32'",
 ]
 
+[options]
+exclude-newer = "2026-04-20T02:50:02.665006Z"
+exclude-newer-span = "P7D"
+
 [[package]]
 name = "accelerate"
 version = "1.13.0"
@@ -125,6 +129,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.0.2" }]
+pi = []
 
 [[package]]
 name = "bitsandbytes"
