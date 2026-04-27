@@ -3,9 +3,10 @@
 Bird species identification from video and photos using local computer vision models.
 Aimed at the Long Island / Northeast US region, no cloud dependencies.
 
-Two deployment targets:
+Three deployment targets:
 - **Desktop / webapp** — upload video or photos via browser or API; BioCLIP + ensemble classifier on GPU
 - **Raspberry Pi 5** — real-time inference from a live HDMI capture feed using a Hailo-8 AI accelerator
+- **iOS app** (planned) — mobile bird ID from the phone camera; may run fully on-device, stream to the desktop GPU for server-side inference, or a hybrid where the phone handles detection and the server handles classification
 
 ## How it works
 
