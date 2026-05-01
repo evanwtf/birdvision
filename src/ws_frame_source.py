@@ -66,6 +66,7 @@ def _ensure_self_signed_cert(cert_dir: str) -> tuple:
     return str(cert_path), str(key_path)
 
 
+
 class WebSocketFrameSource:
     """Receives JPEG frames over WebSocket, yields (frame_no, bgr) pairs.
 
