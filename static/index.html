@@ -57,6 +57,39 @@
     pointer-events: none;
   }
 
+  /* --- Start button --- */
+  #start-screen {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    background: rgba(0,0,0,0.85);
+  }
+  #start-screen.hidden { display: none; }
+  #start-btn {
+    background: #4caf50;
+    color: #fff;
+    border: none;
+    padding: 18px 48px;
+    border-radius: 12px;
+    font-size: 20px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #start-btn:active { background: #388e3c; }
+  #start-error {
+    margin-top: 16px;
+    font-size: 14px;
+    color: #f44336;
+    text-align: center;
+    padding: 0 24px;
+    max-width: 400px;
+  }
+
   /* --- Settings panel --- */
   #settings-toggle {
     display: flex;
@@ -123,6 +156,10 @@
 <div id="viewport">
   <video id="camera" autoplay playsinline muted></video>
   <canvas id="overlay"></canvas>
+  <div id="start-screen">
+    <button id="start-btn">Start Camera</button>
+    <div id="start-error"></div>
+  </div>
 </div>
 
 <!-- Settings -->
@@ -149,7 +186,7 @@
   </label>
   <div style="margin-top: 8px;">
     <span>Server</span>
-    <input type="text" id="server-input" class="server-input" placeholder="ws://10.0.0.1:8765/ws">
+    <input type="text" id="server-input" class="server-input" placeholder="wss://10.0.0.1:8765/ws">
     <button id="reconnect-btn">Reconnect</button>
   </div>
 </div>
@@ -176,6 +213,9 @@
   const settToggle  = document.getElementById("settings-toggle");
   const settPanel   = document.getElementById("settings-panel");
   const settArrow   = document.getElementById("settings-arrow");
+  const startScreen = document.getElementById("start-screen");
+  const startBtn    = document.getElementById("start-btn");
+  const startError  = document.getElementById("start-error");
 
   // --- State ---
   let ws            = null;
@@ -245,15 +285,12 @@
 
   async function startCamera() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      connText.textContent = "Camera requires HTTPS";
-      var msg = "getUserMedia needs a secure context (HTTPS or localhost). ";
-      if (/Chrome/i.test(navigator.userAgent)) {
-        msg += "In Chrome: chrome://flags → \"Insecure origins treated as secure\" → add this origin.";
-      } else {
-        msg += "Set up a reverse proxy with TLS, or access via localhost.";
+      var msg = "Camera requires a secure context (HTTPS).";
+      if (location.protocol !== "https:" && location.hostname !== "localhost") {
+        msg += " Try loading this page over HTTPS.";
       }
-      console.error("BirdVision: " + msg);
-      return;
+      startError.textContent = msg;
+      return false;
     }
     if (currentStream) {
       currentStream.getTracks().forEach(function(t) { t.stop(); });
@@ -271,10 +308,31 @@
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       currentStream = stream;
       video.srcObject = stream;
+      return true;
     } catch (err) {
-      connText.textContent = "Camera error: " + err.message;
+      startError.textContent = "Camera error: " + err.message;
+      return false;
     }
   }
+
+  // --- Start button ---
+  startBtn.addEventListener("click", async function() {
+    startError.textContent = "";
+    startBtn.disabled = true;
+    startBtn.textContent = "Starting...";
+
+    var ok = await startCamera();
+    if (ok) {
+      startScreen.classList.add("hidden");
+      connectWs();
+      requestWakeLock();
+      startGps();
+      requestAnimationFrame(redrawLoop);
+    } else {
+      startBtn.disabled = false;
+      startBtn.textContent = "Start Camera";
+    }
+  });
 
   // --- Overlay sizing ---
   function resizeOverlay() {
@@ -471,18 +529,20 @@
   }
 
   // --- GPS ---
-  if ("geolocation" in navigator) {
-    navigator.geolocation.watchPosition(
-      function(pos) {
-        gpsLat = pos.coords.latitude;
-        gpsLon = pos.coords.longitude;
-        gpsStatus.textContent = "📍 GPS";
-      },
-      function() {
-        gpsStatus.textContent = "📍 No GPS";
-      },
-      { enableHighAccuracy: true, maximumAge: 10000 }
-    );
+  function startGps() {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.watchPosition(
+        function(pos) {
+          gpsLat = pos.coords.latitude;
+          gpsLon = pos.coords.longitude;
+          gpsStatus.textContent = "📍 GPS";
+        },
+        function() {
+          gpsStatus.textContent = "📍 No GPS";
+        },
+        { enableHighAccuracy: true, maximumAge: 10000 }
+      );
+    }
   }
 
   // --- Wake Lock ---
@@ -508,10 +568,6 @@
 
   // --- Init ---
   loadSettings();
-  startCamera();
-  connectWs();
-  requestWakeLock();
-  requestAnimationFrame(redrawLoop);
 
 })();
 </script>

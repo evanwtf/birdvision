@@ -23,6 +23,8 @@ import asyncio
 import json
 import logging
 import queue
+import ssl
+import subprocess
 import threading
 from pathlib import Path
 from typing import Iterator, Optional, Tuple
@@ -37,6 +39,33 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 logger = logging.getLogger(__name__)
 
 
+def _ensure_self_signed_cert(cert_dir: str) -> tuple:
+    """Generate a self-signed cert+key if they don't already exist.
+
+    Returns (certfile_path, keyfile_path).
+    """
+    cert_path = Path(cert_dir) / "cert.pem"
+    key_path = Path(cert_dir) / "key.pem"
+
+    if cert_path.exists() and key_path.exists():
+        logger.info("Reusing existing TLS cert at %s", cert_path)
+        return str(cert_path), str(key_path)
+
+    Path(cert_dir).mkdir(parents=True, exist_ok=True)
+    logger.info("Generating self-signed TLS certificate in %s", cert_dir)
+    subprocess.run(
+        [
+            "openssl", "req", "-x509", "-newkey", "rsa:2048",
+            "-keyout", str(key_path), "-out", str(cert_path),
+            "-days", "365", "-nodes",
+            "-subj", "/CN=birdvision-sidecar",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    return str(cert_path), str(key_path)
+
+
 class WebSocketFrameSource:
     """Receives JPEG frames over WebSocket, yields (frame_no, bgr) pairs.
 
@@ -45,6 +74,10 @@ class WebSocketFrameSource:
         port:                 Listen port (default 8765)
         static_dir:           Directory to serve as static files at /
         max_buffered_frames:  Max frames to buffer before dropping
+        ssl_certfile:         Path to TLS certificate (PEM)
+        ssl_keyfile:          Path to TLS private key (PEM)
+        ssl_cert_dir:         Directory for auto-generated self-signed cert
+                              (used when certfile/keyfile not provided)
     """
 
     def __init__(
@@ -53,10 +86,16 @@ class WebSocketFrameSource:
         port: int = 8765,
         static_dir: Optional[str] = None,
         max_buffered_frames: int = 2,
+        ssl_certfile: Optional[str] = None,
+        ssl_keyfile: Optional[str] = None,
+        ssl_cert_dir: str = "/data/certs",
     ):
         self._host = host
         self._port = port
         self._static_dir = static_dir
+        self._ssl_certfile = ssl_certfile
+        self._ssl_keyfile = ssl_keyfile
+        self._ssl_cert_dir = ssl_cert_dir
         self._stop = False
         # Queue stores (bgr, metadata_dict) tuples
         self._frame_queue: queue.Queue = queue.Queue(maxsize=max_buffered_frames)
@@ -131,11 +170,26 @@ class WebSocketFrameSource:
         self._result_queue = asyncio.Queue()
         self._loop_ready.set()
 
+        certfile = self._ssl_certfile
+        keyfile = self._ssl_keyfile
+        if not certfile or not keyfile:
+            try:
+                certfile, keyfile = _ensure_self_signed_cert(self._ssl_cert_dir)
+            except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+                logger.warning(
+                    "Could not generate TLS cert (%s) — serving plain HTTP. "
+                    "Camera will not work on phones over LAN.",
+                    exc,
+                )
+                certfile = keyfile = None
+
         config = uvicorn.Config(
             app, host=self._host, port=self._port, log_level="warning",
+            ssl_certfile=certfile, ssl_keyfile=keyfile,
         )
         server = uvicorn.Server(config)
-        logger.info("WebSocket server listening on %s:%d", self._host, self._port)
+        proto = "https" if certfile else "http"
+        logger.info("WebSocket server listening on %s://%s:%d", proto, self._host, self._port)
         self._loop.run_until_complete(server.serve())
 
     def _shutdown_server(self) -> None:

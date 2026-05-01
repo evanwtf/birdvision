@@ -163,11 +163,11 @@ docker compose -f docker-compose.pi.yml --profile sidecar up
 Config: `config.pi.sidecar.yaml` (bind-mounted as `config.pi.yaml` inside
 the container).
 
-**Note:** `getUserMedia()` requires a secure context. Over plain HTTP to a
-LAN IP the camera will not start. Options:
-- **Chrome:** add the Pi's origin to `chrome://flags` →
-  "Insecure origins treated as secure"
-- **Any browser:** set up a reverse proxy with a TLS certificate
+The sidecar auto-generates a self-signed TLS certificate on first start
+(persisted in `./certs/`). On the phone, open **`https://<pi-ip>:8765/`**
+(note: HTTPS, not HTTP). Safari will show a certificate warning — tap
+"Show Details" → "visit this website" to accept it once. After that, tap
+"Start Camera" and allow camera access when prompted.
 
 #### Common commands
 

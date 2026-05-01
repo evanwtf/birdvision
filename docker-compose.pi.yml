@@ -67,6 +67,7 @@ services:
       - ./config.pi.sidecar.yaml:/app/config.pi.yaml:ro
       - ./pi/models:/app/pi/models:ro
       - ./results:/data/results
+      - ./certs:/data/certs          # Self-signed TLS cert (auto-generated, persisted)
       - /sys/class/thermal:/sys/class/thermal:ro
       - /sys/class/hwmon:/sys/class/hwmon:ro
 
