@@ -60,15 +60,14 @@ services:
     devices:
       - /dev/hailo0:/dev/hailo0   # Hailo-8 PCIe AI accelerator
 
-    ports:
-      - "8765:8765"   # WebSocket + browser client (HTTPS)
-      - "8766:8766"   # HTTP redirect → HTTPS link
+    # No ports exposed — Caddy handles external traffic
+    expose:
+      - "8765"
 
     volumes:
       - ./config.pi.sidecar.yaml:/app/config.pi.yaml:ro
       - ./pi/models:/app/pi/models:ro
       - ./results:/data/results
-      - ./certs:/data/certs          # Self-signed TLS cert (auto-generated, persisted)
       - /sys/class/thermal:/sys/class/thermal:ro
       - /sys/class/hwmon:/sys/class/hwmon:ro
 
@@ -80,3 +79,23 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
+
+  # TLS reverse proxy for sidecar — phones require HTTPS for camera access.
+  # Caddy auto-generates a self-signed certificate on first start.
+  caddy:
+    profiles: ["sidecar"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "443:443"    # HTTPS (TLS termination → birdvision-sidecar:8765)
+      - "80:80"      # HTTP redirect → HTTPS
+    volumes:
+      - ./Caddyfile.sidecar:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - birdvision-sidecar
+
+volumes:
+  caddy_data:
+  caddy_config:

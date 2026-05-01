@@ -90,9 +90,6 @@ class RealtimePipeline:
                 host=stream_cfg.get("ws_host", "0.0.0.0"),
                 port=stream_cfg.get("ws_port", 8765),
                 static_dir=stream_cfg.get("ws_static_dir"),
-                ssl_certfile=stream_cfg.get("ws_ssl_certfile"),
-                ssl_keyfile=stream_cfg.get("ws_ssl_keyfile"),
-                ssl_cert_dir=stream_cfg.get("ws_ssl_cert_dir", "/data/certs"),
             )
         else:
             self._source = V4L2FrameSource(

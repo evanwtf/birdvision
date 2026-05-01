@@ -20,12 +20,9 @@ Bounding box coordinates in results are normalized [0, 1].
 """
 
 import asyncio
-import http.server
 import json
 import logging
 import queue
-import ssl
-import subprocess
 import threading
 from pathlib import Path
 from typing import Iterator, Optional, Tuple
@@ -40,68 +37,6 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 logger = logging.getLogger(__name__)
 
 
-def _ensure_self_signed_cert(cert_dir: str) -> tuple:
-    """Generate a self-signed cert+key if they don't already exist.
-
-    Returns (certfile_path, keyfile_path).
-    """
-    cert_path = Path(cert_dir) / "cert.pem"
-    key_path = Path(cert_dir) / "key.pem"
-
-    if cert_path.exists() and key_path.exists():
-        logger.info("Reusing existing TLS cert at %s", cert_path)
-        return str(cert_path), str(key_path)
-
-    Path(cert_dir).mkdir(parents=True, exist_ok=True)
-    logger.info("Generating self-signed TLS certificate in %s", cert_dir)
-    subprocess.run(
-        [
-            "openssl", "req", "-x509", "-newkey", "rsa:2048",
-            "-keyout", str(key_path), "-out", str(cert_path),
-            "-days", "365", "-nodes",
-            "-subj", "/CN=birdvision-sidecar",
-        ],
-        check=True,
-        capture_output=True,
-    )
-    return str(cert_path), str(key_path)
-
-
-
-def _start_http_redirect(host: str, http_port: int, https_port: int) -> None:
-    """Run a tiny HTTP server that shows a link to the HTTPS URL."""
-
-    redirect_html = (
-        "<!DOCTYPE html><html><head>"
-        '<meta charset="utf-8"><meta name="viewport" content="width=device-width">'
-        "<title>BirdVision</title>"
-        "<style>body{background:#000;color:#fff;font-family:system-ui,sans-serif;"
-        "display:flex;align-items:center;justify-content:center;height:100vh;margin:0}"
-        "a{color:#4caf50;font-size:20px}</style></head><body>"
-        '<a href="https://{host}:{port}/">Open BirdVision (HTTPS)</a>'
-        "</body></html>"
-    )
-
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            actual_host = self.headers.get("Host", "").split(":")[0] or host
-            body = redirect_html.format(host=actual_host, port=https_port)
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(body.encode())
-
-        def log_message(self, fmt, *args):
-            logger.debug("http-redirect: %s", fmt % args)
-
-    srv = http.server.HTTPServer((host, http_port), Handler)
-    logger.info(
-        "HTTP redirect server on http://%s:%d → https port %d",
-        host, http_port, https_port,
-    )
-    srv.serve_forever()
-
-
 class WebSocketFrameSource:
     """Receives JPEG frames over WebSocket, yields (frame_no, bgr) pairs.
 
@@ -110,10 +45,6 @@ class WebSocketFrameSource:
         port:                 Listen port (default 8765)
         static_dir:           Directory to serve as static files at /
         max_buffered_frames:  Max frames to buffer before dropping
-        ssl_certfile:         Path to TLS certificate (PEM)
-        ssl_keyfile:          Path to TLS private key (PEM)
-        ssl_cert_dir:         Directory for auto-generated self-signed cert
-                              (used when certfile/keyfile not provided)
     """
 
     def __init__(
@@ -122,16 +53,10 @@ class WebSocketFrameSource:
         port: int = 8765,
         static_dir: Optional[str] = None,
         max_buffered_frames: int = 2,
-        ssl_certfile: Optional[str] = None,
-        ssl_keyfile: Optional[str] = None,
-        ssl_cert_dir: str = "/data/certs",
     ):
         self._host = host
         self._port = port
         self._static_dir = static_dir
-        self._ssl_certfile = ssl_certfile
-        self._ssl_keyfile = ssl_keyfile
-        self._ssl_cert_dir = ssl_cert_dir
         self._stop = False
         # Queue stores (bgr, metadata_dict) tuples
         self._frame_queue: queue.Queue = queue.Queue(maxsize=max_buffered_frames)
@@ -206,34 +131,11 @@ class WebSocketFrameSource:
         self._result_queue = asyncio.Queue()
         self._loop_ready.set()
 
-        certfile = self._ssl_certfile
-        keyfile = self._ssl_keyfile
-        if not certfile or not keyfile:
-            try:
-                certfile, keyfile = _ensure_self_signed_cert(self._ssl_cert_dir)
-            except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-                logger.warning(
-                    "Could not generate TLS cert (%s) — serving plain HTTP. "
-                    "Camera will not work on phones over LAN.",
-                    exc,
-                )
-                certfile = keyfile = None
-
-        if certfile:
-            http_port = self._port + 1
-            threading.Thread(
-                target=_start_http_redirect,
-                args=(self._host, http_port, self._port),
-                daemon=True,
-            ).start()
-
         config = uvicorn.Config(
             app, host=self._host, port=self._port, log_level="warning",
-            ssl_certfile=certfile, ssl_keyfile=keyfile,
         )
         server = uvicorn.Server(config)
-        proto = "https" if certfile else "http"
-        logger.info("WebSocket server listening on %s://%s:%d", proto, self._host, self._port)
+        logger.info("WebSocket server listening on http://%s:%d", self._host, self._port)
         self._loop.run_until_complete(server.serve())
 
     def _shutdown_server(self) -> None:

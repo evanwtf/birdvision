@@ -1,0 +1,12 @@
+# TLS reverse proxy for BirdVision sidecar.
+# Caddy auto-generates a self-signed certificate ("tls internal").
+# Phone browsers will show a one-time cert warning.
+
+:443 {
+	tls internal
+	reverse_proxy birdvision-sidecar:8765
+}
+
+:80 {
+	redir https://{host}{uri} permanent
+}

@@ -163,11 +163,12 @@ docker compose -f docker-compose.pi.yml --profile sidecar up
 Config: `config.pi.sidecar.yaml` (bind-mounted as `config.pi.yaml` inside
 the container).
 
-The sidecar auto-generates a self-signed TLS certificate on first start
-(persisted in `./certs/`). On the phone, open **`https://<pi-ip>:8765/`**
-(note: HTTPS, not HTTP). Safari will show a certificate warning — tap
-"Show Details" → "visit this website" to accept it once. After that, tap
-"Start Camera" and allow camera access when prompted.
+A Caddy reverse proxy handles TLS termination — phone browsers require
+HTTPS for camera access. On the phone, open **`https://<pi-ip>/`**.
+Typing `http://<pi-ip>/` will redirect automatically. Safari will show
+a certificate warning on first visit — tap "Show Details" → "visit this
+website" to accept it once. After that, tap "Start Camera" and allow
+camera access when prompted.
 
 #### Common commands
 
