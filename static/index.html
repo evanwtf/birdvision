@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>BirdVision</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #000;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* --- Status bar --- */
+  #status-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: calc(6px + env(safe-area-inset-top)) 12px 6px 12px;
+    background: rgba(0,0,0,0.7);
+    font-size: 13px;
+    z-index: 10;
+    flex-shrink: 0;
+  }
+  #status-bar .indicator {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  #status-bar .indicator.connected    { background: #4caf50; }
+  #status-bar .indicator.disconnected { background: #f44336; }
+  #status-bar .indicator.connecting   { background: #ff9800; }
+
+  /* --- Camera viewport --- */
+  #viewport {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+  }
+  #camera {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  #overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  /* --- Settings panel --- */
+  #settings-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.7);
+    font-size: 13px;
+    cursor: pointer;
+    flex-shrink: 0;
+    z-index: 10;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #settings-panel {
+    display: none;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom)) 12px;
+    background: rgba(0,0,0,0.85);
+    font-size: 13px;
+    flex-shrink: 0;
+    z-index: 10;
+  }
+  #settings-panel.open { display: block; }
+  #settings-panel label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  #settings-panel input[type="range"] { width: 120px; }
+  #settings-panel select { background: #333; color: #fff; border: 1px solid #555; padding: 4px; border-radius: 4px; }
+  #settings-panel .server-input {
+    width: 100%;
+    background: #222;
+    color: #fff;
+    border: 1px solid #555;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    margin-top: 4px;
+  }
+  #settings-panel button {
+    background: #2196f3;
+    color: #fff;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<!-- Status bar -->
+<div id="status-bar">
+  <span class="indicator disconnected" id="conn-indicator"></span>
+  <span id="conn-text">Disconnected</span>
+  <span id="gps-status"></span>
+  <span style="margin-left:auto" id="fps-display"></span>
+</div>
+
+<!-- Camera + overlay -->
+<div id="viewport">
+  <video id="camera" autoplay playsinline muted></video>
+  <canvas id="overlay"></canvas>
+</div>
+
+<!-- Settings -->
+<div id="settings-toggle">
+  <span>Settings</span>
+  <span id="settings-arrow">&#9654;</span>
+</div>
+<div id="settings-panel">
+  <label>
+    FPS: <span id="fps-value">5</span>
+    <input type="range" id="fps-slider" min="1" max="10" value="5">
+  </label>
+  <label>
+    Quality: <span id="quality-value">65%</span>
+    <input type="range" id="quality-slider" min="30" max="90" value="65">
+  </label>
+  <label>
+    Resolution
+    <select id="resolution-select">
+      <option value="480">480p</option>
+      <option value="720" selected>720p</option>
+      <option value="1080">1080p</option>
+    </select>
+  </label>
+  <div style="margin-top: 8px;">
+    <span>Server</span>
+    <input type="text" id="server-input" class="server-input" placeholder="ws://10.0.0.1:8765/ws">
+    <button id="reconnect-btn">Reconnect</button>
+  </div>
+</div>
+
+<script>
+(function() {
+  "use strict";
+
+  // --- DOM refs ---
+  const video       = document.getElementById("camera");
+  const overlay     = document.getElementById("overlay");
+  const ctx         = overlay.getContext("2d");
+  const connInd     = document.getElementById("conn-indicator");
+  const connText    = document.getElementById("conn-text");
+  const gpsStatus   = document.getElementById("gps-status");
+  const fpsDisplay  = document.getElementById("fps-display");
+  const fpsSlider   = document.getElementById("fps-slider");
+  const fpsValue    = document.getElementById("fps-value");
+  const qualSlider  = document.getElementById("quality-slider");
+  const qualValue   = document.getElementById("quality-value");
+  const resoSelect  = document.getElementById("resolution-select");
+  const serverInput = document.getElementById("server-input");
+  const reconnBtn   = document.getElementById("reconnect-btn");
+  const settToggle  = document.getElementById("settings-toggle");
+  const settPanel   = document.getElementById("settings-panel");
+  const settArrow   = document.getElementById("settings-arrow");
+
+  // --- State ---
+  let ws            = null;
+  let sendTimer     = null;
+  let frameId       = 0;
+  let gpsLat        = null;
+  let gpsLon        = null;
+  let wakeLock      = null;
+  let lastDetections = [];
+  let lastResultTime = 0;
+  const DETECTION_TTL_MS = 2000;
+
+  // --- Offscreen canvas for frame capture ---
+  const capCanvas = document.createElement("canvas");
+  const capCtx    = capCanvas.getContext("2d", { willReadFrequently: false });
+
+  // --- Default server URL ---
+  function defaultWsUrl() {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    return proto + "//" + location.host + "/ws";
+  }
+  serverInput.value = localStorage.getItem("bv_server") || defaultWsUrl();
+
+  // --- Settings persistence ---
+  function loadSettings() {
+    const fps  = localStorage.getItem("bv_fps");
+    const qual = localStorage.getItem("bv_quality");
+    const reso = localStorage.getItem("bv_resolution");
+    if (fps)  fpsSlider.value  = fps;
+    if (qual) qualSlider.value = qual;
+    if (reso) resoSelect.value = reso;
+    updateSettingsDisplay();
+  }
+  function saveSettings() {
+    localStorage.setItem("bv_fps", fpsSlider.value);
+    localStorage.setItem("bv_quality", qualSlider.value);
+    localStorage.setItem("bv_resolution", resoSelect.value);
+    localStorage.setItem("bv_server", serverInput.value);
+  }
+  function updateSettingsDisplay() {
+    fpsValue.textContent  = fpsSlider.value;
+    qualValue.textContent = qualSlider.value + "%";
+  }
+
+  fpsSlider.addEventListener("input", function() {
+    updateSettingsDisplay();
+    saveSettings();
+    restartSendLoop();
+  });
+  qualSlider.addEventListener("input", function() {
+    updateSettingsDisplay();
+    saveSettings();
+  });
+  resoSelect.addEventListener("change", function() {
+    saveSettings();
+    startCamera();
+  });
+
+  // --- Settings panel toggle ---
+  settToggle.addEventListener("click", function() {
+    settPanel.classList.toggle("open");
+    settArrow.textContent = settPanel.classList.contains("open") ? "▼" : "▶";
+  });
+
+  // --- Camera ---
+  let currentStream = null;
+
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      connText.textContent = "Camera requires HTTPS";
+      var msg = "getUserMedia needs a secure context (HTTPS or localhost). ";
+      if (/Chrome/i.test(navigator.userAgent)) {
+        msg += "In Chrome: chrome://flags → \"Insecure origins treated as secure\" → add this origin.";
+      } else {
+        msg += "Set up a reverse proxy with TLS, or access via localhost.";
+      }
+      console.error("BirdVision: " + msg);
+      return;
+    }
+    if (currentStream) {
+      currentStream.getTracks().forEach(function(t) { t.stop(); });
+    }
+    const h = parseInt(resoSelect.value);
+    const constraints = {
+      video: {
+        facingMode: "environment",
+        width:  { ideal: Math.round(h * 16 / 9) },
+        height: { ideal: h },
+      },
+      audio: false,
+    };
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      currentStream = stream;
+      video.srcObject = stream;
+    } catch (err) {
+      connText.textContent = "Camera error: " + err.message;
+    }
+  }
+
+  // --- Overlay sizing ---
+  function resizeOverlay() {
+    overlay.width  = overlay.clientWidth  * (window.devicePixelRatio || 1);
+    overlay.height = overlay.clientHeight * (window.devicePixelRatio || 1);
+    ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+  }
+  window.addEventListener("resize", resizeOverlay);
+  video.addEventListener("loadedmetadata", resizeOverlay);
+
+  // --- Draw detections ---
+  function videoContainRect() {
+    var ew = overlay.clientWidth;
+    var eh = overlay.clientHeight;
+    var vw = video.videoWidth  || ew;
+    var vh = video.videoHeight || eh;
+    var videoAspect   = vw / vh;
+    var elementAspect = ew / eh;
+    var rw, rh, ox, oy;
+    if (videoAspect > elementAspect) {
+      rw = ew; rh = ew / videoAspect;
+      ox = 0;  oy = (eh - rh) / 2;
+    } else {
+      rh = eh; rw = eh * videoAspect;
+      ox = (ew - rw) / 2; oy = 0;
+    }
+    return { ox: ox, oy: oy, rw: rw, rh: rh };
+  }
+
+  function drawDetections() {
+    const w = overlay.clientWidth;
+    const h = overlay.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+
+    const now = Date.now();
+    if (now - lastResultTime > DETECTION_TTL_MS) {
+      lastDetections = [];
+      return;
+    }
+
+    var vr = videoContainRect();
+
+    for (const det of lastDetections) {
+      const bbox = det.bbox;
+      const x1 = vr.ox + bbox[0] * vr.rw;
+      const y1 = vr.oy + bbox[1] * vr.rh;
+      const x2 = vr.ox + bbox[2] * vr.rw;
+      const y2 = vr.oy + bbox[3] * vr.rh;
+      const bw = x2 - x1;
+      const bh = y2 - y1;
+
+      // Box
+      ctx.strokeStyle = "#00ff88";
+      ctx.lineWidth   = 2;
+      ctx.strokeRect(x1, y1, bw, bh);
+
+      // Label
+      if (det.species) {
+        const label = det.species + "  " + ((det.species_score || 0) * 100).toFixed(0) + "%";
+        ctx.font = "bold 14px -apple-system, sans-serif";
+        const tw = ctx.measureText(label).width;
+        const lx = x1;
+        const ly = y1 - 4;
+
+        ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+        ctx.fillRect(lx - 2, ly - 16, tw + 8, 20);
+        ctx.fillStyle = "#00ff88";
+        ctx.fillText(label, lx + 2, ly);
+      }
+    }
+  }
+
+  // --- WebSocket ---
+  let reconnectDelay = 1000;
+
+  function setConnState(state) {
+    connInd.className = "indicator " + state;
+    if (state === "connected") {
+      connText.textContent = "Connected";
+      reconnectDelay = 1000;
+    } else if (state === "connecting") {
+      connText.textContent = "Connecting...";
+    } else {
+      connText.textContent = "Disconnected";
+    }
+  }
+
+  function connectWs() {
+    const url = serverInput.value;
+    if (!url) return;
+    setConnState("connecting");
+
+    try {
+      ws = new WebSocket(url);
+    } catch (e) {
+      setConnState("disconnected");
+      scheduleReconnect();
+      return;
+    }
+
+    ws.binaryType = "arraybuffer";
+
+    ws.onopen = function() {
+      setConnState("connected");
+      restartSendLoop();
+    };
+
+    ws.onmessage = function(evt) {
+      try {
+        const result = JSON.parse(evt.data);
+        lastDetections = result.detections || [];
+        lastResultTime = Date.now();
+        if (result.fps !== undefined) {
+          fpsDisplay.textContent = result.fps.toFixed(1) + " FPS";
+        }
+        drawDetections();
+      } catch (e) {}
+    };
+
+    ws.onclose = function() {
+      setConnState("disconnected");
+      stopSendLoop();
+      scheduleReconnect();
+    };
+
+    ws.onerror = function() {
+      setConnState("disconnected");
+    };
+  }
+
+  function scheduleReconnect() {
+    setTimeout(function() {
+      if (!ws || ws.readyState === WebSocket.CLOSED) {
+        connectWs();
+      }
+    }, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 10000);
+  }
+
+  reconnBtn.addEventListener("click", function() {
+    saveSettings();
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+    }
+    reconnectDelay = 1000;
+    connectWs();
+  });
+
+  // --- Frame sending ---
+  function sendFrame() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (video.readyState < 2) return;
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return;
+
+    capCanvas.width  = vw;
+    capCanvas.height = vh;
+    capCtx.drawImage(video, 0, 0, vw, vh);
+
+    const quality = parseInt(qualSlider.value) / 100;
+    capCanvas.toBlob(function(blob) {
+      if (!blob || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+      const meta = { frame_id: frameId };
+      if (gpsLat !== null && gpsLon !== null) {
+        meta.lat = gpsLat;
+        meta.lon = gpsLon;
+      }
+      ws.send(JSON.stringify(meta));
+
+      blob.arrayBuffer().then(function(buf) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(buf);
+          frameId++;
+        }
+      });
+    }, "image/jpeg", quality);
+  }
+
+  function restartSendLoop() {
+    stopSendLoop();
+    const interval = 1000 / parseInt(fpsSlider.value);
+    sendTimer = setInterval(sendFrame, interval);
+  }
+
+  function stopSendLoop() {
+    if (sendTimer) {
+      clearInterval(sendTimer);
+      sendTimer = null;
+    }
+  }
+
+  // --- GPS ---
+  if ("geolocation" in navigator) {
+    navigator.geolocation.watchPosition(
+      function(pos) {
+        gpsLat = pos.coords.latitude;
+        gpsLon = pos.coords.longitude;
+        gpsStatus.textContent = "📍 GPS";
+      },
+      function() {
+        gpsStatus.textContent = "📍 No GPS";
+      },
+      { enableHighAccuracy: true, maximumAge: 10000 }
+    );
+  }
+
+  // --- Wake Lock ---
+  async function requestWakeLock() {
+    if ("wakeLock" in navigator) {
+      try {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", function() { wakeLock = null; });
+      } catch (e) {}
+    }
+  }
+  document.addEventListener("visibilitychange", function() {
+    if (document.visibilityState === "visible") {
+      requestWakeLock();
+    }
+  });
+
+  // --- Redraw loop (for TTL fading) ---
+  function redrawLoop() {
+    drawDetections();
+    requestAnimationFrame(redrawLoop);
+  }
+
+  // --- Init ---
+  loadSettings();
+  startCamera();
+  connectWs();
+  requestWakeLock();
+  requestAnimationFrame(redrawLoop);
+
+})();
+</script>
+
+</body>
+</html>

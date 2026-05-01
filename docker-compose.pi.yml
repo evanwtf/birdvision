@@ -1,5 +1,6 @@
 services:
   birdvision-pi:
+    profiles: ["backyard"]
     build:
       context: .
       dockerfile: Dockerfile.pi
@@ -29,6 +30,43 @@ services:
       # Results output (writable)
       - ./results:/data/results
       # System stats (temperature, fan, freq) — read-only host sysfs
+      - /sys/class/thermal:/sys/class/thermal:ro
+      - /sys/class/hwmon:/sys/class/hwmon:ro
+
+    environment:
+      - PYTHONUNBUFFERED=1
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Phone sidecar — accepts camera frames from a phone browser over WebSocket.
+  # Uses the same image as birdvision-pi but with a different config and no
+  # USB capture devices. Only one service can run at a time (Hailo is exclusive).
+  #
+  # Backyard:  docker compose -f docker-compose.pi.yml --profile backyard up
+  # Sidecar:   docker compose -f docker-compose.pi.yml --profile sidecar up
+  birdvision-sidecar:
+    profiles: ["sidecar"]
+    build:
+      context: .
+      dockerfile: Dockerfile.pi
+    image: birdvision-pi:latest
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+    devices:
+      - /dev/hailo0:/dev/hailo0   # Hailo-8 PCIe AI accelerator
+
+    ports:
+      - "8765:8765"   # WebSocket + browser client
+
+    volumes:
+      - ./config.pi.sidecar.yaml:/app/config.pi.yaml:ro
+      - ./pi/models:/app/pi/models:ro
+      - ./results:/data/results
       - /sys/class/thermal:/sys/class/thermal:ro
       - /sys/class/hwmon:/sys/class/hwmon:ro
 
