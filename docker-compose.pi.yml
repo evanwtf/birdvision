@@ -61,7 +61,8 @@ services:
       - /dev/hailo0:/dev/hailo0   # Hailo-8 PCIe AI accelerator
 
     ports:
-      - "8765:8765"   # WebSocket + browser client
+      - "8765:8765"   # WebSocket + browser client (HTTPS)
+      - "8766:8766"   # HTTP redirect → HTTPS link
 
     volumes:
       - ./config.pi.sidecar.yaml:/app/config.pi.yaml:ro

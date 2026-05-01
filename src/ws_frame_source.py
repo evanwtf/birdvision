@@ -20,6 +20,7 @@ Bounding box coordinates in results are normalized [0, 1].
 """
 
 import asyncio
+import http.server
 import json
 import logging
 import queue
@@ -65,6 +66,40 @@ def _ensure_self_signed_cert(cert_dir: str) -> tuple:
     )
     return str(cert_path), str(key_path)
 
+
+
+def _start_http_redirect(host: str, http_port: int, https_port: int) -> None:
+    """Run a tiny HTTP server that shows a link to the HTTPS URL."""
+
+    redirect_html = (
+        "<!DOCTYPE html><html><head>"
+        '<meta charset="utf-8"><meta name="viewport" content="width=device-width">'
+        "<title>BirdVision</title>"
+        "<style>body{background:#000;color:#fff;font-family:system-ui,sans-serif;"
+        "display:flex;align-items:center;justify-content:center;height:100vh;margin:0}"
+        "a{color:#4caf50;font-size:20px}</style></head><body>"
+        '<a href="https://{host}:{port}/">Open BirdVision (HTTPS)</a>'
+        "</body></html>"
+    )
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            actual_host = self.headers.get("Host", "").split(":")[0] or host
+            body = redirect_html.format(host=actual_host, port=https_port)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(body.encode())
+
+        def log_message(self, fmt, *args):
+            logger.debug("http-redirect: %s", fmt % args)
+
+    srv = http.server.HTTPServer((host, http_port), Handler)
+    logger.info(
+        "HTTP redirect server on http://%s:%d → https port %d",
+        host, http_port, https_port,
+    )
+    srv.serve_forever()
 
 
 class WebSocketFrameSource:
@@ -183,6 +218,14 @@ class WebSocketFrameSource:
                     exc,
                 )
                 certfile = keyfile = None
+
+        if certfile:
+            http_port = self._port + 1
+            threading.Thread(
+                target=_start_http_redirect,
+                args=(self._host, http_port, self._port),
+                daemon=True,
+            ).start()
 
         config = uvicorn.Config(
             app, host=self._host, port=self._port, log_level="warning",
