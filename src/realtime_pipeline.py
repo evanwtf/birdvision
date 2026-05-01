@@ -82,13 +82,22 @@ class RealtimePipeline:
         trk_cfg    = config.get("tracker", {})
         out_cfg    = config.get("output", {})
 
-        # Capture source
-        self._source = V4L2FrameSource(
-            device=stream_cfg.get("device", "/dev/video0"),
-            width=stream_cfg.get("width", 1920),
-            height=stream_cfg.get("height", 1080),
-            fps=int(stream_cfg.get("framerate", 60)),
-        )
+        # Capture source — V4L2 (backyard camera) or WebSocket (phone sidecar)
+        source_type = stream_cfg.get("source", "v4l2")
+        if source_type == "websocket":
+            from .ws_frame_source import WebSocketFrameSource
+            self._source = WebSocketFrameSource(
+                host=stream_cfg.get("ws_host", "0.0.0.0"),
+                port=stream_cfg.get("ws_port", 8765),
+                static_dir=stream_cfg.get("ws_static_dir"),
+            )
+        else:
+            self._source = V4L2FrameSource(
+                device=stream_cfg.get("device", "/dev/video0"),
+                width=stream_cfg.get("width", 1920),
+                height=stream_cfg.get("height", 1080),
+                fps=int(stream_cfg.get("framerate", 60)),
+            )
 
         # Single VDevice shared by detector and classifier — the Hailo-8 chip
         # can only be opened once; both models run as separate network groups.
@@ -246,6 +255,40 @@ class RealtimePipeline:
                     top_score=caption_score,
                     fps=current_fps,
                 )
+
+            # --- Send results to WebSocket client (sidecar mode) ---
+            if hasattr(self._source, "send_result"):
+                ws_detections = []
+                for tid, track in tracks.items():
+                    if track.matched_detection_idx is None:
+                        continue
+                    det = detections[track.matched_detection_idx]
+                    bbox_norm = [
+                        float(det.bbox[0]) / frame_w,
+                        float(det.bbox[1]) / frame_h,
+                        float(det.bbox[2]) / frame_w,
+                        float(det.bbox[3]) / frame_h,
+                    ]
+                    species = None
+                    species_score = None
+                    if track.prediction_history:
+                        latest = track.prediction_history[-1]
+                        if latest:
+                            species = latest[0][0]
+                            species_score = round(latest[0][1], 3)
+                    ws_detections.append({
+                        "bbox": [round(c, 4) for c in bbox_norm],
+                        "track_id": tid,
+                        "confidence": round(float(det.confidence), 3),
+                        "species": species,
+                        "species_score": species_score,
+                    })
+                client_meta = self._source.client_metadata
+                self._source.send_result({
+                    "frame_id": client_meta.get("frame_id", frame_no),
+                    "detections": ws_detections,
+                    "fps": current_fps,
+                })
 
             # --- 1-second summary log ---
             now = time.monotonic()

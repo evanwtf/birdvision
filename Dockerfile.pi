@@ -107,6 +107,7 @@ COPY data/local_priors.yaml ./data/local_priors.yaml
 # Application source (only what the Pi pipeline needs)
 COPY src/ ./src/
 COPY scripts/ ./scripts/
+COPY static/ ./static/
 
 # Pi models directory — bind-mounted at runtime from host (HEF files are gitignored)
 RUN mkdir -p /app/pi/models
