@@ -36,12 +36,19 @@ class TestJPEGDecoding:
 
 
 class TestFrameQueueDropLogic:
-    def test_full_queue_drops_frame(self):
+    def test_full_queue_drops_oldest(self):
+        """When queue is full, evict the oldest frame before adding the new one."""
         q: queue.Queue = queue.Queue(maxsize=2)
         q.put(("frame_0", {}))
         q.put(("frame_1", {}))
-        with pytest.raises(queue.Full):
-            q.put_nowait(("frame_2", {}))
+        # Drop oldest, then enqueue newest
+        if q.full():
+            q.get_nowait()
+        q.put_nowait(("frame_2", {}))
+        items = []
+        while not q.empty():
+            items.append(q.get_nowait())
+        assert [i[0] for i in items] == ["frame_1", "frame_2"]
 
     def test_drain_keeps_latest(self):
         """Simulate the drain logic in frames() — only the latest frame survives."""
@@ -82,11 +89,11 @@ class TestMetadataParsing:
 
 
 class TestSendResult:
-    def test_send_result_without_loop_is_noop(self):
+    def test_send_result_without_client_is_noop(self):
         src = WebSocketFrameSource.__new__(WebSocketFrameSource)
         src._loop = None
         src._result_queue = None
-        # Should not raise
+        src._client_connected = threading.Event()
         src.send_result({"frame_id": 1, "detections": []})
 
     def test_send_result_with_closed_loop_is_noop(self):
@@ -95,7 +102,20 @@ class TestSendResult:
         src = WebSocketFrameSource.__new__(WebSocketFrameSource)
         src._loop = loop
         src._result_queue = asyncio.Queue()
+        src._client_connected = threading.Event()
+        src._client_connected.set()
         src.send_result({"frame_id": 1, "detections": []})
+
+    def test_send_result_skipped_when_no_client(self):
+        loop = asyncio.new_event_loop()
+        result_queue = asyncio.Queue()
+        src = WebSocketFrameSource.__new__(WebSocketFrameSource)
+        src._loop = loop
+        src._result_queue = result_queue
+        src._client_connected = threading.Event()
+        src.send_result({"frame_id": 1, "detections": []})
+        assert result_queue.empty()
+        loop.close()
 
     def test_send_result_enqueues(self):
         loop = asyncio.new_event_loop()
@@ -104,9 +124,10 @@ class TestSendResult:
         src = WebSocketFrameSource.__new__(WebSocketFrameSource)
         src._loop = loop
         src._result_queue = result_queue
+        src._client_connected = threading.Event()
+        src._client_connected.set()
 
         result = {"frame_id": 1, "detections": [], "fps": 5.0}
-        # call_soon_threadsafe schedules on the loop — run one iteration to process
         src.send_result(result)
         loop.run_until_complete(asyncio.sleep(0))
 

@@ -224,12 +224,19 @@ class RealtimePipeline:
 
             if crops_to_classify:
                 results = self._classifier.classify_batch(crops_to_classify)
+
+                client_meta = getattr(self._source, "client_metadata", {})
+                meta_lat = client_meta.get("lat")
+                meta_lon = client_meta.get("lon")
+
                 for tid, preds in zip(track_ids_to_classify, results):
                     track = tracks[tid]
                     track.last_classified_frame = frame_no
 
                     if self._metadata is not None:
-                        preds = self._metadata.apply(preds)
+                        preds = self._metadata.apply(
+                            preds, latitude=meta_lat, longitude=meta_lon,
+                        )
 
                     top_species, top_score = preds[0] if preds else ("unknown", 0.0)
                     if top_score >= self._min_event_conf:

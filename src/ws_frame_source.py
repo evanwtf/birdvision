@@ -66,6 +66,7 @@ class WebSocketFrameSource:
         self._loop_ready = threading.Event()
         self._pending_metadata: dict = {}
         self._metadata: dict = {}
+        self._client_connected = threading.Event()
 
     @property
     def client_metadata(self) -> dict:
@@ -101,6 +102,8 @@ class WebSocketFrameSource:
 
     def send_result(self, result: dict) -> None:
         """Send a JSON result back to the connected client (thread-safe)."""
+        if not self._client_connected.is_set():
+            return
         if self._loop and self._result_queue and not self._loop.is_closed():
             self._loop.call_soon_threadsafe(self._result_queue.put_nowait, result)
 
@@ -160,6 +163,14 @@ class WebSocketFrameSource:
         await ws.accept()
         logger.info("Client connected: %s", ws.client)
 
+        while not self._result_queue.empty():
+            try:
+                self._result_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
+        self._client_connected.set()
+
         recv_task = asyncio.create_task(self._receive_loop(ws))
         send_task = asyncio.create_task(self._send_loop(ws))
 
@@ -170,6 +181,7 @@ class WebSocketFrameSource:
             for t in pending:
                 t.cancel()
         finally:
+            self._client_connected.clear()
             logger.info("Client disconnected: %s", ws.client)
 
     async def _receive_loop(self, ws: WebSocket) -> None:
@@ -189,8 +201,14 @@ class WebSocketFrameSource:
                     buf = np.frombuffer(msg["bytes"], dtype=np.uint8)
                     bgr = cv2.imdecode(buf, cv2.IMREAD_COLOR)
                     if bgr is not None:
+                        meta_copy = self._pending_metadata.copy()
+                        if self._frame_queue.full():
+                            try:
+                                self._frame_queue.get_nowait()
+                            except queue.Empty:
+                                pass
                         try:
-                            self._frame_queue.put_nowait((bgr, self._pending_metadata.copy()))
+                            self._frame_queue.put_nowait((bgr, meta_copy))
                         except queue.Full:
                             pass
                         self._pending_metadata = {}

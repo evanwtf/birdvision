@@ -131,15 +131,55 @@ out the `/dev/fb0` line for headless hosts).
 ```bash
 # Build the image (run from repo root)
 docker compose -f docker-compose.pi.yml build
+```
 
-# Run (foreground, Ctrl-C to stop)
-docker compose -f docker-compose.pi.yml up
+The Pi compose file defines two services behind separate profiles. Only one
+can run at a time — both require exclusive access to the Hailo-8 chip.
 
+#### Backyard mode (USB camera)
+
+Captures live video from the Elgato Cam Link 4K (`/dev/video0`) connected to
+a camcorder pointed at a bird feeder. Detections and species predictions are
+logged to the console and written to `./results/`. Optionally overlays
+bounding boxes on a Pi Touch Display 2 (`/dev/fb0`).
+
+```bash
+docker compose -f docker-compose.pi.yml --profile backyard up
+```
+
+Config: `config.pi.yaml` (bind-mounted read-only).
+
+#### Sidecar mode (phone camera via WebSocket)
+
+No USB camera needed. A phone opens `http://<pi-ip>:8765/` in its browser,
+streams camera frames over WebSocket to the Pi for inference, and receives
+bounding boxes + species labels overlaid on the live preview. Works on
+iPhone Safari and Android Chrome.
+
+```bash
+docker compose -f docker-compose.pi.yml --profile sidecar up
+```
+
+Config: `config.pi.sidecar.yaml` (bind-mounted as `config.pi.yaml` inside
+the container).
+
+**Note:** `getUserMedia()` requires a secure context. Over plain HTTP to a
+LAN IP the camera will not start. Options:
+- **Chrome:** add the Pi's origin to `chrome://flags` →
+  "Insecure origins treated as secure"
+- **Any browser:** set up a reverse proxy with a TLS certificate
+
+#### Common commands
+
+```bash
 # Run in background
-docker compose -f docker-compose.pi.yml up -d
+docker compose -f docker-compose.pi.yml --profile backyard up -d
 
 # Follow logs
-docker compose -f docker-compose.pi.yml logs -f
+docker compose -f docker-compose.pi.yml --profile backyard logs -f
+
+# Stop
+docker compose -f docker-compose.pi.yml --profile backyard down
 ```
 
 Results are written to `./results/` on the host.
@@ -203,13 +243,18 @@ uv run scripts/realtime_identify.py --config config.pi.yaml --debug
 
 ## Config
 
-`config.pi.yaml` — Pi-specific settings (stream device, HEF paths, Hailo device).
-Never merge keys into `config.yaml` (webapp config).
+Two Pi configs exist — one per mode. Never merge keys into `config.yaml` (webapp config).
 
-Key sections:
-- `stream:` — V4L2 device, resolution, framerate
+| File | Mode | Key difference |
+|---|---|---|
+| `config.pi.yaml` | Backyard | `stream.source: v4l2` — reads from Cam Link 4K |
+| `config.pi.sidecar.yaml` | Sidecar | `stream.source: websocket` — receives frames over WebSocket on port 8765 |
+
+Key sections (both files):
+- `stream:` — source type, V4L2 device or WebSocket host/port
 - `detector:` — YOLOv8n HEF path, confidence threshold
 - `classifier:` — EfficientNet HEF path, labels path, classify cadence
 - `tracker:` — IoU/centroid thresholds, disappear timeout
 - `metadata:` — eBird priors DB, FIPS code, lat/lon, prior mode
+- `display:` — framebuffer overlay (backyard only; disabled in sidecar)
 - `output:` — results dir, log interval
