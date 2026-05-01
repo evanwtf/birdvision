@@ -78,6 +78,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     v4l-utils \
     ffmpeg \
+    openssl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install HailoRT system runtime library (provides libhailort.so).
@@ -113,7 +114,7 @@ COPY static/ ./static/
 RUN mkdir -p /app/pi/models
 
 # Writable data directories
-RUN mkdir -p /data/results && \
+RUN mkdir -p /data/results /data/certs && \
     useradd -m -u 65532 -s /sbin/nologin nonroot && \
     chown -R nonroot:nonroot /app /data
 
