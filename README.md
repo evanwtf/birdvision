@@ -3,10 +3,11 @@
 Bird species identification from video and photos using local computer vision models.
 Aimed at the Long Island / Northeast US region, no cloud dependencies.
 
-Three deployment targets:
+Primary deployment targets:
 - **Desktop / webapp** — upload video or photos via browser or API; BioCLIP + ensemble classifier on GPU
-- **Raspberry Pi 5** — real-time inference from a live HDMI capture feed using a Hailo-8 AI accelerator
-- **iOS app** (planned) — mobile bird ID from the phone camera; may run fully on-device, stream to the desktop GPU for server-side inference, or a hybrid where the phone handles detection and the server handles classification
+- **Raspberry Pi 5 backyard mode** — real-time inference from a live HDMI capture feed using a Hailo-8 AI accelerator, with optional Touch Display overlay
+- **Raspberry Pi 5 sidecar mode** — phone browser streams camera frames to the Pi over HTTPS/WebSocket and receives live boxes + species labels; no native app required
+- **Native iOS / hybrid app** (exploratory) — future mobile bird ID work may run on-device, server-side, or split detection/classification across phone and server
 
 ## How it works
 
@@ -16,7 +17,8 @@ Three deployment targets:
 4. **eBird priors** — observed species frequency for the recording location and week re-ranks predictions; supports seasonal (default) or location-only mode, plus user-defined local prior overrides via YAML
 5. **Explanation** — each result includes a plain-English summary of what the model saw visually vs. what the location/season data contributed
 
-Models download automatically on first run (~600 MB + ~6 MB).
+Desktop models download automatically on first run. Pi HEF models and HailoRT
+packages are placed manually because Hailo's runtime packages are proprietary.
 
 ## Setup
 
@@ -156,7 +158,10 @@ next job, but model/device changes still require a restart. Key settings:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `detector.model` | `/data/models/yolov8s.pt` | Desktop YOLO detector weights |
 | `detector.confidence` | `0.4` | Detection threshold (raise to reduce false positives) |
+| `detector.enable_small_bird_zoom_fallback` | `true` | Try a center zoom detection pass periodically when full-frame detection misses small birds |
+| `detector.small_bird_fallback_every_n_frames` | `5` | Frame cadence for the small-bird zoom fallback |
 | `classifier.classify_every_n_frames` | `10` | Run classification every N frames for each active track |
 | `classifier.crop_padding_ratio` | `0.18` | Maximum crop padding for smaller/distant birds |
 | `classifier.crop_padding_ratio_min` | `0.04` | Minimum crop padding once the bird already fills a large share of the frame |
@@ -171,6 +176,8 @@ next job, but model/device changes still require a restart. Key settings:
 | `metadata.prior_mode` | `seasonal` | `seasonal` (per-week) or `location_only` (annual average) eBird weighting |
 | `metadata.local_priors_file` | `""` | Path to YAML file with per-location species frequency overrides |
 | `webapp.debug` | `false` | Local/debug bypass for auth checks on upload and reprocess endpoints |
+| `webapp.transcode_incompatible_video` | `true` | Transcode VP9/AV1 uploads to H.264 for Safari/iOS playback and processing |
+| `webapp.api_tokens_file` | `/data/api_tokens.yaml` | YAML token file for `POST /api/v1/videos` |
 | `auth.redirect_uri` | `""` | Optional explicit OAuth callback URL to use behind HTTPS reverse proxies |
 | `auth.allowed_emails` | `[]` | Signed-in Google accounts allowed to upload and reprocess jobs |
 
@@ -393,24 +400,33 @@ or no single-parameter improvement remains.
 
 ## Raspberry Pi real-time pipeline
 
-BirdVision runs on a Raspberry Pi 5 with a Hailo-8 AI accelerator for
-real-time inference from a live HDMI video feed (Elgato Cam Link 4K).
-The pipeline runs at ~27–34 FPS end-to-end, classifying every 10 frames
-per tracked bird. eBird seasonal priors and local feeder overrides are applied
-to re-rank visual predictions, matching the same prior system used by the
-desktop pipeline.
+BirdVision runs on a Raspberry Pi 5 with a Hailo-8 AI accelerator. The Pi
+pipeline has two modes:
+
+- **Backyard mode** — reads the Elgato Cam Link 4K over V4L2, runs real-time
+  detection/classification, and can draw a live overlay to the Pi Touch Display
+  2 framebuffer (`/dev/fb0`).
+- **Sidecar mode** — serves a phone browser client over HTTPS. The phone
+  streams camera frames and GPS metadata to the Pi over WebSocket, then receives
+  normalized boxes and species labels for live overlay.
+
+The backyard pipeline runs at ~27–34 FPS end-to-end, classifying every 10
+frames per tracked bird. eBird seasonal priors and local feeder overrides are
+applied to re-rank visual predictions, matching the same prior system used by
+the desktop pipeline.
 
 ### How it works
 
 ```
-V4L2 capture → YOLOv8n (Hailo-8) → BirdTracker → EfficientNet-S (Hailo-8) → eBird priors
-     60fps             212 FPS          multi-frame        22 FPS / 44ms        + local overrides
-                                        IoU+centroid                             → 1s log summary
+V4L2 camera or phone WebSocket → YOLOv8n (Hailo-8) → BirdTracker → EfficientNet-S (Hailo-8)
+          60fps / JPEG frames          212 FPS          IoU+centroid       22 FPS / 44ms
+                                                                            ↓
+                                              eBird priors + local overrides + 1s log summary
 ```
 
-Both models share a single `VDevice` handle — the Hailo-8 chip can only be
-opened once per process. Detection and classification run as separate network
-groups on the same hardware.
+Both models share a single `VDevice` handle because the Hailo-8 chip can only
+be opened once per process. Detection and classification run as separate
+network groups on the same hardware.
 
 ### Models
 
@@ -441,10 +457,43 @@ system temp=70.5C load=4.58/3.65 cpu=43% freq=1500MHz mem=15% fan=7610rpm
 See `pi/README.md` for full setup instructions, model download, and run commands.
 
 ```bash
-# Build and run on Pi
+# Build on Pi
 docker compose -f docker-compose.pi.yml build
-docker compose -f docker-compose.pi.yml up
+
+# Backyard USB camera mode
+docker compose -f docker-compose.pi.yml --profile backyard up
+
+# Phone sidecar mode
+docker compose -f docker-compose.pi.yml --profile sidecar up
 ```
+
+Only one Pi profile should run at a time because Hailo-8 access is exclusive.
+
+In sidecar mode, open `https://<pi-ip>/` on the phone. Caddy terminates HTTPS
+with an internal self-signed certificate; accept the one-time browser warning,
+tap **Start Camera**, and allow camera/GPS access. HTTP on port 80 redirects to
+HTTPS automatically.
+
+The sidecar page also supports photo/video file upload. Uploaded media runs
+through the same Pi Hailo pipeline and returns image boxes, video species
+summaries, per-track details, and copyable plain-text results. Upload
+classification logs and debug crops are written under `results/upload_debug/`
+or `/tmp/birdvision_upload_debug/` when the results volume is not writable.
+
+For repeatable development without a phone when connecting directly to the
+sidecar WebSocket server:
+
+```bash
+uv run --no-project --with websockets,opencv-python-headless \
+  scripts/ws_test_client.py test_video.mp4 --server ws://<pi-ip>:8765/ws --fps 5
+```
+
+### Touch Display overlay
+
+Backyard mode can write directly to the Pi Touch Display 2 framebuffer with no
+X11/Wayland. `src/display_overlay.py` scales the live feed, draws detection
+boxes, and shows a closed-caption-style species label at the visual bottom.
+Set `display.enabled: false` in `config.pi.yaml` for headless deployments.
 
 ### Retraining
 

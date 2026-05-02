@@ -63,10 +63,18 @@ src/
                            same interface as classifier.py; shares VDevice
   stream_capture.py      — V4L2 live frame source (Cam Link 4K); yields
                            (frame_no, bgr) iterator; YUYV capture
-  realtime_pipeline.py   — orchestrates stream_capture → hailo_detector →
-                           tracker → hailo_classifier; 1s summary logs;
-                           system stats (temp/load/fan) every 30s; clean
-                           SIGINT/SIGTERM shutdown
+  ws_frame_source.py     — Starlette/uvicorn WebSocket frame source for phone
+                           sidecar mode; serves static browser client; accepts
+                           JPEG frames + metadata; sends normalized detections;
+                           exposes POST /upload for sidecar file identification
+  file_frame_source.py   — video-file frame source with the same iterator
+                           interface, useful for Pi pipeline debugging
+  display_overlay.py     — Pi Touch Display 2 framebuffer writer; live feed,
+                           detection boxes, CC-style species caption on /dev/fb0
+  realtime_pipeline.py   — orchestrates V4L2/WebSocket source → hailo_detector →
+                           tracker → hailo_classifier; optional display overlay;
+                           sidecar upload processing + debug crops; 1s summary
+                           logs; system stats every 30s; clean shutdown
 
 scripts/
   serve.py                       — uvicorn entry point (port 3587)
@@ -79,6 +87,9 @@ scripts/
   compile_efficientnet_hef.py    — compile ONNX to Hailo HEF via DFC SDK
   verify_efficientnet_onnx.py    — onnxruntime shape/label-count verification
   upload_model_to_hf.py          — upload model artifacts to HuggingFace Hub
+  ws_test_client.py              — [Pi] stream a video file to sidecar WebSocket
+                                  server for repeatable phone-free testing
+  autostart.sh                   — [Pi] install/uninstall systemd service wrapper
   run_training.sh                — convenience wrapper for train_efficientnet.py
   run_verify_efficientnet_onnx.sh — logged wrapper for ONNX verification
   run_compile_efficientnet_hef.sh — logged wrapper for HEF compilation
@@ -92,6 +103,9 @@ eval/                       — model comparison eval container
 templates/
   base.html, index.html, job.html  — Jinja2, mobile-friendly
 
+static/
+  index.html                  — Pi sidecar browser camera/upload client
+
 ebird_data/
   ebird_US-NY-{047,059,061,081,103}__*_barchart.txt
   — Kings, Nassau, Manhattan, Queens, Suffolk counties
@@ -104,18 +118,23 @@ data/
 pi/
   README.md                    — Pi setup, hardware, model locations, run instructions
   hailo_hef_compile_status.md  — YOLOv8n + EfficientNet-S compile history and results
+  display_test/                — standalone framebuffer/camera display test container
+  sidecar_plan.md              — implementation notes for phone-to-Pi sidecar mode
   models/                      — .hef + .har + .onnx + species_labels.json (all gitignored)
 
 config.pi.yaml         — Pi-specific config (stream device, Hailo HEF paths, realtime settings)
                          Separate from config.yaml; do not merge them.
+config.pi.sidecar.yaml — Pi sidecar config; WebSocket source, browser static files, display off.
 Dockerfile.pi          — arm64 image; Hailo + V4L2 device passthrough
-docker-compose.pi.yml  — Pi compose; maps /dev/hailo0 and /dev/video*
+docker-compose.pi.yml  — Pi compose profiles: backyard (Hailo + video + fb0)
+                         and sidecar (Hailo + Caddy HTTPS reverse proxy)
+Caddyfile.sidecar      — sidecar HTTPS reverse proxy; self-signed internal certs
 ```
 
 ## Models
 
 ### Desktop pipeline (webapp)
-- **Detector**: YOLOv8n (Ultralytics, COCO)
+- **Detector**: YOLOv8s (Ultralytics, COCO)
 - **Classifier**: BioCLIP zero-shot, optionally ensembled with a secondary HF model
 
 ### Raspberry Pi pipeline
@@ -165,12 +184,24 @@ Trained model + HEF: https://huggingface.co/k10z/birdvision-efficientnet-s
   auto-refreshes while jobs are pending/running
 - **Recording date from metadata** — EXIF/QuickTime dates for seasonal priors
 - **Video codec warning** — non-Safari codecs detected at upload time
+- **Safari transcoding** — VP9/AV1 videos can be transcoded to H.264 before
+  ML processing and playback when `webapp.transcode_incompatible_video` is true
 - **Theme switcher** — Default, Birdy, Super Birdy; cookie-backed
 - **OAuth callback override** — `auth.redirect_uri` for reverse-proxied deploys
 - **Access logs** — proxy IP, forwarded client IP, signed-in email
 - **Config hot-reload** — re-read before each job; model/device changes
   require restart
 - **Species name normalization** at eBird import time (NAME_OVERRIDES dict)
+- **Pi has two runtime modes** — backyard mode reads the Cam Link 4K over V4L2;
+  sidecar mode serves a phone browser client over HTTPS/WebSocket and receives
+  JPEG frames + GPS metadata from the phone
+- **Pi Touch Display overlay** — optional `/dev/fb0` writer shows the live feed,
+  boxes, and a bottom caption; no X11/Wayland required
+- **Pi sidecar uploads** — browser client can upload photo/video files to the
+  Pi; upload path logs copyable prediction summaries and saves classifier debug
+  crops under `results/upload_debug/` or `/tmp/birdvision_upload_debug/`
+- **Hailo classifier input layout** — compiled EfficientNet-S HEF expects NHWC
+  `(224, 224, 3)` tensors; do not change preprocessing back to CHW
 - **Pi classifies at 22 FPS** — sufficient for `classify_every_n_frames: 10`
   at 60fps capture (max 6 classifications/sec per track needed)
 
@@ -187,9 +218,14 @@ Trained model + HEF: https://huggingface.co/k10z/birdvision-efficientnet-s
 
 **Raspberry Pi (arm64)**
 - `Dockerfile.pi` + `docker-compose.pi.yml` — separate files, do not modify main compose
-- Device passthrough required: `/dev/hailo0` (Hailo-8), `/dev/video*` (Cam Link 4K)
-- Config: `config.pi.yaml` bind-mounted
-- Run: `docker compose -f docker-compose.pi.yml up`
+- Backyard profile device passthrough: `/dev/hailo0`, `/dev/video0`, `/dev/video1`,
+  and optional `/dev/fb0` for Pi Touch Display 2
+- Sidecar profile uses `/dev/hailo0` plus Caddy on ports 80/443; phone opens
+  `https://<pi-ip>/` and accepts the one-time self-signed cert warning
+- Configs: `config.pi.yaml` for backyard, `config.pi.sidecar.yaml` for sidecar;
+  both are bind-mounted as `/app/config.pi.yaml`
+- Run backyard: `docker compose -f docker-compose.pi.yml --profile backyard up`
+- Run sidecar: `docker compose -f docker-compose.pi.yml --profile sidecar up`
 
 ## Config (config.yaml)
 
@@ -203,13 +239,15 @@ Require restart: model path/name/device, OAuth credentials, session secret.
 
 ## Workflow notes for AI/code agents
 
-- **Unit tests**: `uv run pytest` (243 tests, ~4s, no GPU needed). Tests cover
+- **Unit tests**: `uv run pytest` (279 tests collected, no GPU needed). Tests cover
   tracker, metadata priors, pipeline helpers, video metadata, webapp
-  auth/upload, ensemble classifier. Heavy deps monkeypatched in fixtures.
+  auth/upload, ensemble classifier, WebSocket frame source, and Hailo classifier
+  preprocessing. Heavy deps monkeypatched in fixtures.
 - **Smoke checks**:
   - `uv run scripts/import_ebird_barchart.py ebird_data/ --db /tmp/ebird_priors.db`
   - `uv run scripts/serve.py --config config.yaml --port 3587`
   - `uv run scripts/identify_videos.py <video-or-dir> --config config.yaml`
+  - Direct sidecar WebSocket dev: `uv run --no-project --with websockets,opencv-python-headless scripts/ws_test_client.py <video> --server ws://<pi-ip>:8765/ws`
 - **Pipeline startup is heavyweight**: model init/download at runtime. Avoid
   unnecessary full runs for small edits.
 - **Default config targets container paths** (`/data/...`). For local runs use
@@ -228,9 +266,11 @@ Require restart: model path/name/device, OAuth credentials, session secret.
   print a timestamped log file under `logs/retraining/` so users can `tail -f`
   while Codex-launched jobs are running.
 - **Pi code is additive**: `src/hailo_*.py`, `src/stream_capture.py`,
-  `src/realtime_pipeline.py` are new files. Do not modify existing `src/`
-  modules for Pi work — keep interfaces compatible instead.
-- **Two configs, never merged**: `config.yaml` = webapp, `config.pi.yaml` = Pi.
+  `src/ws_frame_source.py`, `src/file_frame_source.py`, `src/display_overlay.py`,
+  and `src/realtime_pipeline.py` are Pi-focused. Do not pull Pi-only deps into
+  desktop modules.
+- **Three configs, never merged**: `config.yaml` = webapp,
+  `config.pi.yaml` = Pi backyard, `config.pi.sidecar.yaml` = Pi sidecar.
   Do not add Pi-specific keys to `config.yaml`.
 - **Result filename conventions** (used by startup reconstruction):
   - JSON: `{job_id}_{original_stem}_results.json`
@@ -243,7 +283,7 @@ Require restart: model path/name/device, OAuth credentials, session secret.
 - **Keep out of commits**: model weights, `results/`, `videos/` (including
   `videos/assets/` and `videos/asset_index.json`), `data/ebird_priors.db`,
   `pi/models/*.hef`, `pi/models/*.har`, `pi/models/*.onnx`,
-  `pi/models/species_labels.json`.
+  `pi/models/species_labels.json`, `pi/deps/*.whl`, `pi/deps/*.deb`, `certs/`.
 - **Hailo DFC compilation** requires x86_64 Linux + DFC 3.33.1 from
   https://hailo.ai/developer-zone/. ONNX must be exported with `dynamo=False`
   (legacy TorchScript exporter) for DFC compatibility. Calibration data must
@@ -251,7 +291,7 @@ Require restart: model path/name/device, OAuth credentials, session secret.
 
 ## GitHub
 
-Repo: https://github.com/evandhoffman/birdvision (private)
+Repo: https://github.com/evanwtf/birdvision (private)
 CI: GitHub Actions runs unit tests on push/PR (manual dispatch only).
 
 ## What's not done yet
@@ -262,11 +302,14 @@ Key open issues (see GitHub for full backlog):
 - Video-level summary robustness to noisy track fragments (#9)
 - Species-group rollups and UI (#33, #32)
 - Small-bird recall via tiled/zoomed fallback detection (#26)
-- Tuner improvements: species-group optimization (#34), trial logging (#28)
+- Tuner improvements: species-group optimization (#34), benchmark workflow (#12)
 - Fine-tuning detector/classifier on BirdVision data (#7, #30)
 - Human-in-the-loop active learning workflow (#31)
+- Pi field sidecar networking/hotspot/autostart docs (#94, #97-#101)
+- Pi power monitoring and model comparison eval (#86, #85)
+- Native iPhone or hybrid phone/server exploration (#90)
 
-**Raspberry Pi real-time sub-project** (#70) — v0.2.0, pipeline working end-to-end:
+**Raspberry Pi real-time sub-project** (#70) — v0.3.1, pipeline working end-to-end:
 - ~~Scaffold Pi monorepo structure (#81)~~ done
 - ~~OS packages on Pi (#71)~~ done
 - ~~Hailo PCIe kernel driver on Pi host (#72)~~ done — `/dev/hailo0` present
@@ -279,8 +322,15 @@ Key open issues (see GitHub for full backlog):
 - ~~Live video capture stream_capture.py (#78)~~ done — YUYV V4L2 at 1920×1080 60fps
 - ~~Real-time pipeline realtime_pipeline.py (#79)~~ done — ~27–34 FPS end-to-end, verified live
 - ~~ARM64 Docker image (#80)~~ done — Dockerfile.pi + docker-compose.pi.yml
+- ~~Pi Touch Display test container (#89)~~ done — live video + fake captions on `/dev/fb0`
+- ~~Pi Touch Display overlay (#87)~~ done — live feed, boxes, CC-style species label
+- ~~WebSocket phone sidecar mode (PR #95/#96)~~ done — browser camera client streams JPEG frames + GPS to Pi over WebSocket
+- ~~Sidecar HTTPS via Caddy (v0.3.0)~~ done — phone opens `https://<pi-ip>/`; HTTP redirects to HTTPS
+- ~~Sidecar file upload identification (#102/#103, v0.3.1)~~ done — photo/video upload path, copyable summaries, debug crops
+- ~~Hailo EfficientNet input layout fix (#103)~~ done — classifier preprocessing now emits NHWC `(224, 224, 3)`
 
 **Next Pi milestones:**
-- Raspberry Pi Touch Display integration — show live detection overlays on a local screen (#TBD)
+- Pi WiFi hotspot + sidecar field workflow (#94, #97-#101)
 - Power monitoring via INA219/USB-C meter for battery runtime estimation (#86)
-- Evaluate accuracy against known-species footage (#85)
+- Evaluate retrained 237-class EfficientNet against the current desktop classifier (#85)
+- Close or reconcile stale tracking issues now implemented by PR #95/#96 (#91-#93, #88)
