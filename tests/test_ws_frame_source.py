@@ -151,6 +151,67 @@ class TestSingleClientGuard:
         src._release_client()
 
 
+class TestWsEndpointRejection:
+    def test_second_client_receives_error_json_and_close(self):
+        src = WebSocketFrameSource(client_idle_timeout_seconds=60.0)
+
+        class FakeWebSocket:
+            def __init__(self):
+                self.client = "fake-client"
+                self.accepted = False
+                self.sent_json = None
+                self.close_code = None
+                self.close_reason = None
+
+            async def accept(self):
+                self.accepted = True
+
+            async def send_json(self, data):
+                self.sent_json = data
+
+            async def close(self, code=1000, reason=""):
+                self.close_code = code
+                self.close_reason = reason
+
+        assert src._claim_client()
+
+        ws = FakeWebSocket()
+        asyncio.run(src._ws_endpoint(ws))
+
+        assert ws.accepted
+        assert ws.sent_json is not None
+        assert "error" in ws.sent_json
+        assert "already in use" in ws.sent_json["error"]
+        assert ws.close_code == 1013
+
+        assert src._client_connected.is_set()
+        src._release_client()
+
+    def test_rejection_tolerates_early_disconnect(self):
+        src = WebSocketFrameSource()
+        assert src._claim_client()
+
+        class DisconnectingWebSocket:
+            client = "disconnect-client"
+            accepted = False
+
+            async def accept(self):
+                self.accepted = True
+
+            async def send_json(self, data):
+                raise RuntimeError("client gone")
+
+            async def close(self, code=1000, reason=""):
+                raise RuntimeError("client gone")
+
+        ws = DisconnectingWebSocket()
+        asyncio.run(src._ws_endpoint(ws))
+
+        assert ws.accepted
+        assert src._client_connected.is_set()
+        src._release_client()
+
+
 class TestClientIdleTimeout:
     def test_idle_receive_loop_closes_connection(self):
         class IdleWebSocket:

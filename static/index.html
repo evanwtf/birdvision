@@ -49,7 +49,6 @@
     height: 100%;
     object-fit: contain;
     transform-origin: center center;
-    will-change: transform;
   }
   #overlay {
     position: absolute;
@@ -644,9 +643,11 @@
 
   function applyPreviewZoom() {
     if (nativeZoom || zoomLevel <= 1.01) {
+      video.style.willChange = "";
       video.style.transform = "";
       return;
     }
+    video.style.willChange = "transform";
     video.style.transform = "scale(" + zoomLevel.toFixed(3) + ")";
   }
 
@@ -962,6 +963,7 @@
       currentStream = null;
     }
     nativeZoom = null;
+    zoomLevel = 1;
     video.srcObject = null;
     video.removeAttribute("src");
     video.load();

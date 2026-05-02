@@ -208,14 +208,18 @@ class WebSocketFrameSource:
         if not self._claim_client():
             await ws.accept()
             logger.info("Rejecting extra client while stream is active: %s", ws.client)
-            await ws.send_json({
-                "error": (
-                    "BirdVision is already in use by another camera. "
-                    "Try again when that session disconnects."
-                ),
-            })
-            await asyncio.sleep(0.25)
-            await ws.close(code=1013, reason="BirdVision is already in use")
+            try:
+                await ws.send_json({
+                    "error": (
+                        "BirdVision is already in use by another camera. "
+                        "Try again when that session disconnects."
+                    ),
+                })
+                # Brief delay so the client receives the error JSON before close
+                await asyncio.sleep(0.25)
+                await ws.close(code=1013, reason="BirdVision is already in use")
+            except Exception:
+                pass
             return
 
         await ws.accept()
