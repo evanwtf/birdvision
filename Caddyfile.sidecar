@@ -1,9 +1,20 @@
 # TLS reverse proxy for BirdVision sidecar.
-# Caddy auto-generates a self-signed certificate ("tls internal").
+# Caddy issues an internal (self-signed) certificate on-demand for
+# whatever IP or hostname the client connects with.
 # Phone browsers will show a one-time cert warning.
 
+{
+	on_demand_tls {
+		interval 2m
+		burst 5
+	}
+}
+
 :443 {
-	tls internal
+	tls {
+		on_demand
+		issuer internal
+	}
 	reverse_proxy birdvision-sidecar:8765
 }
 
