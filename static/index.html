@@ -532,7 +532,8 @@
   let lastDetections = [];
   let lastResultTime = 0;
   const DETECTION_TTL_MS = 2000;
-  const DIGITAL_MAX_ZOOM = 4;
+  const DIGITAL_MAX_ZOOM = 15;
+  const ZOOM_STEP = 0.5;
   let zoomLevel = parseFloat(localStorage.getItem("bv_zoom") || "1") || 1;
   let nativeZoom = null;
   let zoomApplySeq = 0;
@@ -609,14 +610,23 @@
   }
 
   function zoomButtonStep() {
-    return nativeZoom ? Math.max(nativeZoom.step || 0.1, 0.25) : 0.5;
+    return ZOOM_STEP;
+  }
+
+  function roundZoom(value) {
+    return Math.round(value / ZOOM_STEP) * ZOOM_STEP;
+  }
+
+  function formatZoom(value) {
+    const rounded = Math.round(value);
+    return (Math.abs(value - rounded) < 0.01 ? String(rounded) : value.toFixed(1)) + "x";
   }
 
   function updateZoomUi() {
     const min = zoomMin();
     const max = zoomMax();
-    zoomLevel = clamp(zoomLevel, min, max);
-    zoomLabel.textContent = zoomLevel.toFixed(1) + "x";
+    zoomLevel = clamp(roundZoom(zoomLevel), min, max);
+    zoomLabel.textContent = formatZoom(zoomLevel);
     zoomOutBtn.disabled = zoomLevel <= min + 0.01;
     zoomInBtn.disabled = zoomLevel >= max - 0.01;
     zoomControls.classList.toggle("hidden", !currentStream);
@@ -631,7 +641,7 @@
   }
 
   function setZoom(value, persist) {
-    zoomLevel = clamp(value || 1, zoomMin(), zoomMax());
+    zoomLevel = clamp(roundZoom(value || 1), zoomMin(), zoomMax());
     updateZoomUi();
     applyPreviewZoom();
     if (persist) saveSettings();
@@ -642,7 +652,7 @@
     nativeZoom.track.applyConstraints({ advanced: [{ zoom: zoomLevel }] }).catch(function() {
       if (seq !== zoomApplySeq) return;
       nativeZoom = null;
-      zoomLevel = clamp(zoomLevel, 1, DIGITAL_MAX_ZOOM);
+      zoomLevel = clamp(roundZoom(zoomLevel), 1, DIGITAL_MAX_ZOOM);
       updateZoomUi();
       applyPreviewZoom();
     });
@@ -658,12 +668,16 @@
     if (track && track.getCapabilities && track.applyConstraints) {
       const caps = track.getCapabilities();
       if (caps && caps.zoom && typeof caps.zoom.min === "number" && typeof caps.zoom.max === "number" && caps.zoom.max > caps.zoom.min) {
+        const min = Math.max(1, Math.ceil((caps.zoom.min || 1) / ZOOM_STEP) * ZOOM_STEP);
+        const max = Math.min(DIGITAL_MAX_ZOOM, Math.floor(caps.zoom.max / ZOOM_STEP) * ZOOM_STEP);
         nativeZoom = {
           track: track,
-          min: Math.max(1, caps.zoom.min || 1),
-          max: caps.zoom.max,
-          step: caps.zoom.step || 0.1,
+          min: min,
+          max: max,
         };
+        if (nativeZoom.max <= nativeZoom.min) {
+          nativeZoom = null;
+        }
       }
     }
     applyZoom();
