@@ -447,16 +447,20 @@ class RealtimePipeline:
             return self._process_image_upload(file_bytes, filename)
         return self._process_video_upload(file_bytes, filename)
 
-    def _make_upload_debug_dir(self, filename: str) -> Path:
+    def _make_upload_debug_dir(self, filename: str) -> Optional[Path]:
         upload_stem = _safe_path_component(Path(filename).stem)
         run_id = time.strftime("%Y%m%d_%H%M%S")
         debug_dir = self._results_dir / "upload_debug" / f"{upload_stem}_{run_id}"
-        debug_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            debug_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning("Upload debug crops disabled; could not create %s: %s", debug_dir, exc)
+            return None
         return debug_dir
 
     def _save_upload_debug_crop(
         self,
-        debug_dir: Path,
+        debug_dir: Optional[Path],
         crop: np.ndarray,
         *,
         prefix: str,
@@ -464,6 +468,8 @@ class RealtimePipeline:
         score: float,
         area_ratio: float,
     ) -> None:
+        if debug_dir is None:
+            return
         species_name = _safe_path_component(species)
         path = debug_dir / (
             f"{prefix}_{species_name}_{float(score):.3f}_area{area_ratio * 100:.2f}pct.jpg"
@@ -480,7 +486,8 @@ class RealtimePipeline:
         frame_h, frame_w = frame.shape[:2]
         logger.info("Processing image upload: %s  %dx%d", filename, frame_w, frame_h)
         debug_dir = self._make_upload_debug_dir(filename)
-        logger.info("Upload debug crops: %s", debug_dir)
+        if debug_dir is not None:
+            logger.info("Upload debug crops: %s", debug_dir)
         detections = self._detector.detect(frame)
 
         results = []
@@ -591,7 +598,8 @@ class RealtimePipeline:
                 "Processing video upload: %s  %dx%d  %.1f fps  %d frames  %.1fs",
                 filename, width, height, native_fps, total_frames, duration,
             )
-            logger.info("Upload debug crops: %s", debug_dir)
+            if debug_dir is not None:
+                logger.info("Upload debug crops: %s", debug_dir)
 
             trk_cfg = self._config.get("tracker", {})
             tracker = BirdTracker(
