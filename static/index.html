@@ -89,6 +89,22 @@
     padding: 0 24px;
     max-width: 400px;
   }
+  #start-error.prominent {
+    color: #fff;
+    background: rgba(244, 67, 54, 0.22);
+    border: 1px solid rgba(244, 67, 54, 0.7);
+    border-radius: 8px;
+    line-height: 1.4;
+    padding: 12px 16px;
+  }
+  #start-screen.server-error .start-divider,
+  #start-screen.server-error #upload-btn,
+  #start-screen.server-error #upload-status {
+    display: none;
+  }
+  #start-screen.server-error #start-btn {
+    margin-top: 18px;
+  }
 
   /* --- Settings panel --- */
   #settings-toggle {
@@ -557,6 +573,8 @@
   // --- Start button ---
   startBtn.addEventListener("click", async function() {
     startError.textContent = "";
+    startError.classList.remove("prominent");
+    startScreen.classList.remove("server-error");
     startBtn.disabled = true;
     startBtn.textContent = "Starting...";
 
@@ -645,7 +663,11 @@
   }
 
   // --- WebSocket ---
+  const BUSY_CLOSE_CODE = 1013;
+  const BUSY_CLOSE_REASON = "BirdVision is already in use";
+  const BUSY_MESSAGE = "BirdVision is already in use by another camera. Try again when that session disconnects.";
   let reconnectDelay = 1000;
+  let suppressReconnect = false;
 
   function setConnState(state) {
     connInd.className = "indicator " + state;
@@ -663,6 +685,7 @@
     const url = serverInput.value;
     if (!url) return;
     setConnState("connecting");
+    suppressReconnect = false;
 
     try {
       ws = new WebSocket(url);
@@ -682,6 +705,10 @@
     ws.onmessage = function(evt) {
       try {
         const result = JSON.parse(evt.data);
+        if (result.error) {
+          showServerError(result.error);
+          return;
+        }
         lastDetections = result.detections || [];
         lastResultTime = Date.now();
         if (result.fps !== undefined) {
@@ -691,15 +718,46 @@
       } catch (e) {}
     };
 
-    ws.onclose = function() {
+    ws.onclose = function(evt) {
+      if (evt && (evt.code === BUSY_CLOSE_CODE || (evt.reason || "").indexOf(BUSY_CLOSE_REASON) !== -1)) {
+        showServerError(BUSY_MESSAGE);
+        return;
+      }
       setConnState("disconnected");
       stopSendLoop();
-      scheduleReconnect();
+      if (!suppressReconnect) {
+        scheduleReconnect();
+      }
     };
 
     ws.onerror = function() {
       setConnState("disconnected");
     };
+  }
+
+  function showServerError(message) {
+    suppressReconnect = true;
+    stopSendLoop();
+    if (currentStream) {
+      currentStream.getTracks().forEach(function(t) { t.stop(); });
+      currentStream = null;
+    }
+    video.srcObject = null;
+    video.removeAttribute("src");
+    video.load();
+    lastDetections = [];
+    lastResultTime = 0;
+    ctx.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
+    fpsDisplay.textContent = "";
+    uploadStatus.textContent = "";
+    startScreen.classList.add("server-error");
+    startScreen.classList.remove("hidden");
+    startError.textContent = message;
+    startError.classList.add("prominent");
+    startBtn.disabled = false;
+    startBtn.textContent = "Try Again";
+    setConnState("disconnected");
+    connText.textContent = "In use";
   }
 
   function scheduleReconnect() {

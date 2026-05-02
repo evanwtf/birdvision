@@ -56,11 +56,13 @@ class WebSocketFrameSource:
         static_dir: Optional[str] = None,
         max_buffered_frames: int = 2,
         upload_handler=None,
+        client_idle_timeout_seconds: float = 30.0,
     ):
         self._host = host
         self._port = port
         self._static_dir = static_dir
         self._upload_handler = upload_handler
+        self._client_idle_timeout = client_idle_timeout_seconds
         self._stop = False
         # Queue stores (bgr, metadata_dict) tuples
         self._frame_queue: queue.Queue = queue.Queue(maxsize=max_buffered_frames)
@@ -71,6 +73,7 @@ class WebSocketFrameSource:
         self._pending_metadata: dict = {}
         self._metadata: dict = {}
         self._client_connected = threading.Event()
+        self._client_lock = threading.Lock()
 
     @property
     def client_metadata(self) -> dict:
@@ -114,6 +117,19 @@ class WebSocketFrameSource:
     def stop(self) -> None:
         """Signal the frames() iterator to exit cleanly."""
         self._stop = True
+
+    def _claim_client(self) -> bool:
+        """Return True if this connection may become the active stream owner."""
+        with self._client_lock:
+            if self._client_connected.is_set():
+                return False
+            self._client_connected.set()
+            return True
+
+    def _release_client(self) -> None:
+        """Release the active stream owner slot."""
+        with self._client_lock:
+            self._client_connected.clear()
 
     # ------------------------------------------------------------------
     # Server lifecycle
@@ -189,6 +205,19 @@ class WebSocketFrameSource:
         return JSONResponse(result)
 
     async def _ws_endpoint(self, ws: WebSocket) -> None:
+        if not self._claim_client():
+            await ws.accept()
+            logger.info("Rejecting extra client while stream is active: %s", ws.client)
+            await ws.send_json({
+                "error": (
+                    "BirdVision is already in use by another camera. "
+                    "Try again when that session disconnects."
+                ),
+            })
+            await asyncio.sleep(0.25)
+            await ws.close(code=1013, reason="BirdVision is already in use")
+            return
+
         await ws.accept()
         logger.info("Client connected: %s", ws.client)
 
@@ -197,8 +226,6 @@ class WebSocketFrameSource:
                 self._result_queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
-
-        self._client_connected.set()
 
         recv_task = asyncio.create_task(self._receive_loop(ws))
         send_task = asyncio.create_task(self._send_loop(ws))
@@ -210,13 +237,26 @@ class WebSocketFrameSource:
             for t in pending:
                 t.cancel()
         finally:
-            self._client_connected.clear()
+            self._release_client()
             logger.info("Client disconnected: %s", ws.client)
 
     async def _receive_loop(self, ws: WebSocket) -> None:
         try:
             while not self._stop:
-                msg = await ws.receive()
+                try:
+                    msg = await asyncio.wait_for(
+                        ws.receive(),
+                        timeout=self._client_idle_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    logger.info(
+                        "Closing idle client after %.0fs without frames: %s",
+                        self._client_idle_timeout,
+                        ws.client,
+                    )
+                    await ws.close(code=1001)
+                    break
+
                 if msg["type"] == "websocket.disconnect":
                     break
 

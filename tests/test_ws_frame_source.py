@@ -137,6 +137,40 @@ class TestSendResult:
         loop.close()
 
 
+class TestSingleClientGuard:
+    def test_claim_rejects_second_client_until_release(self):
+        src = WebSocketFrameSource()
+
+        assert src._claim_client()
+        assert src._client_connected.is_set()
+        assert not src._claim_client()
+
+        src._release_client()
+        assert not src._client_connected.is_set()
+        assert src._claim_client()
+        src._release_client()
+
+
+class TestClientIdleTimeout:
+    def test_idle_receive_loop_closes_connection(self):
+        class IdleWebSocket:
+            client = "test-client"
+            close_code = None
+
+            async def receive(self):
+                await asyncio.sleep(1)
+
+            async def close(self, code):
+                self.close_code = code
+
+        src = WebSocketFrameSource(client_idle_timeout_seconds=0.01)
+        ws = IdleWebSocket()
+
+        asyncio.run(src._receive_loop(ws))
+
+        assert ws.close_code == 1001
+
+
 class TestStopBehavior:
     def test_stop_sets_flag(self):
         src = WebSocketFrameSource()
@@ -208,10 +242,17 @@ class TestInit:
         assert src._host == "0.0.0.0"
         assert src._port == 8765
         assert src._static_dir is None
+        assert src._client_idle_timeout == 30.0
         assert src._stop is False
 
     def test_custom_params(self):
-        src = WebSocketFrameSource(host="127.0.0.1", port=9999, static_dir="/tmp")
+        src = WebSocketFrameSource(
+            host="127.0.0.1",
+            port=9999,
+            static_dir="/tmp",
+            client_idle_timeout_seconds=12.0,
+        )
         assert src._host == "127.0.0.1"
         assert src._port == 9999
         assert src._static_dir == "/tmp"
+        assert src._client_idle_timeout == 12.0
