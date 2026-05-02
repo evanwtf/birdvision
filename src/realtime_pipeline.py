@@ -450,13 +450,31 @@ class RealtimePipeline:
     def _make_upload_debug_dir(self, filename: str) -> Optional[Path]:
         upload_stem = _safe_path_component(Path(filename).stem)
         run_id = time.strftime("%Y%m%d_%H%M%S")
-        debug_dir = self._results_dir / "upload_debug" / f"{upload_stem}_{run_id}"
-        try:
-            debug_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            logger.warning("Upload debug crops disabled; could not create %s: %s", debug_dir, exc)
-            return None
-        return debug_dir
+        dirname = f"{upload_stem}_{run_id}"
+        candidates = [
+            self._results_dir / "upload_debug" / dirname,
+            Path(tempfile.gettempdir()) / "birdvision_upload_debug" / dirname,
+        ]
+        first_error = None
+        for debug_dir in candidates:
+            try:
+                debug_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                if first_error is None:
+                    first_error = (debug_dir, exc)
+                continue
+            if debug_dir != candidates[0] and first_error is not None:
+                logger.warning(
+                    "Upload debug crops using fallback %s; could not create %s: %s",
+                    debug_dir,
+                    first_error[0],
+                    first_error[1],
+                )
+            return debug_dir
+
+        if first_error is not None:
+            logger.warning("Upload debug crops disabled; could not create %s: %s", first_error[0], first_error[1])
+        return None
 
     def _save_upload_debug_crop(
         self,
