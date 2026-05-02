@@ -3,13 +3,6 @@
 # whatever IP or hostname the client connects with.
 # Phone browsers will show a one-time cert warning.
 
-{
-	on_demand_tls {
-		interval 2m
-		burst 5
-	}
-}
-
 :443 {
 	tls {
 		on_demand
