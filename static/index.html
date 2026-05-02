@@ -48,6 +48,8 @@
     width: 100%;
     height: 100%;
     object-fit: contain;
+    transform-origin: center center;
+    will-change: transform;
   }
   #overlay {
     position: absolute;
@@ -55,6 +57,45 @@
     width: 100%;
     height: 100%;
     pointer-events: none;
+  }
+  #zoom-controls {
+    position: absolute;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    z-index: 15;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.72);
+  }
+  #zoom-controls.hidden { display: none; }
+  #zoom-controls button {
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: 8px;
+    background: #333;
+    color: #fff;
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #zoom-controls button:active { background: #555; }
+  #zoom-controls button:disabled {
+    color: #888;
+    background: #222;
+    cursor: default;
+  }
+  #zoom-label {
+    min-width: 54px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    text-align: center;
   }
 
   /* --- Start button --- */
@@ -368,6 +409,11 @@
 <div id="viewport">
   <video id="camera" autoplay playsinline muted></video>
   <canvas id="overlay"></canvas>
+  <div id="zoom-controls" class="hidden" aria-label="Camera zoom controls">
+    <button id="zoom-out-btn" type="button" aria-label="Zoom out">-</button>
+    <span id="zoom-label">1.0x</span>
+    <button id="zoom-in-btn" type="button" aria-label="Zoom in">+</button>
+  </div>
   <div id="start-screen">
     <button id="start-btn">Start Camera</button>
     <div id="start-error"></div>
@@ -447,6 +493,10 @@
   const qualSlider  = document.getElementById("quality-slider");
   const qualValue   = document.getElementById("quality-value");
   const resoSelect  = document.getElementById("resolution-select");
+  const zoomControls = document.getElementById("zoom-controls");
+  const zoomOutBtn  = document.getElementById("zoom-out-btn");
+  const zoomInBtn   = document.getElementById("zoom-in-btn");
+  const zoomLabel   = document.getElementById("zoom-label");
   const serverInput = document.getElementById("server-input");
   const reconnBtn   = document.getElementById("reconnect-btn");
   const settToggle  = document.getElementById("settings-toggle");
@@ -482,6 +532,10 @@
   let lastDetections = [];
   let lastResultTime = 0;
   const DETECTION_TTL_MS = 2000;
+  const DIGITAL_MAX_ZOOM = 4;
+  let zoomLevel = parseFloat(localStorage.getItem("bv_zoom") || "1") || 1;
+  let nativeZoom = null;
+  let zoomApplySeq = 0;
 
   // --- Offscreen canvas for frame capture ---
   const capCanvas = document.createElement("canvas");
@@ -499,15 +553,19 @@
     const fps  = localStorage.getItem("bv_fps");
     const qual = localStorage.getItem("bv_quality");
     const reso = localStorage.getItem("bv_resolution");
+    const zoom = localStorage.getItem("bv_zoom");
     if (fps)  fpsSlider.value  = fps;
     if (qual) qualSlider.value = qual;
     if (reso) resoSelect.value = reso;
+    if (zoom) zoomLevel = parseFloat(zoom) || 1;
     updateSettingsDisplay();
+    applyZoom();
   }
   function saveSettings() {
     localStorage.setItem("bv_fps", fpsSlider.value);
     localStorage.setItem("bv_quality", qualSlider.value);
     localStorage.setItem("bv_resolution", resoSelect.value);
+    localStorage.setItem("bv_zoom", String(zoomLevel));
     localStorage.setItem("bv_server", serverInput.value);
   }
   function updateSettingsDisplay() {
@@ -538,6 +596,87 @@
   // --- Camera ---
   let currentStream = null;
 
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function zoomMin() {
+    return nativeZoom ? nativeZoom.min : 1;
+  }
+
+  function zoomMax() {
+    return nativeZoom ? nativeZoom.max : DIGITAL_MAX_ZOOM;
+  }
+
+  function zoomButtonStep() {
+    return nativeZoom ? Math.max(nativeZoom.step || 0.1, 0.25) : 0.5;
+  }
+
+  function updateZoomUi() {
+    const min = zoomMin();
+    const max = zoomMax();
+    zoomLevel = clamp(zoomLevel, min, max);
+    zoomLabel.textContent = zoomLevel.toFixed(1) + "x";
+    zoomOutBtn.disabled = zoomLevel <= min + 0.01;
+    zoomInBtn.disabled = zoomLevel >= max - 0.01;
+    zoomControls.classList.toggle("hidden", !currentStream);
+  }
+
+  function applyPreviewZoom() {
+    if (nativeZoom || zoomLevel <= 1.01) {
+      video.style.transform = "";
+      return;
+    }
+    video.style.transform = "scale(" + zoomLevel.toFixed(3) + ")";
+  }
+
+  function setZoom(value, persist) {
+    zoomLevel = clamp(value || 1, zoomMin(), zoomMax());
+    updateZoomUi();
+    applyPreviewZoom();
+    if (persist) saveSettings();
+
+    if (!nativeZoom) return;
+
+    const seq = ++zoomApplySeq;
+    nativeZoom.track.applyConstraints({ advanced: [{ zoom: zoomLevel }] }).catch(function() {
+      if (seq !== zoomApplySeq) return;
+      nativeZoom = null;
+      zoomLevel = clamp(zoomLevel, 1, DIGITAL_MAX_ZOOM);
+      updateZoomUi();
+      applyPreviewZoom();
+    });
+  }
+
+  function applyZoom() {
+    setZoom(zoomLevel, false);
+  }
+
+  function setupCameraZoom(stream) {
+    nativeZoom = null;
+    const track = stream.getVideoTracks()[0];
+    if (track && track.getCapabilities && track.applyConstraints) {
+      const caps = track.getCapabilities();
+      if (caps && caps.zoom && typeof caps.zoom.min === "number" && typeof caps.zoom.max === "number" && caps.zoom.max > caps.zoom.min) {
+        nativeZoom = {
+          track: track,
+          min: Math.max(1, caps.zoom.min || 1),
+          max: caps.zoom.max,
+          step: caps.zoom.step || 0.1,
+        };
+      }
+    }
+    applyZoom();
+  }
+
+  zoomOutBtn.addEventListener("click", function() {
+    setZoom(zoomLevel - zoomButtonStep(), true);
+  });
+
+  zoomInBtn.addEventListener("click", function() {
+    setZoom(zoomLevel + zoomButtonStep(), true);
+  });
+
   async function startCamera() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       var msg = "Camera requires a secure context (HTTPS).";
@@ -549,20 +688,28 @@
     }
     if (currentStream) {
       currentStream.getTracks().forEach(function(t) { t.stop(); });
+      currentStream = null;
+      nativeZoom = null;
+      updateZoomUi();
     }
     const h = parseInt(resoSelect.value);
+    const videoConstraints = {
+      facingMode: "environment",
+      width:  { ideal: Math.round(h * 16 / 9) },
+      height: { ideal: h },
+    };
+    if (navigator.mediaDevices.getSupportedConstraints && navigator.mediaDevices.getSupportedConstraints().zoom) {
+      videoConstraints.zoom = true;
+    }
     const constraints = {
-      video: {
-        facingMode: "environment",
-        width:  { ideal: Math.round(h * 16 / 9) },
-        height: { ideal: h },
-      },
+      video: videoConstraints,
       audio: false,
     };
     try {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       currentStream = stream;
       video.srcObject = stream;
+      setupCameraZoom(stream);
       return true;
     } catch (err) {
       startError.textContent = "Camera error: " + err.message;
@@ -742,9 +889,12 @@
       currentStream.getTracks().forEach(function(t) { t.stop(); });
       currentStream = null;
     }
+    nativeZoom = null;
     video.srcObject = null;
     video.removeAttribute("src");
     video.load();
+    updateZoomUi();
+    applyPreviewZoom();
     lastDetections = [];
     lastResultTime = 0;
     ctx.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
@@ -790,7 +940,15 @@
 
     capCanvas.width  = vw;
     capCanvas.height = vh;
-    capCtx.drawImage(video, 0, 0, vw, vh);
+    if (nativeZoom || zoomLevel <= 1.01) {
+      capCtx.drawImage(video, 0, 0, vw, vh);
+    } else {
+      const cropW = vw / zoomLevel;
+      const cropH = vh / zoomLevel;
+      const cropX = (vw - cropW) / 2;
+      const cropY = (vh - cropH) / 2;
+      capCtx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, vw, vh);
+    }
 
     const quality = parseInt(qualSlider.value) / 100;
     capCanvas.toBlob(function(blob) {
