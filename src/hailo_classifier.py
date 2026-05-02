@@ -23,14 +23,13 @@ IMAGENET_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
 def _preprocess_crop(crop_bgr: np.ndarray) -> np.ndarray:
-    """Resize BGR crop to 224×224 and apply ImageNet normalization → CHW float32."""
+    """Resize BGR crop to 224×224 and apply ImageNet normalization → HWC float32."""
     from PIL import Image
     img = Image.fromarray(crop_bgr[:, :, ::-1]).resize(  # BGR→RGB
         (IMG_SIZE, IMG_SIZE), Image.BILINEAR
     )
     arr = np.array(img, dtype=np.float32) / 255.0
-    arr = (arr - IMAGENET_MEAN) / IMAGENET_STD             # HWC normalized
-    return arr.transpose(2, 0, 1)                          # HWC → CHW
+    return (arr - IMAGENET_MEAN) / IMAGENET_STD            # HWC normalized
 
 
 class HailoClassifier:
@@ -153,7 +152,7 @@ class HailoClassifier:
         from hailo_platform import InferVStreams
 
         batch = np.ascontiguousarray(
-            np.stack([_preprocess_crop(c) for c in crops_bgr])  # (N, 3, 224, 224)
+            np.stack([_preprocess_crop(c) for c in crops_bgr])  # (N, 224, 224, 3)
         )
 
         t0 = time.perf_counter()

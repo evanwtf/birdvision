@@ -319,6 +319,23 @@
     display: flex;
     justify-content: space-between;
   }
+  #copyable-results {
+    padding: 12px;
+    border-top: 1px solid #333;
+  }
+  #copyable-results.hidden { display: none; }
+  #copy-results-text {
+    width: 100%;
+    min-height: 260px;
+    resize: vertical;
+    background: #111;
+    color: #eee;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: 10px;
+    font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    line-height: 1.45;
+  }
 </style>
 </head>
 <body>
@@ -360,6 +377,9 @@
         <div id="video-info"></div>
         <div id="species-list"></div>
         <div id="track-list"></div>
+      </div>
+      <div id="copyable-results" class="hidden">
+        <textarea id="copy-results-text" readonly></textarea>
       </div>
     </div>
   </div>
@@ -433,6 +453,8 @@
   const videoInfo      = document.getElementById("video-info");
   const speciesList    = document.getElementById("species-list");
   const trackList      = document.getElementById("track-list");
+  const copyableResults = document.getElementById("copyable-results");
+  const copyResultsText = document.getElementById("copy-results-text");
 
   // --- State ---
   let ws            = null;
@@ -853,12 +875,14 @@
     resultsFilename.textContent = data.filename || file.name;
     imageResults.classList.add("hidden");
     videoResults.classList.add("hidden");
+    copyableResults.classList.add("hidden");
 
     if (data.type === "image") {
       showImageResults(data, file);
     } else {
       showVideoResults(data);
     }
+    showCopyableResults(data);
 
     startScreen.classList.add("hidden");
     resultsScreen.classList.remove("hidden");
@@ -997,6 +1021,112 @@
     }
     videoResults.classList.remove("hidden");
   }
+
+  function pct(value, digits) {
+    var n = Number(value || 0) * 100;
+    return n.toFixed(digits == null ? 1 : digits) + "%";
+  }
+
+  function pad(value, width) {
+    value = String(value == null ? "" : value);
+    return value.length >= width ? value : value + " ".repeat(width - value.length);
+  }
+
+  function buildCopyableResults(data) {
+    var lines = [];
+    lines.push("File: " + (data.filename || "upload"));
+    lines.push("");
+
+    if (data.type === "image") {
+      lines.push("Image: " + (data.width || "?") + "x" + (data.height || "?"));
+      lines.push("");
+      if (!data.detections || data.detections.length === 0) {
+        lines.push("No birds detected");
+      } else {
+        lines.push("DETECTIONS");
+        lines.push(pad("#", 4) + pad("species", 28) + pad("prob", 10) + "detector");
+        lines.push(pad("-", 4) + pad("-------", 28) + pad("----", 10) + "--------");
+        for (var i = 0; i < data.detections.length; i++) {
+          var det = data.detections[i];
+          lines.push(
+            pad(i, 4) +
+            pad(det.species || "unknown", 28) +
+            pad(pct(det.species_score, 1), 10) +
+            pct(det.confidence, 1)
+          );
+          if (det.top_predictions && det.top_predictions.length > 0) {
+            lines.push("");
+            lines.push("Detection " + i + " top predictions:");
+            for (var j = 0; j < det.top_predictions.length; j++) {
+              lines.push(
+                "  " +
+                pad(j + 1, 4) +
+                pad(det.top_predictions[j][0], 28) +
+                pct(det.top_predictions[j][1], 1)
+              );
+            }
+            lines.push("");
+          }
+        }
+      }
+    } else {
+      lines.push("Video: " +
+        (data.duration_seconds || 0) + "s, " +
+        (data.width || "?") + "x" + (data.height || "?") + ", " +
+        (data.native_fps || 0) + " fps"
+      );
+      lines.push(
+        "Processed: " +
+        (data.processed_frames || 0) + " frames in " +
+        (data.processing_seconds || 0) + "s @ " +
+        (data.processing_fps || 0) + " fps"
+      );
+      lines.push("");
+      if (!data.species_summary || data.species_summary.length === 0) {
+        lines.push("No birds detected");
+      } else {
+        lines.push("SPECIES");
+        lines.push(pad("#", 4) + pad("species", 28) + pad("max", 10) + pad("avg", 10) + "detections");
+        lines.push(pad("-", 4) + pad("-------", 28) + pad("---", 10) + pad("---", 10) + "----------");
+        for (var k = 0; k < data.species_summary.length; k++) {
+          var sp = data.species_summary[k];
+          lines.push(
+            pad(k + 1, 4) +
+            pad(sp.species, 28) +
+            pad(pct(sp.max_confidence, 1), 10) +
+            pad(pct(sp.avg_confidence, 1), 10) +
+            sp.detection_count
+          );
+        }
+      }
+      if (data.tracks && data.tracks.length > 0) {
+        lines.push("");
+        lines.push("TRACKS (" + data.tracks.length + ")");
+        lines.push(pad("id", 4) + pad("species", 28) + pad("prob", 10) + pad("frames", 14) + "classifications");
+        lines.push(pad("--", 4) + pad("-------", 28) + pad("----", 10) + pad("------", 14) + "---------------");
+        for (var m = 0; m < data.tracks.length; m++) {
+          var t = data.tracks[m];
+          lines.push(
+            pad(t.track_id, 4) +
+            pad(t.top_species, 28) +
+            pad(pct(t.confidence, 1), 10) +
+            pad(t.frame_span[0] + "-" + t.frame_span[1], 14) +
+            t.classification_count
+          );
+        }
+      }
+    }
+    return lines.join("\n");
+  }
+
+  function showCopyableResults(data) {
+    copyResultsText.value = buildCopyableResults(data);
+    copyableResults.classList.remove("hidden");
+  }
+
+  copyResultsText.addEventListener("focus", function() {
+    copyResultsText.select();
+  });
 
   backBtn.addEventListener("click", function() {
     resultsScreen.classList.add("hidden");
