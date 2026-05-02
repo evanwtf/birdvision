@@ -60,42 +60,50 @@
   }
   #zoom-controls {
     position: absolute;
-    right: 12px;
-    bottom: calc(12px + env(safe-area-inset-bottom));
+    left: 16px;
+    right: 16px;
+    bottom: calc(18px + env(safe-area-inset-bottom));
     z-index: 15;
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    gap: 8px;
-    padding: 8px;
-    border-radius: 8px;
-    background: rgba(0,0,0,0.72);
+    pointer-events: none;
   }
   #zoom-controls.hidden { display: none; }
   #zoom-controls button {
-    width: 44px;
-    height: 44px;
+    width: 74px;
+    height: 74px;
     border: none;
-    border-radius: 8px;
-    background: #333;
+    border-radius: 12px;
+    background: rgba(0,0,0,0.76);
     color: #fff;
-    font-size: 26px;
+    font-size: 42px;
     font-weight: 600;
     line-height: 1;
     cursor: pointer;
+    pointer-events: auto;
+    touch-action: none;
+    user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
-  #zoom-controls button:active { background: #555; }
+  #zoom-out-btn { justify-self: start; }
+  #zoom-in-btn { justify-self: end; }
+  #zoom-controls button:active { background: rgba(60,60,60,0.86); }
   #zoom-controls button:disabled {
     color: #888;
-    background: #222;
+    background: rgba(0,0,0,0.45);
     cursor: default;
   }
   #zoom-label {
     min-width: 54px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.72);
     color: #fff;
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 600;
     text-align: center;
+    pointer-events: none;
   }
 
   /* --- Start button --- */
@@ -537,6 +545,8 @@
   let zoomLevel = parseFloat(localStorage.getItem("bv_zoom") || "1") || 1;
   let nativeZoom = null;
   let zoomApplySeq = 0;
+  let zoomHoldDelayTimer = null;
+  let zoomHoldRepeatTimer = null;
 
   // --- Offscreen canvas for frame capture ---
   const capCanvas = document.createElement("canvas");
@@ -683,13 +693,61 @@
     applyZoom();
   }
 
-  zoomOutBtn.addEventListener("click", function() {
-    setZoom(zoomLevel - zoomButtonStep(), true);
-  });
+  function changeZoom(delta) {
+    const before = zoomLevel;
+    setZoom(zoomLevel + delta, true);
+    return Math.abs(zoomLevel - before) > 0.01;
+  }
 
-  zoomInBtn.addEventListener("click", function() {
-    setZoom(zoomLevel + zoomButtonStep(), true);
-  });
+  function stopZoomHold() {
+    if (zoomHoldDelayTimer) {
+      clearTimeout(zoomHoldDelayTimer);
+      zoomHoldDelayTimer = null;
+    }
+    if (zoomHoldRepeatTimer) {
+      clearInterval(zoomHoldRepeatTimer);
+      zoomHoldRepeatTimer = null;
+    }
+  }
+
+  function startZoomHold(delta, evt) {
+    if (evt) {
+      evt.preventDefault();
+      if (evt.currentTarget.setPointerCapture && evt.pointerId !== undefined) {
+        try {
+          evt.currentTarget.setPointerCapture(evt.pointerId);
+        } catch (e) {}
+      }
+      if (evt.currentTarget.disabled) return;
+    }
+
+    stopZoomHold();
+    if (!changeZoom(delta)) return;
+
+    zoomHoldDelayTimer = setTimeout(function() {
+      zoomHoldDelayTimer = null;
+      zoomHoldRepeatTimer = setInterval(function() {
+        if (!changeZoom(delta)) {
+          stopZoomHold();
+        }
+      }, 150);
+    }, 350);
+  }
+
+  function bindZoomHold(button, delta) {
+    button.addEventListener("pointerdown", function(evt) {
+      startZoomHold(delta, evt);
+    });
+    button.addEventListener("pointerup", stopZoomHold);
+    button.addEventListener("pointercancel", stopZoomHold);
+    button.addEventListener("lostpointercapture", stopZoomHold);
+    button.addEventListener("contextmenu", function(evt) {
+      evt.preventDefault();
+    });
+  }
+
+  bindZoomHold(zoomOutBtn, -zoomButtonStep());
+  bindZoomHold(zoomInBtn, zoomButtonStep());
 
   async function startCamera() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
