@@ -140,6 +140,185 @@
     cursor: pointer;
     margin-top: 4px;
   }
+
+  /* --- Upload button --- */
+  .start-divider {
+    margin: 16px 0;
+    font-size: 14px;
+    color: #888;
+  }
+  #upload-btn {
+    background: #2196f3;
+    color: #fff;
+    border: none;
+    padding: 18px 48px;
+    border-radius: 12px;
+    font-size: 20px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #upload-btn:active { background: #1976d2; }
+  #upload-btn:disabled { background: #555; cursor: default; }
+  #upload-status {
+    margin-top: 16px;
+    font-size: 14px;
+    color: #ccc;
+    text-align: center;
+    padding: 0 24px;
+    max-width: 400px;
+  }
+
+  /* --- Results screen --- */
+  #results-screen {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 25;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  #results-screen.hidden { display: none; }
+  #results-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: rgba(0,0,0,0.85);
+    flex-shrink: 0;
+    border-bottom: 1px solid #333;
+  }
+  #back-btn {
+    background: #555;
+    color: #fff;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    flex-shrink: 0;
+  }
+  #results-filename {
+    font-size: 14px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #results-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Image results */
+  #result-image-wrap {
+    position: relative;
+    width: 100%;
+    background: #111;
+  }
+  #result-image {
+    width: 100%;
+    display: block;
+  }
+  #result-canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  #detection-list {
+    padding: 12px;
+  }
+  .det-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 10px 0;
+    border-bottom: 1px solid #333;
+  }
+  .det-species {
+    font-size: 16px;
+    font-weight: 600;
+    flex: 1;
+  }
+  .det-score {
+    font-size: 16px;
+    color: #4caf50;
+    margin-left: 12px;
+    flex-shrink: 0;
+  }
+  .det-conf {
+    font-size: 12px;
+    color: #888;
+    margin-left: 8px;
+    flex-shrink: 0;
+  }
+  .det-runners {
+    font-size: 12px;
+    color: #999;
+    padding: 4px 0 0 0;
+  }
+  .no-detections {
+    text-align: center;
+    padding: 48px 24px;
+    color: #888;
+    font-size: 16px;
+  }
+
+  /* Video results */
+  #video-info {
+    padding: 12px;
+    font-size: 13px;
+    color: #aaa;
+    border-bottom: 1px solid #333;
+  }
+  #video-info span { margin-right: 16px; }
+  #species-list { padding: 12px; }
+  .species-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid #333;
+  }
+  .species-name {
+    font-size: 16px;
+    font-weight: 600;
+    flex: 1;
+  }
+  .species-stats {
+    text-align: right;
+    flex-shrink: 0;
+    margin-left: 12px;
+  }
+  .species-max {
+    font-size: 16px;
+    color: #4caf50;
+  }
+  .species-count {
+    font-size: 12px;
+    color: #888;
+  }
+  #track-list {
+    padding: 0 12px 12px;
+  }
+  .track-header {
+    font-size: 13px;
+    color: #888;
+    padding: 12px 0 6px;
+    border-bottom: 1px solid #333;
+  }
+  .track-row {
+    font-size: 13px;
+    padding: 6px 0;
+    border-bottom: 1px solid #222;
+    display: flex;
+    justify-content: space-between;
+  }
 </style>
 </head>
 <body>
@@ -159,6 +338,30 @@
   <div id="start-screen">
     <button id="start-btn">Start Camera</button>
     <div id="start-error"></div>
+    <div class="start-divider">or</div>
+    <button id="upload-btn">Upload File</button>
+    <input type="file" id="file-input" accept="image/*,video/*" hidden>
+    <div id="upload-status"></div>
+  </div>
+  <div id="results-screen" class="hidden">
+    <div id="results-header">
+      <button id="back-btn">&larr; Back</button>
+      <span id="results-filename"></span>
+    </div>
+    <div id="results-body">
+      <div id="image-results" class="hidden">
+        <div id="result-image-wrap">
+          <img id="result-image">
+          <canvas id="result-canvas"></canvas>
+        </div>
+        <div id="detection-list"></div>
+      </div>
+      <div id="video-results" class="hidden">
+        <div id="video-info"></div>
+        <div id="species-list"></div>
+        <div id="track-list"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -213,9 +416,23 @@
   const settToggle  = document.getElementById("settings-toggle");
   const settPanel   = document.getElementById("settings-panel");
   const settArrow   = document.getElementById("settings-arrow");
-  const startScreen = document.getElementById("start-screen");
-  const startBtn    = document.getElementById("start-btn");
-  const startError  = document.getElementById("start-error");
+  const startScreen    = document.getElementById("start-screen");
+  const startBtn       = document.getElementById("start-btn");
+  const startError     = document.getElementById("start-error");
+  const uploadBtn      = document.getElementById("upload-btn");
+  const fileInput      = document.getElementById("file-input");
+  const uploadStatus   = document.getElementById("upload-status");
+  const resultsScreen  = document.getElementById("results-screen");
+  const backBtn        = document.getElementById("back-btn");
+  const resultsFilename = document.getElementById("results-filename");
+  const imageResults   = document.getElementById("image-results");
+  const resultImage    = document.getElementById("result-image");
+  const resultCanvas   = document.getElementById("result-canvas");
+  const detectionList  = document.getElementById("detection-list");
+  const videoResults   = document.getElementById("video-results");
+  const videoInfo      = document.getElementById("video-info");
+  const speciesList    = document.getElementById("species-list");
+  const trackList      = document.getElementById("track-list");
 
   // --- State ---
   let ws            = null;
@@ -565,6 +782,227 @@
     drawDetections();
     requestAnimationFrame(redrawLoop);
   }
+
+  // --- Upload ---
+  uploadBtn.addEventListener("click", function() {
+    fileInput.click();
+  });
+
+  fileInput.addEventListener("change", function() {
+    var file = fileInput.files[0];
+    if (!file) return;
+    uploadFile(file);
+    fileInput.value = "";
+  });
+
+  function uploadFile(file) {
+    var formData = new FormData();
+    formData.append("file", file);
+
+    uploadBtn.disabled = true;
+    uploadStatus.textContent = "Uploading...";
+    uploadStatus.style.color = "#ccc";
+
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "/upload");
+
+    xhr.upload.onprogress = function(e) {
+      if (e.lengthComputable) {
+        var pct = Math.round(e.loaded / e.total * 100);
+        uploadStatus.textContent = "Uploading... " + pct + "%";
+      }
+    };
+
+    xhr.upload.onload = function() {
+      uploadStatus.textContent = "Identifying birds...";
+    };
+
+    xhr.onload = function() {
+      uploadBtn.disabled = false;
+      if (xhr.status === 200) {
+        try {
+          var result = JSON.parse(xhr.responseText);
+          if (result.error) {
+            uploadStatus.textContent = "Error: " + result.error;
+            uploadStatus.style.color = "#f44336";
+          } else {
+            uploadStatus.textContent = "";
+            showResults(result, file);
+          }
+        } catch (e) {
+          uploadStatus.textContent = "Invalid response from server";
+          uploadStatus.style.color = "#f44336";
+        }
+      } else {
+        uploadStatus.textContent = "Upload failed: " + xhr.status;
+        uploadStatus.style.color = "#f44336";
+      }
+    };
+
+    xhr.onerror = function() {
+      uploadBtn.disabled = false;
+      uploadStatus.textContent = "Upload failed — check connection";
+      uploadStatus.style.color = "#f44336";
+    };
+
+    xhr.send(formData);
+  }
+
+  // --- Results display ---
+  function showResults(data, file) {
+    resultsFilename.textContent = data.filename || file.name;
+    imageResults.classList.add("hidden");
+    videoResults.classList.add("hidden");
+
+    if (data.type === "image") {
+      showImageResults(data, file);
+    } else {
+      showVideoResults(data);
+    }
+
+    startScreen.classList.add("hidden");
+    resultsScreen.classList.remove("hidden");
+  }
+
+  function showImageResults(data, file) {
+    var url = URL.createObjectURL(file);
+    resultImage.onload = function() {
+      drawResultDetections(data.detections, resultImage, resultCanvas);
+      URL.revokeObjectURL(url);
+    };
+    resultImage.src = url;
+
+    detectionList.innerHTML = "";
+    if (!data.detections || data.detections.length === 0) {
+      detectionList.innerHTML = '<div class="no-detections">No birds detected</div>';
+    } else {
+      for (var i = 0; i < data.detections.length; i++) {
+        var det = data.detections[i];
+        var row = document.createElement("div");
+
+        var main = document.createElement("div");
+        main.className = "det-row";
+        var sp = document.createElement("span");
+        sp.className = "det-species";
+        sp.textContent = det.species;
+        var sc = document.createElement("span");
+        sc.className = "det-score";
+        sc.textContent = (det.species_score * 100).toFixed(0) + "%";
+        var cf = document.createElement("span");
+        cf.className = "det-conf";
+        cf.textContent = "det " + (det.confidence * 100).toFixed(0) + "%";
+        main.appendChild(sp);
+        main.appendChild(sc);
+        main.appendChild(cf);
+        row.appendChild(main);
+
+        if (det.top_predictions && det.top_predictions.length > 1) {
+          var runners = document.createElement("div");
+          runners.className = "det-runners";
+          var parts = [];
+          for (var j = 1; j < Math.min(det.top_predictions.length, 4); j++) {
+            parts.push(det.top_predictions[j][0] + " " + (det.top_predictions[j][1] * 100).toFixed(1) + "%");
+          }
+          runners.textContent = parts.join(" · ");
+          row.appendChild(runners);
+        }
+        detectionList.appendChild(row);
+      }
+    }
+    imageResults.classList.remove("hidden");
+  }
+
+  function drawResultDetections(detections, img, canvas) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = img.clientWidth;
+    var h = img.clientHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    var c = canvas.getContext("2d");
+    c.scale(dpr, dpr);
+
+    for (var i = 0; i < detections.length; i++) {
+      var det = detections[i];
+      var bbox = det.bbox;
+      var x1 = bbox[0] * w;
+      var y1 = bbox[1] * h;
+      var x2 = bbox[2] * w;
+      var y2 = bbox[3] * h;
+      var bw = x2 - x1;
+      var bh = y2 - y1;
+
+      c.strokeStyle = "#00ff88";
+      c.lineWidth = 2;
+      c.strokeRect(x1, y1, bw, bh);
+
+      if (det.species) {
+        var label = det.species + "  " + (det.species_score * 100).toFixed(0) + "%";
+        c.font = "bold 14px -apple-system, sans-serif";
+        var tw = c.measureText(label).width;
+        c.fillStyle = "rgba(0, 0, 0, 0.6)";
+        c.fillRect(x1 - 2, y1 - 20, tw + 8, 22);
+        c.fillStyle = "#00ff88";
+        c.fillText(label, x1 + 2, y1 - 4);
+      }
+    }
+  }
+
+  function showVideoResults(data) {
+    var parts = [];
+    parts.push("<span>" + data.duration_seconds + "s</span>");
+    parts.push("<span>" + data.width + "x" + data.height + "</span>");
+    parts.push("<span>" + data.native_fps + " fps</span>");
+    parts.push("<span>" + data.processed_frames + " frames</span>");
+    parts.push("<span>" + data.processing_seconds + "s processing @ " + data.processing_fps + " fps</span>");
+    videoInfo.innerHTML = parts.join("");
+
+    speciesList.innerHTML = "";
+    if (!data.species_summary || data.species_summary.length === 0) {
+      speciesList.innerHTML = '<div class="no-detections">No birds detected</div>';
+    } else {
+      for (var i = 0; i < data.species_summary.length; i++) {
+        var sp = data.species_summary[i];
+        var row = document.createElement("div");
+        row.className = "species-row";
+        var name = document.createElement("span");
+        name.className = "species-name";
+        name.textContent = sp.species;
+        var stats = document.createElement("div");
+        stats.className = "species-stats";
+        var mx = document.createElement("div");
+        mx.className = "species-max";
+        mx.textContent = (sp.max_confidence * 100).toFixed(0) + "%";
+        var ct = document.createElement("div");
+        ct.className = "species-count";
+        ct.textContent = sp.detection_count + " detection" + (sp.detection_count !== 1 ? "s" : "") + ", avg " + (sp.avg_confidence * 100).toFixed(0) + "%";
+        stats.appendChild(mx);
+        stats.appendChild(ct);
+        row.appendChild(name);
+        row.appendChild(stats);
+        speciesList.appendChild(row);
+      }
+    }
+
+    trackList.innerHTML = "";
+    if (data.tracks && data.tracks.length > 0) {
+      trackList.innerHTML = '<div class="track-header">Tracks (' + data.tracks.length + ')</div>';
+      for (var i = 0; i < data.tracks.length; i++) {
+        var t = data.tracks[i];
+        var row = document.createElement("div");
+        row.className = "track-row";
+        row.innerHTML = "<span>#" + t.track_id + " " + t.top_species + " " + (t.confidence * 100).toFixed(0) + "%</span>" +
+          "<span>frames " + t.frame_span[0] + "-" + t.frame_span[1] + " (" + t.classification_count + " cls)</span>";
+        trackList.appendChild(row);
+      }
+    }
+    videoResults.classList.remove("hidden");
+  }
+
+  backBtn.addEventListener("click", function() {
+    resultsScreen.classList.add("hidden");
+    startScreen.classList.remove("hidden");
+    resultImage.src = "";
+  });
 
   // --- Init ---
   loadSettings();

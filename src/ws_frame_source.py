@@ -30,7 +30,9 @@ from typing import Iterator, Optional, Tuple
 import cv2
 import numpy as np
 from starlette.applications import Starlette
-from starlette.routing import Mount, WebSocketRoute
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
@@ -53,10 +55,12 @@ class WebSocketFrameSource:
         port: int = 8765,
         static_dir: Optional[str] = None,
         max_buffered_frames: int = 2,
+        upload_handler=None,
     ):
         self._host = host
         self._port = port
         self._static_dir = static_dir
+        self._upload_handler = upload_handler
         self._stop = False
         # Queue stores (bgr, metadata_dict) tuples
         self._frame_queue: queue.Queue = queue.Queue(maxsize=max_buffered_frames)
@@ -149,6 +153,9 @@ class WebSocketFrameSource:
     def _build_app(self) -> Starlette:
         routes = [WebSocketRoute("/ws", self._ws_endpoint)]
 
+        if self._upload_handler:
+            routes.append(Route("/upload", self._upload_endpoint, methods=["POST"]))
+
         if self._static_dir:
             static_path = Path(self._static_dir)
             if static_path.is_dir():
@@ -158,6 +165,28 @@ class WebSocketFrameSource:
                 logger.info("Serving static files from %s", static_path)
 
         return Starlette(routes=routes)
+
+    async def _upload_endpoint(self, request: Request) -> JSONResponse:
+        form = await request.form()
+        upload = form.get("file")
+        if not upload:
+            return JSONResponse({"error": "No file provided"}, status_code=400)
+
+        content = await upload.read()
+        filename = upload.filename or "upload"
+        content_type = upload.content_type or ""
+        logger.info("Upload received: %s  %s  %d bytes", filename, content_type, len(content))
+
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(
+                None, self._upload_handler, content, filename, content_type,
+            )
+        except Exception as exc:
+            logger.exception("Upload processing failed")
+            return JSONResponse({"error": str(exc)}, status_code=500)
+
+        return JSONResponse(result)
 
     async def _ws_endpoint(self, ws: WebSocket) -> None:
         await ws.accept()

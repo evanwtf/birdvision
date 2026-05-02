@@ -13,10 +13,14 @@ Designed to be instantiated and called from scripts/realtime_identify.py.
 """
 
 import logging
+import os
 import signal
+import tempfile
 import time
+from pathlib import Path
 from typing import Optional
 
+import cv2
 import numpy as np
 import psutil
 
@@ -90,6 +94,7 @@ class RealtimePipeline:
                 host=stream_cfg.get("ws_host", "0.0.0.0"),
                 port=stream_cfg.get("ws_port", 8765),
                 static_dir=stream_cfg.get("ws_static_dir"),
+                upload_handler=self._handle_upload,
             )
         else:
             self._source = V4L2FrameSource(
@@ -381,6 +386,217 @@ class RealtimePipeline:
         """Request a clean shutdown after the current frame."""
         self._stop = True
         self._source.stop()
+
+    # ------------------------------------------------------------------
+    # Upload processing
+    # ------------------------------------------------------------------
+
+    def _handle_upload(self, file_bytes: bytes, filename: str, content_type: str) -> dict:
+        ext = Path(filename).suffix.lower()
+        image_exts = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".heic", ".heif"}
+
+        if content_type.startswith("image/") or ext in image_exts:
+            return self._process_image_upload(file_bytes, filename)
+        return self._process_video_upload(file_bytes, filename)
+
+    def _process_image_upload(self, file_bytes: bytes, filename: str) -> dict:
+        buf = np.frombuffer(file_bytes, dtype=np.uint8)
+        frame = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+        if frame is None:
+            return {"error": "Could not decode image"}
+
+        frame_h, frame_w = frame.shape[:2]
+        logger.info("Processing image upload: %s  %dx%d", filename, frame_w, frame_h)
+        detections = self._detector.detect(frame)
+
+        results = []
+        if detections:
+            crops = []
+            det_indices = []
+            for i, det in enumerate(detections):
+                crop = _expanded_crop(
+                    frame, det.bbox,
+                    padding_ratio=self._crop_padding,
+                    padding_ratio_min=self._crop_padding_min,
+                    closeup_area_ratio=self._crop_closeup_ratio,
+                    min_crop_area=self._min_crop_area,
+                )
+                if crop is not None:
+                    crops.append(crop)
+                    det_indices.append(i)
+
+            if crops:
+                all_preds = self._classifier.classify_batch(crops)
+                for idx, preds in zip(det_indices, all_preds):
+                    det = detections[idx]
+                    if self._metadata is not None:
+                        preds = self._metadata.apply(preds)
+                    top_species, top_score = preds[0] if preds else ("unknown", 0.0)
+                    results.append({
+                        "bbox": [
+                            float(det.bbox[0]) / frame_w,
+                            float(det.bbox[1]) / frame_h,
+                            float(det.bbox[2]) / frame_w,
+                            float(det.bbox[3]) / frame_h,
+                        ],
+                        "confidence": round(float(det.confidence), 3),
+                        "species": top_species,
+                        "species_score": round(float(top_score), 3),
+                        "top_predictions": [
+                            [s, round(float(sc), 4)] for s, sc in preds[:10]
+                        ],
+                    })
+
+        logger.info("Image upload done: %s  %d detections", filename, len(results))
+        return {
+            "type": "image",
+            "filename": filename,
+            "width": frame_w,
+            "height": frame_h,
+            "detections": results,
+        }
+
+    def _process_video_upload(self, file_bytes: bytes, filename: str) -> dict:
+        suffix = Path(filename).suffix or ".mp4"
+        fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+        os.close(fd)
+
+        try:
+            with open(tmp_path, "wb") as f:
+                f.write(file_bytes)
+
+            cap = cv2.VideoCapture(tmp_path)
+            if not cap.isOpened():
+                return {"error": "Could not open video file"}
+
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            native_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            duration = total_frames / native_fps if native_fps > 0 else 0
+            logger.info(
+                "Processing video upload: %s  %dx%d  %.1f fps  %d frames  %.1fs",
+                filename, width, height, native_fps, total_frames, duration,
+            )
+
+            trk_cfg = self._config.get("tracker", {})
+            tracker = BirdTracker(
+                max_disappeared=trk_cfg.get("max_disappeared", 120),
+                iou_threshold=trk_cfg.get("iou_threshold", 0.2),
+                centroid_max_distance=trk_cfg.get("centroid_max_distance", 0.18),
+            )
+
+            species_events: dict = {}
+            track_info: dict = {}
+            t_start = time.monotonic()
+
+            frame_no = 0
+            while True:
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    break
+
+                frame_h, frame_w = frame.shape[:2]
+                detections = self._detector.detect(frame)
+                tracks = tracker.update(detections, frame_size=(frame_w, frame_h))
+
+                for tid, track in tracks.items():
+                    if track.matched_detection_idx is None:
+                        continue
+                    if tid not in track_info:
+                        track_info[tid] = {
+                            "first_frame": frame_no,
+                            "last_frame": frame_no,
+                            "species_counts": {},
+                            "best_species": None,
+                            "best_score": 0.0,
+                        }
+                    track_info[tid]["last_frame"] = frame_no
+
+                    if (frame_no - track.last_classified_frame) < self._classify_every_n:
+                        continue
+
+                    det = detections[track.matched_detection_idx]
+                    crop = _expanded_crop(
+                        frame, det.bbox,
+                        padding_ratio=self._crop_padding,
+                        padding_ratio_min=self._crop_padding_min,
+                        closeup_area_ratio=self._crop_closeup_ratio,
+                        min_crop_area=self._min_crop_area,
+                    )
+                    if crop is None:
+                        continue
+
+                    preds = self._classifier.classify_batch([crop])
+                    if not preds or not preds[0]:
+                        continue
+
+                    if self._metadata is not None:
+                        preds[0] = self._metadata.apply(preds[0])
+
+                    track.last_classified_frame = frame_no
+                    top_species, top_score = preds[0][0]
+
+                    if top_score >= self._min_event_conf:
+                        species_events.setdefault(top_species, []).append(float(top_score))
+                        info = track_info[tid]
+                        info["species_counts"][top_species] = info["species_counts"].get(top_species, 0) + 1
+                        if top_score > info["best_score"]:
+                            info["best_species"] = top_species
+                            info["best_score"] = float(top_score)
+
+                frame_no += 1
+                if frame_no % 100 == 0:
+                    elapsed = time.monotonic() - t_start
+                    logger.info(
+                        "Video upload progress: %d/%d frames  %.1f fps",
+                        frame_no, total_frames, frame_no / elapsed if elapsed > 0 else 0,
+                    )
+
+            cap.release()
+            elapsed = time.monotonic() - t_start
+
+            species_summary = []
+            for sp, scores in sorted(species_events.items(), key=lambda x: max(x[1]), reverse=True):
+                species_summary.append({
+                    "species": sp,
+                    "max_confidence": round(max(scores), 3),
+                    "avg_confidence": round(sum(scores) / len(scores), 3),
+                    "detection_count": len(scores),
+                })
+
+            tracks_summary = []
+            for tid, info in sorted(track_info.items()):
+                if info["best_species"]:
+                    tracks_summary.append({
+                        "track_id": tid,
+                        "frame_span": [info["first_frame"], info["last_frame"]],
+                        "top_species": info["best_species"],
+                        "confidence": round(info["best_score"], 3),
+                        "classification_count": sum(info["species_counts"].values()),
+                    })
+
+            logger.info(
+                "Video upload done: %s  %d frames in %.1fs  %d species  %d tracks",
+                filename, frame_no, elapsed, len(species_summary), len(tracks_summary),
+            )
+            return {
+                "type": "video",
+                "filename": filename,
+                "width": width,
+                "height": height,
+                "duration_seconds": round(duration, 1),
+                "total_frames": total_frames,
+                "processed_frames": frame_no,
+                "native_fps": round(native_fps, 1),
+                "processing_fps": round(frame_no / elapsed, 1) if elapsed > 0 else 0,
+                "processing_seconds": round(elapsed, 1),
+                "species_summary": species_summary,
+                "track_count": len(tracks_summary),
+                "tracks": tracks_summary,
+            }
+        finally:
+            os.unlink(tmp_path)
 
     # ------------------------------------------------------------------
     # Internal
