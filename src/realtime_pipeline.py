@@ -63,6 +63,23 @@ def _format_seen_birds_summary(species_summary: list[dict]) -> str:
     return "; ".join(items)
 
 
+def _safe_path_component(value: object) -> str:
+    """Return a filesystem-safe filename component for debug artifacts."""
+    safe = []
+    for ch in str(value):
+        if ch.isalnum() or ch in ("-", "_", "."):
+            safe.append(ch)
+        elif ch.isspace():
+            safe.append("_")
+    return "".join(safe).strip("._") or "unknown"
+
+
+def _bbox_area_ratio(bbox: np.ndarray, frame_w: int, frame_h: int) -> float:
+    box_w = max(0.0, float(bbox[2]) - float(bbox[0]))
+    box_h = max(0.0, float(bbox[3]) - float(bbox[1]))
+    return (box_w * box_h) / max(1.0, float(frame_w * frame_h))
+
+
 def _expanded_crop(
     frame: np.ndarray,
     bbox: np.ndarray,
@@ -171,6 +188,7 @@ class RealtimePipeline:
         self._min_event_conf      = cls_cfg.get("min_event_confidence", 0.35)
         self._log_interval        = out_cfg.get("log_interval_seconds", 1.0)
         self._stats_interval      = out_cfg.get("stats_interval_seconds", 30.0)
+        self._results_dir         = Path(out_cfg.get("results_dir", "/data/results"))
 
         # eBird priors (optional — skip if db not present)
         self._metadata = None
@@ -429,6 +447,30 @@ class RealtimePipeline:
             return self._process_image_upload(file_bytes, filename)
         return self._process_video_upload(file_bytes, filename)
 
+    def _make_upload_debug_dir(self, filename: str) -> Path:
+        upload_stem = _safe_path_component(Path(filename).stem)
+        run_id = time.strftime("%Y%m%d_%H%M%S")
+        debug_dir = self._results_dir / "upload_debug" / f"{upload_stem}_{run_id}"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        return debug_dir
+
+    def _save_upload_debug_crop(
+        self,
+        debug_dir: Path,
+        crop: np.ndarray,
+        *,
+        prefix: str,
+        species: str,
+        score: float,
+        area_ratio: float,
+    ) -> None:
+        species_name = _safe_path_component(species)
+        path = debug_dir / (
+            f"{prefix}_{species_name}_{float(score):.3f}_area{area_ratio * 100:.2f}pct.jpg"
+        )
+        if not cv2.imwrite(str(path), crop):
+            logger.warning("Could not write upload debug crop: %s", path)
+
     def _process_image_upload(self, file_bytes: bytes, filename: str) -> dict:
         buf = np.frombuffer(file_bytes, dtype=np.uint8)
         frame = cv2.imdecode(buf, cv2.IMREAD_COLOR)
@@ -437,6 +479,8 @@ class RealtimePipeline:
 
         frame_h, frame_w = frame.shape[:2]
         logger.info("Processing image upload: %s  %dx%d", filename, frame_w, frame_h)
+        debug_dir = self._make_upload_debug_dir(filename)
+        logger.info("Upload debug crops: %s", debug_dir)
         detections = self._detector.detect(frame)
 
         results = []
@@ -457,16 +501,26 @@ class RealtimePipeline:
 
             if crops:
                 all_preds = self._classifier.classify_batch(crops)
-                for idx, preds in zip(det_indices, all_preds):
+                for idx, preds, crop in zip(det_indices, all_preds, crops):
                     det = detections[idx]
                     if self._metadata is not None:
                         preds = self._metadata.apply(preds)
                     top_species, top_score = preds[0] if preds else ("unknown", 0.0)
+                    area_ratio = _bbox_area_ratio(det.bbox, frame_w, frame_h)
+                    self._save_upload_debug_crop(
+                        debug_dir,
+                        crop,
+                        prefix=f"image_box_{idx:03d}",
+                        species=top_species,
+                        score=float(top_score),
+                        area_ratio=area_ratio,
+                    )
                     logger.info(
-                        "Image upload detection: %s  box=%d  detector=%.1f%%  predictions=%s",
+                        "Image upload detection: %s  box=%d  detector=%.1f%%  bbox_area=%.2f%%  predictions=%s",
                         filename,
                         idx,
                         float(det.confidence) * 100.0,
+                        area_ratio * 100.0,
                         _format_prediction_list(preds, limit=10),
                     )
                     results.append({
@@ -532,10 +586,12 @@ class RealtimePipeline:
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             duration = total_frames / native_fps if native_fps > 0 else 0
+            debug_dir = self._make_upload_debug_dir(filename)
             logger.info(
                 "Processing video upload: %s  %dx%d  %.1f fps  %d frames  %.1fs",
                 filename, width, height, native_fps, total_frames, duration,
             )
+            logger.info("Upload debug crops: %s", debug_dir)
 
             trk_cfg = self._config.get("tracker", {})
             tracker = BirdTracker(
@@ -594,12 +650,22 @@ class RealtimePipeline:
 
                     track.last_classified_frame = frame_no
                     top_species, top_score = preds[0][0]
+                    area_ratio = _bbox_area_ratio(det.bbox, frame_w, frame_h)
+                    self._save_upload_debug_crop(
+                        debug_dir,
+                        crop,
+                        prefix=f"frame_{frame_no:06d}_track_{tid}",
+                        species=top_species,
+                        score=float(top_score),
+                        area_ratio=area_ratio,
+                    )
                     logger.info(
-                        "Video upload classification: %s  frame=%d  track=%s  detector=%.1f%%  predictions=%s",
+                        "Video upload classification: %s  frame=%d  track=%s  detector=%.1f%%  bbox_area=%.2f%%  predictions=%s",
                         filename,
                         frame_no,
                         tid,
                         float(det.confidence) * 100.0,
+                        area_ratio * 100.0,
                         _format_prediction_list(preds[0], limit=10),
                     )
 
