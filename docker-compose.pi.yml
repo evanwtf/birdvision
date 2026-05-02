@@ -60,7 +60,11 @@ services:
     devices:
       - /dev/hailo0:/dev/hailo0   # Hailo-8 PCIe AI accelerator
 
-    # No ports exposed — Caddy handles external traffic
+    # Publish the Starlette sidecar app for the home nginx reverse proxy.
+    # Caddy still handles direct phone HTTPS on ports 80/443.
+    ports:
+      - "8765:8765"
+
     expose:
       - "8765"
 
