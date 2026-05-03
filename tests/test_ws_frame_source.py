@@ -137,6 +137,101 @@ class TestSendResult:
         loop.close()
 
 
+class TestSingleClientGuard:
+    def test_claim_rejects_second_client_until_release(self):
+        src = WebSocketFrameSource()
+
+        assert src._claim_client()
+        assert src._client_connected.is_set()
+        assert not src._claim_client()
+
+        src._release_client()
+        assert not src._client_connected.is_set()
+        assert src._claim_client()
+        src._release_client()
+
+
+class TestWsEndpointRejection:
+    def test_second_client_receives_error_json_and_close(self):
+        src = WebSocketFrameSource(client_idle_timeout_seconds=60.0)
+
+        class FakeWebSocket:
+            def __init__(self):
+                self.client = "fake-client"
+                self.accepted = False
+                self.sent_json = None
+                self.close_code = None
+                self.close_reason = None
+
+            async def accept(self):
+                self.accepted = True
+
+            async def send_json(self, data):
+                self.sent_json = data
+
+            async def close(self, code=1000, reason=""):
+                self.close_code = code
+                self.close_reason = reason
+
+        assert src._claim_client()
+
+        ws = FakeWebSocket()
+        asyncio.run(src._ws_endpoint(ws))
+
+        assert ws.accepted
+        assert ws.sent_json is not None
+        assert "error" in ws.sent_json
+        assert "already in use" in ws.sent_json["error"]
+        assert ws.close_code == 1013
+
+        assert src._client_connected.is_set()
+        src._release_client()
+
+    def test_rejection_tolerates_early_disconnect(self):
+        src = WebSocketFrameSource()
+        assert src._claim_client()
+
+        class DisconnectingWebSocket:
+            client = "disconnect-client"
+            accepted = False
+
+            async def accept(self):
+                self.accepted = True
+
+            async def send_json(self, data):
+                raise RuntimeError("client gone")
+
+            async def close(self, code=1000, reason=""):
+                raise RuntimeError("client gone")
+
+        ws = DisconnectingWebSocket()
+        asyncio.run(src._ws_endpoint(ws))
+
+        assert ws.accepted
+        assert src._client_connected.is_set()
+        src._release_client()
+
+
+class TestClientIdleTimeout:
+    def test_idle_receive_loop_closes_connection(self):
+        class IdleWebSocket:
+            client = "test-client"
+            close_code = None
+
+            async def receive(self):
+                await asyncio.sleep(1)
+
+            async def close(self, code):
+                self.close_code = code
+
+        src = WebSocketFrameSource(client_idle_timeout_seconds=0.01)
+        ws = IdleWebSocket()
+
+        asyncio.run(src._receive_loop(ws))
+
+        assert ws.close_code == 1001
+
+
 class TestStopBehavior:
     def test_stop_sets_flag(self):
         src = WebSocketFrameSource()
@@ -208,10 +303,17 @@ class TestInit:
         assert src._host == "0.0.0.0"
         assert src._port == 8765
         assert src._static_dir is None
+        assert src._client_idle_timeout == 30.0
         assert src._stop is False
 
     def test_custom_params(self):
-        src = WebSocketFrameSource(host="127.0.0.1", port=9999, static_dir="/tmp")
+        src = WebSocketFrameSource(
+            host="127.0.0.1",
+            port=9999,
+            static_dir="/tmp",
+            client_idle_timeout_seconds=12.0,
+        )
         assert src._host == "127.0.0.1"
         assert src._port == 9999
         assert src._static_dir == "/tmp"
+        assert src._client_idle_timeout == 12.0

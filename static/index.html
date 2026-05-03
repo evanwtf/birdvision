@@ -48,12 +48,60 @@
     width: 100%;
     height: 100%;
     object-fit: contain;
+    transform-origin: center center;
   }
   #overlay {
     position: absolute;
     top: 0; left: 0;
     width: 100%;
     height: 100%;
+    pointer-events: none;
+  }
+  #zoom-controls {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: calc(18px + env(safe-area-inset-bottom));
+    z-index: 15;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    pointer-events: none;
+  }
+  #zoom-controls.hidden { display: none; }
+  #zoom-controls button {
+    width: 74px;
+    height: 74px;
+    border: none;
+    border-radius: 12px;
+    background: rgba(0,0,0,0.76);
+    color: #fff;
+    font-size: 42px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    pointer-events: auto;
+    touch-action: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #zoom-out-btn { justify-self: start; }
+  #zoom-in-btn { justify-self: end; }
+  #zoom-controls button:active { background: rgba(60,60,60,0.86); }
+  #zoom-controls button:disabled {
+    color: #888;
+    background: rgba(0,0,0,0.45);
+    cursor: default;
+  }
+  #zoom-label {
+    min-width: 54px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.72);
+    color: #fff;
+    font-size: 18px;
+    font-weight: 600;
+    text-align: center;
     pointer-events: none;
   }
 
@@ -88,6 +136,22 @@
     text-align: center;
     padding: 0 24px;
     max-width: 400px;
+  }
+  #start-error.prominent {
+    color: #fff;
+    background: rgba(244, 67, 54, 0.22);
+    border: 1px solid rgba(244, 67, 54, 0.7);
+    border-radius: 8px;
+    line-height: 1.4;
+    padding: 12px 16px;
+  }
+  #start-screen.server-error .start-divider,
+  #start-screen.server-error #upload-btn,
+  #start-screen.server-error #upload-status {
+    display: none;
+  }
+  #start-screen.server-error #start-btn {
+    margin-top: 18px;
   }
 
   /* --- Settings panel --- */
@@ -352,6 +416,11 @@
 <div id="viewport">
   <video id="camera" autoplay playsinline muted></video>
   <canvas id="overlay"></canvas>
+  <div id="zoom-controls" class="hidden" aria-label="Camera zoom controls">
+    <button id="zoom-out-btn" type="button" aria-label="Zoom out">-</button>
+    <span id="zoom-label">1.0x</span>
+    <button id="zoom-in-btn" type="button" aria-label="Zoom in">+</button>
+  </div>
   <div id="start-screen">
     <button id="start-btn">Start Camera</button>
     <div id="start-error"></div>
@@ -431,6 +500,10 @@
   const qualSlider  = document.getElementById("quality-slider");
   const qualValue   = document.getElementById("quality-value");
   const resoSelect  = document.getElementById("resolution-select");
+  const zoomControls = document.getElementById("zoom-controls");
+  const zoomOutBtn  = document.getElementById("zoom-out-btn");
+  const zoomInBtn   = document.getElementById("zoom-in-btn");
+  const zoomLabel   = document.getElementById("zoom-label");
   const serverInput = document.getElementById("server-input");
   const reconnBtn   = document.getElementById("reconnect-btn");
   const settToggle  = document.getElementById("settings-toggle");
@@ -466,6 +539,13 @@
   let lastDetections = [];
   let lastResultTime = 0;
   const DETECTION_TTL_MS = 2000;
+  const DIGITAL_MAX_ZOOM = 15;
+  const ZOOM_STEP = 0.5;
+  let zoomLevel = parseFloat(localStorage.getItem("bv_zoom") || "1") || 1;
+  let nativeZoom = null;
+  let zoomApplySeq = 0;
+  let zoomHoldDelayTimer = null;
+  let zoomHoldRepeatTimer = null;
 
   // --- Offscreen canvas for frame capture ---
   const capCanvas = document.createElement("canvas");
@@ -483,15 +563,19 @@
     const fps  = localStorage.getItem("bv_fps");
     const qual = localStorage.getItem("bv_quality");
     const reso = localStorage.getItem("bv_resolution");
+    const zoom = localStorage.getItem("bv_zoom");
     if (fps)  fpsSlider.value  = fps;
     if (qual) qualSlider.value = qual;
     if (reso) resoSelect.value = reso;
+    if (zoom) zoomLevel = parseFloat(zoom) || 1;
     updateSettingsDisplay();
+    applyZoom();
   }
   function saveSettings() {
     localStorage.setItem("bv_fps", fpsSlider.value);
     localStorage.setItem("bv_quality", qualSlider.value);
     localStorage.setItem("bv_resolution", resoSelect.value);
+    localStorage.setItem("bv_zoom", String(zoomLevel));
     localStorage.setItem("bv_server", serverInput.value);
   }
   function updateSettingsDisplay() {
@@ -522,6 +606,150 @@
   // --- Camera ---
   let currentStream = null;
 
+  function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function zoomMin() {
+    return nativeZoom ? nativeZoom.min : 1;
+  }
+
+  function zoomMax() {
+    return nativeZoom ? nativeZoom.max : DIGITAL_MAX_ZOOM;
+  }
+
+  function zoomButtonStep() {
+    return ZOOM_STEP;
+  }
+
+  function roundZoom(value) {
+    return Math.round(value / ZOOM_STEP) * ZOOM_STEP;
+  }
+
+  function formatZoom(value) {
+    const rounded = Math.round(value);
+    return (Math.abs(value - rounded) < 0.01 ? String(rounded) : value.toFixed(1)) + "x";
+  }
+
+  function updateZoomUi() {
+    const min = zoomMin();
+    const max = zoomMax();
+    zoomLevel = clamp(roundZoom(zoomLevel), min, max);
+    zoomLabel.textContent = formatZoom(zoomLevel);
+    zoomOutBtn.disabled = zoomLevel <= min + 0.01;
+    zoomInBtn.disabled = zoomLevel >= max - 0.01;
+    zoomControls.classList.toggle("hidden", !currentStream);
+  }
+
+  function applyPreviewZoom() {
+    if (nativeZoom || zoomLevel <= 1.01) {
+      video.style.willChange = "";
+      video.style.transform = "";
+      return;
+    }
+    video.style.willChange = "transform";
+    video.style.transform = "scale(" + zoomLevel.toFixed(3) + ")";
+  }
+
+  function setZoom(value, persist) {
+    zoomLevel = clamp(roundZoom(value || 1), zoomMin(), zoomMax());
+    updateZoomUi();
+    applyPreviewZoom();
+    if (persist) saveSettings();
+
+    if (!nativeZoom) return;
+
+    const seq = ++zoomApplySeq;
+    nativeZoom.track.applyConstraints({ advanced: [{ zoom: zoomLevel }] }).catch(function() {
+      if (seq !== zoomApplySeq) return;
+      nativeZoom = null;
+      zoomLevel = clamp(roundZoom(zoomLevel), 1, DIGITAL_MAX_ZOOM);
+      updateZoomUi();
+      applyPreviewZoom();
+    });
+  }
+
+  function applyZoom() {
+    setZoom(zoomLevel, false);
+  }
+
+  function setupCameraZoom(stream) {
+    nativeZoom = null;
+    const track = stream.getVideoTracks()[0];
+    if (track && track.getCapabilities && track.applyConstraints) {
+      const caps = track.getCapabilities();
+      if (caps && caps.zoom && typeof caps.zoom.min === "number" && typeof caps.zoom.max === "number" && caps.zoom.max > caps.zoom.min) {
+        const min = Math.max(1, Math.ceil((caps.zoom.min || 1) / ZOOM_STEP) * ZOOM_STEP);
+        const max = Math.min(DIGITAL_MAX_ZOOM, Math.floor(caps.zoom.max / ZOOM_STEP) * ZOOM_STEP);
+        nativeZoom = {
+          track: track,
+          min: min,
+          max: max,
+        };
+        if (nativeZoom.max <= nativeZoom.min) {
+          nativeZoom = null;
+        }
+      }
+    }
+    applyZoom();
+  }
+
+  function changeZoom(delta) {
+    const before = zoomLevel;
+    setZoom(zoomLevel + delta, true);
+    return Math.abs(zoomLevel - before) > 0.01;
+  }
+
+  function stopZoomHold() {
+    if (zoomHoldDelayTimer) {
+      clearTimeout(zoomHoldDelayTimer);
+      zoomHoldDelayTimer = null;
+    }
+    if (zoomHoldRepeatTimer) {
+      clearInterval(zoomHoldRepeatTimer);
+      zoomHoldRepeatTimer = null;
+    }
+  }
+
+  function startZoomHold(delta, evt) {
+    if (evt) {
+      evt.preventDefault();
+      if (evt.currentTarget.setPointerCapture && evt.pointerId !== undefined) {
+        try {
+          evt.currentTarget.setPointerCapture(evt.pointerId);
+        } catch (e) {}
+      }
+      if (evt.currentTarget.disabled) return;
+    }
+
+    stopZoomHold();
+    if (!changeZoom(delta)) return;
+
+    zoomHoldDelayTimer = setTimeout(function() {
+      zoomHoldDelayTimer = null;
+      zoomHoldRepeatTimer = setInterval(function() {
+        if (!changeZoom(delta)) {
+          stopZoomHold();
+        }
+      }, 150);
+    }, 350);
+  }
+
+  function bindZoomHold(button, delta) {
+    button.addEventListener("pointerdown", function(evt) {
+      startZoomHold(delta, evt);
+    });
+    button.addEventListener("pointerup", stopZoomHold);
+    button.addEventListener("pointercancel", stopZoomHold);
+    button.addEventListener("lostpointercapture", stopZoomHold);
+    button.addEventListener("contextmenu", function(evt) {
+      evt.preventDefault();
+    });
+  }
+
+  bindZoomHold(zoomOutBtn, -zoomButtonStep());
+  bindZoomHold(zoomInBtn, zoomButtonStep());
+
   async function startCamera() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       var msg = "Camera requires a secure context (HTTPS).";
@@ -533,20 +761,28 @@
     }
     if (currentStream) {
       currentStream.getTracks().forEach(function(t) { t.stop(); });
+      currentStream = null;
+      nativeZoom = null;
+      updateZoomUi();
     }
     const h = parseInt(resoSelect.value);
+    const videoConstraints = {
+      facingMode: "environment",
+      width:  { ideal: Math.round(h * 16 / 9) },
+      height: { ideal: h },
+    };
+    if (navigator.mediaDevices.getSupportedConstraints && navigator.mediaDevices.getSupportedConstraints().zoom) {
+      videoConstraints.zoom = true;
+    }
     const constraints = {
-      video: {
-        facingMode: "environment",
-        width:  { ideal: Math.round(h * 16 / 9) },
-        height: { ideal: h },
-      },
+      video: videoConstraints,
       audio: false,
     };
     try {
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       currentStream = stream;
       video.srcObject = stream;
+      setupCameraZoom(stream);
       return true;
     } catch (err) {
       startError.textContent = "Camera error: " + err.message;
@@ -557,6 +793,8 @@
   // --- Start button ---
   startBtn.addEventListener("click", async function() {
     startError.textContent = "";
+    startError.classList.remove("prominent");
+    startScreen.classList.remove("server-error");
     startBtn.disabled = true;
     startBtn.textContent = "Starting...";
 
@@ -645,7 +883,11 @@
   }
 
   // --- WebSocket ---
+  const BUSY_CLOSE_CODE = 1013;
+  const BUSY_CLOSE_REASON = "BirdVision is already in use";
+  const BUSY_MESSAGE = "BirdVision is already in use by another camera. Try again when that session disconnects.";
   let reconnectDelay = 1000;
+  let suppressReconnect = false;
 
   function setConnState(state) {
     connInd.className = "indicator " + state;
@@ -663,6 +905,7 @@
     const url = serverInput.value;
     if (!url) return;
     setConnState("connecting");
+    suppressReconnect = false;
 
     try {
       ws = new WebSocket(url);
@@ -682,6 +925,10 @@
     ws.onmessage = function(evt) {
       try {
         const result = JSON.parse(evt.data);
+        if (result.error) {
+          showServerError(result.error);
+          return;
+        }
         lastDetections = result.detections || [];
         lastResultTime = Date.now();
         if (result.fps !== undefined) {
@@ -691,15 +938,50 @@
       } catch (e) {}
     };
 
-    ws.onclose = function() {
+    ws.onclose = function(evt) {
+      if (evt && (evt.code === BUSY_CLOSE_CODE || (evt.reason || "").indexOf(BUSY_CLOSE_REASON) !== -1)) {
+        showServerError(BUSY_MESSAGE);
+        return;
+      }
       setConnState("disconnected");
       stopSendLoop();
-      scheduleReconnect();
+      if (!suppressReconnect) {
+        scheduleReconnect();
+      }
     };
 
     ws.onerror = function() {
       setConnState("disconnected");
     };
+  }
+
+  function showServerError(message) {
+    suppressReconnect = true;
+    stopSendLoop();
+    if (currentStream) {
+      currentStream.getTracks().forEach(function(t) { t.stop(); });
+      currentStream = null;
+    }
+    nativeZoom = null;
+    zoomLevel = 1;
+    video.srcObject = null;
+    video.removeAttribute("src");
+    video.load();
+    updateZoomUi();
+    applyPreviewZoom();
+    lastDetections = [];
+    lastResultTime = 0;
+    ctx.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
+    fpsDisplay.textContent = "";
+    uploadStatus.textContent = "";
+    startScreen.classList.add("server-error");
+    startScreen.classList.remove("hidden");
+    startError.textContent = message;
+    startError.classList.add("prominent");
+    startBtn.disabled = false;
+    startBtn.textContent = "Try Again";
+    setConnState("disconnected");
+    connText.textContent = "In use";
   }
 
   function scheduleReconnect() {
@@ -732,7 +1014,15 @@
 
     capCanvas.width  = vw;
     capCanvas.height = vh;
-    capCtx.drawImage(video, 0, 0, vw, vh);
+    if (nativeZoom || zoomLevel <= 1.01) {
+      capCtx.drawImage(video, 0, 0, vw, vh);
+    } else {
+      const cropW = vw / zoomLevel;
+      const cropH = vh / zoomLevel;
+      const cropX = (vw - cropW) / 2;
+      const cropY = (vh - cropH) / 2;
+      capCtx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, vw, vh);
+    }
 
     const quality = parseInt(qualSlider.value) / 100;
     capCanvas.toBlob(function(blob) {
