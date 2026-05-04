@@ -76,6 +76,25 @@
   #stream-btn:active { background: #388e3c; }
   #stream-btn.hidden { display: none; }
 
+  #stop-btn {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: calc(110px + env(safe-area-inset-bottom));
+    z-index: 16;
+    background: #f44336;
+    color: #fff;
+    border: none;
+    padding: 16px 40px;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #stop-btn:active { background: #c62828; }
+  #stop-btn.hidden { display: none; }
+
   #species-log {
     position: absolute;
     top: 8px;
@@ -460,6 +479,7 @@
   <canvas id="overlay"></canvas>
   <div id="species-log"></div>
   <button id="stream-btn" class="hidden">Start Streaming</button>
+  <button id="stop-btn" class="hidden">Stop</button>
   <div id="zoom-controls" class="hidden" aria-label="Camera zoom controls">
     <button id="zoom-out-btn" type="button" aria-label="Zoom out">-</button>
     <span id="zoom-label">1.0x</span>
@@ -555,6 +575,7 @@
   const settArrow   = document.getElementById("settings-arrow");
   const speciesLog     = document.getElementById("species-log");
   const streamBtn      = document.getElementById("stream-btn");
+  const stopBtn        = document.getElementById("stop-btn");
   const startScreen    = document.getElementById("start-screen");
   const startBtn       = document.getElementById("start-btn");
   const startError     = document.getElementById("start-error");
@@ -858,9 +879,30 @@
   // --- Stream button (connects WebSocket after user has zoomed) ---
   streamBtn.addEventListener("click", function() {
     streamBtn.classList.add("hidden");
+    stopBtn.classList.remove("hidden");
     connectWs();
     requestWakeLock();
     startGps();
+  });
+
+  // --- Stop button (disconnects WebSocket, returns to zoom-then-stream) ---
+  stopBtn.addEventListener("click", function() {
+    suppressReconnect = true;
+    stopSendLoop();
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+      ws = null;
+    }
+    setConnState("disconnected");
+    lastDetections = [];
+    lastResultTime = 0;
+    ctx.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
+    speciesEntries.forEach(function(entry) { entry.el.remove(); });
+    speciesEntries.clear();
+    fpsDisplay.textContent = "";
+    stopBtn.classList.add("hidden");
+    streamBtn.classList.remove("hidden");
   });
 
   // --- Overlay sizing ---
@@ -1072,6 +1114,7 @@
     fpsDisplay.textContent = "";
     uploadStatus.textContent = "";
     streamBtn.classList.add("hidden");
+    stopBtn.classList.add("hidden");
     startScreen.classList.add("server-error");
     startScreen.classList.remove("hidden");
     startError.textContent = message;
