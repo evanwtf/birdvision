@@ -74,11 +74,20 @@ class WebSocketFrameSource:
         self._metadata: dict = {}
         self._client_connected = threading.Event()
         self._client_lock = threading.Lock()
+        self._bytes_received = 0
+        self._bytes_lock = threading.Lock()
 
     @property
     def client_metadata(self) -> dict:
         """Latest metadata from the connected client (lat, lon, etc.)."""
         return self._metadata
+
+    def drain_bytes_received(self) -> int:
+        """Return bytes received since last call and reset counter."""
+        with self._bytes_lock:
+            n = self._bytes_received
+            self._bytes_received = 0
+            return n
 
     def frames(self) -> Iterator[Tuple[int, np.ndarray]]:
         """Yield (frame_number, bgr_frame) from WebSocket JPEG frames."""
@@ -271,7 +280,10 @@ class WebSocketFrameSource:
                         pass
 
                 elif "bytes" in msg:
-                    buf = np.frombuffer(msg["bytes"], dtype=np.uint8)
+                    raw = msg["bytes"]
+                    with self._bytes_lock:
+                        self._bytes_received += len(raw)
+                    buf = np.frombuffer(raw, dtype=np.uint8)
                     bgr = cv2.imdecode(buf, cv2.IMREAD_COLOR)
                     if bgr is not None:
                         meta_copy = self._pending_metadata.copy()

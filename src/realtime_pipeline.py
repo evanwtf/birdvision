@@ -242,6 +242,7 @@ class RealtimePipeline:
         caption_score:   Optional[float] = None
         caption_expiry:  float           = 0.0
         current_fps:     float           = 0.0
+        current_bw_kbps: float           = 0.0
 
         for frame_no, frame in self._source.frames():
             if self._stop:
@@ -347,11 +348,14 @@ class RealtimePipeline:
                         "species_score": species_score,
                     })
                 client_meta = self._source.client_metadata
-                self._source.send_result({
+                result_msg = {
                     "frame_id": client_meta.get("frame_id", frame_no),
                     "detections": ws_detections,
                     "fps": current_fps,
-                })
+                }
+                if current_bw_kbps > 0:
+                    result_msg["bw_kbps"] = round(current_bw_kbps)
+                self._source.send_result(result_msg)
 
             # --- 1-second summary log ---
             now = time.monotonic()
@@ -361,15 +365,21 @@ class RealtimePipeline:
                 current_fps = fps
                 active_tracks = len([t for t in tracks.values() if t.disappeared == 0])
 
+                if hasattr(self._source, "drain_bytes_received"):
+                    window_bytes = self._source.drain_bytes_received()
+                    current_bw_kbps = (window_bytes / elapsed) / 1024
+                else:
+                    current_bw_kbps = 0.0
+
+                bw_str = f" bw={current_bw_kbps:.0f}KB/s" if current_bw_kbps > 0 else ""
                 if window_events:
-                    # Best species in the window = highest single-event confidence
                     best_species, best_score = max(window_events, key=lambda x: x[1])
                     logger.info(
-                        "top_species=%s confidence=%.2f tracks=%d fps=%.1f",
-                        best_species, best_score, active_tracks, fps,
+                        "top_species=%s confidence=%.2f tracks=%d fps=%.1f%s",
+                        best_species, best_score, active_tracks, fps, bw_str,
                     )
                 else:
-                    logger.info("no_detection tracks=%d fps=%.1f", active_tracks, fps)
+                    logger.info("no_detection tracks=%d fps=%.1f%s", active_tracks, fps, bw_str)
 
                 # Reset window
                 frame_count    = 0
