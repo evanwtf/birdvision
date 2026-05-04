@@ -162,7 +162,10 @@ class RealtimePipeline:
             hef_path=det_cfg["hef"],
             threshold=det_cfg.get("confidence", 0.4),
             vdevice=self._vdevice,
+            fallback_crop_ratio=det_cfg.get("fallback_crop_ratio", 0.5),
         )
+        self._enable_small_bird_zoom_fallback = det_cfg.get("enable_small_bird_zoom_fallback", True)
+        self._small_bird_fallback_every_n = det_cfg.get("small_bird_fallback_every_n_frames", 5)
 
         # Hailo classifier
         self._classifier = HailoClassifier(
@@ -249,6 +252,7 @@ class RealtimePipeline:
 
             # --- Detection ---
             detections = self._detector.detect(frame)
+            detections = self._maybe_detect_zoomed(frame, detections, frame_no=frame_no)
 
             # --- Tracking ---
             tracks = self._tracker.update(detections, frame_size=(frame_w, frame_h))
@@ -495,6 +499,25 @@ class RealtimePipeline:
         if not cv2.imwrite(str(path), crop):
             logger.warning("Could not write upload debug crop: %s", path)
 
+    def _maybe_detect_zoomed(self, frame: np.ndarray, detections: list, *, frame_no: int) -> list:
+        if detections:
+            return detections
+        if not self._enable_small_bird_zoom_fallback:
+            return detections
+        if self._small_bird_fallback_every_n <= 0:
+            return detections
+        if frame_no % self._small_bird_fallback_every_n != 0:
+            return detections
+
+        zoomed = self._detector.detect_zoomed(frame)
+        if zoomed:
+            logger.info(
+                "Recovered %d detection(s) via center zoom fallback on frame %d",
+                len(zoomed),
+                frame_no,
+            )
+        return zoomed
+
     def _process_image_upload(self, file_bytes: bytes, filename: str) -> dict:
         buf = np.frombuffer(file_bytes, dtype=np.uint8)
         frame = cv2.imdecode(buf, cv2.IMREAD_COLOR)
@@ -638,6 +661,7 @@ class RealtimePipeline:
 
                 frame_h, frame_w = frame.shape[:2]
                 detections = self._detector.detect(frame)
+                detections = self._maybe_detect_zoomed(frame, detections, frame_no=frame_no)
                 tracks = tracker.update(detections, frame_size=(frame_w, frame_h))
 
                 for tid, track in tracks.items():
