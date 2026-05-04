@@ -26,7 +26,7 @@ if the format differs from the above, it can be diagnosed from the Pi logs.
 
 import logging
 import time
-from typing import List
+from typing import List, Tuple
 
 import numpy as np
 from dataclasses import dataclass
@@ -67,9 +67,18 @@ class HailoDetector:
         threshold:  Minimum confidence to keep a detection (default 0.3)
     """
 
-    def __init__(self, hef_path: str, threshold: float = 0.3, vdevice=None):
+    def __init__(
+        self,
+        hef_path: str,
+        threshold: float = 0.3,
+        vdevice=None,
+        fallback_crop_ratio: float = 0.5,
+        dedupe_iou_threshold: float = 0.5,
+    ):
         self.hef_path  = str(hef_path)
         self.threshold = threshold
+        self.fallback_crop_ratio = fallback_crop_ratio
+        self.dedupe_iou_threshold = dedupe_iou_threshold
         self._output_logged = False
         self._shared_vdevice = vdevice
         self._init_hailo()
@@ -164,6 +173,62 @@ class HailoDetector:
                 ))
         logger.debug("Detections: %d birds above threshold %.2f", len(crops_added), self.threshold)
         return crops_added
+
+    def detect_zoomed(self, frame: np.ndarray) -> List[Detection]:
+        """Run detection on the center crop and map boxes to full-frame coords."""
+        region, origin = self._center_crop_region(frame)
+        detections = self.detect(region)
+        origin_x, origin_y = origin
+        remapped: List[Detection] = []
+
+        frame_h, frame_w = frame.shape[:2]
+        for det in detections:
+            x1, y1, x2, y2 = det.bbox.astype(int)
+            gx1 = max(0, x1 + origin_x)
+            gy1 = max(0, y1 + origin_y)
+            gx2 = min(frame_w, x2 + origin_x)
+            gy2 = min(frame_h, y2 + origin_y)
+            if gx2 <= gx1 or gy2 <= gy1:
+                continue
+            remapped.append(Detection(
+                bbox=np.array([gx1, gy1, gx2, gy2]),
+                confidence=det.confidence,
+                crop=frame[gy1:gy2, gx1:gx2],
+            ))
+
+        return self._dedupe(remapped)
+
+    def _center_crop_region(self, frame: np.ndarray) -> Tuple[np.ndarray, Tuple[int, int]]:
+        h, w = frame.shape[:2]
+        crop_ratio = min(max(self.fallback_crop_ratio, 0.2), 1.0)
+        crop_w = max(1, int(round(w * crop_ratio)))
+        crop_h = max(1, int(round(h * crop_ratio)))
+        x1 = max(0, (w - crop_w) // 2)
+        y1 = max(0, (h - crop_h) // 2)
+        x2 = min(w, x1 + crop_w)
+        y2 = min(h, y1 + crop_h)
+        return frame[y1:y2, x1:x2], (x1, y1)
+
+    def _dedupe(self, detections: List[Detection]) -> List[Detection]:
+        kept: List[Detection] = []
+        for det in sorted(detections, key=lambda item: item.confidence, reverse=True):
+            if any(self._iou(det.bbox, existing.bbox) >= self.dedupe_iou_threshold for existing in kept):
+                continue
+            kept.append(det)
+        return kept
+
+    @staticmethod
+    def _iou(box1: np.ndarray, box2: np.ndarray) -> float:
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+        inter = max(0, x2 - x1) * max(0, y2 - y1)
+        if inter == 0:
+            return 0.0
+        area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        return inter / max(area1 + area2 - inter, 1)
 
     # ------------------------------------------------------------------
     # Internal

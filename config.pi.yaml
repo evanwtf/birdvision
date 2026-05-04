@@ -13,6 +13,9 @@ detector:
   hef: /app/pi/models/yolov8n.hef
   confidence: 0.4
   device: /dev/hailo0
+  enable_small_bird_zoom_fallback: true
+  small_bird_fallback_every_n_frames: 5
+  fallback_crop_ratio: 0.5
 
 classifier:
   hef: /app/pi/models/efficientnet_s_birds.hef
