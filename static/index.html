@@ -76,6 +76,29 @@
   #stream-btn:active { background: #388e3c; }
   #stream-btn.hidden { display: none; }
 
+  #species-log {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 14;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: calc(100% - 100px);
+    overflow: hidden;
+  }
+  .species-entry {
+    background: rgba(0, 0, 0, 0.65);
+    color: #00ff88;
+    font: bold 14px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    padding: 4px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+    transition: opacity 0.6s ease-out;
+  }
+  .species-entry.fading { opacity: 0; }
+
   #zoom-controls {
     position: absolute;
     left: 16px;
@@ -435,6 +458,7 @@
 <div id="viewport">
   <video id="camera" autoplay playsinline muted></video>
   <canvas id="overlay"></canvas>
+  <div id="species-log"></div>
   <button id="stream-btn" class="hidden">Start Streaming</button>
   <div id="zoom-controls" class="hidden" aria-label="Camera zoom controls">
     <button id="zoom-out-btn" type="button" aria-label="Zoom out">-</button>
@@ -529,6 +553,7 @@
   const settToggle  = document.getElementById("settings-toggle");
   const settPanel   = document.getElementById("settings-panel");
   const settArrow   = document.getElementById("settings-arrow");
+  const speciesLog     = document.getElementById("species-log");
   const streamBtn      = document.getElementById("stream-btn");
   const startScreen    = document.getElementById("start-screen");
   const startBtn       = document.getElementById("start-btn");
@@ -909,6 +934,48 @@
     }
   }
 
+  // --- Species log (scrolling sidebar) ---
+  const SPECIES_LOG_TTL = 2000;
+  const SPECIES_LOG_FADE = 600;
+  const speciesEntries = new Map();
+
+  function updateSpeciesLog(detections) {
+    var now = Date.now();
+    for (var i = 0; i < detections.length; i++) {
+      var det = detections[i];
+      if (!det.species) continue;
+      var score = ((det.species_score || 0) * 100).toFixed(0);
+      var key = det.species;
+      var existing = speciesEntries.get(key);
+      if (existing) {
+        existing.time = now;
+        existing.score = score;
+        existing.el.textContent = det.species + "  " + score + "%";
+        existing.el.classList.remove("fading");
+        existing.el.style.opacity = "";
+      } else {
+        var el = document.createElement("div");
+        el.className = "species-entry";
+        el.textContent = det.species + "  " + score + "%";
+        speciesLog.appendChild(el);
+        speciesEntries.set(key, { el: el, time: now, score: score });
+      }
+    }
+  }
+
+  function pruneSpeciesLog() {
+    var now = Date.now();
+    speciesEntries.forEach(function(entry, key) {
+      var age = now - entry.time;
+      if (age > SPECIES_LOG_TTL + SPECIES_LOG_FADE) {
+        entry.el.remove();
+        speciesEntries.delete(key);
+      } else if (age > SPECIES_LOG_TTL) {
+        entry.el.classList.add("fading");
+      }
+    });
+  }
+
   // --- WebSocket ---
   const BUSY_CLOSE_CODE = 1013;
   const BUSY_CLOSE_REASON = "BirdVision is already in use";
@@ -958,6 +1025,7 @@
         }
         lastDetections = result.detections || [];
         lastResultTime = Date.now();
+        updateSpeciesLog(lastDetections);
         if (result.fps !== undefined) {
           fpsDisplay.textContent = result.fps.toFixed(1) + " FPS";
         }
@@ -999,6 +1067,8 @@
     lastDetections = [];
     lastResultTime = 0;
     ctx.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
+    speciesEntries.forEach(function(entry) { entry.el.remove(); });
+    speciesEntries.clear();
     fpsDisplay.textContent = "";
     uploadStatus.textContent = "";
     streamBtn.classList.add("hidden");
@@ -1120,6 +1190,7 @@
   // --- Redraw loop (for TTL fading) ---
   function redrawLoop() {
     drawDetections();
+    pruneSpeciesLog();
     requestAnimationFrame(redrawLoop);
   }
 
