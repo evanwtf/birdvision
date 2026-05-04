@@ -252,7 +252,6 @@ class RealtimePipeline:
 
             # --- Detection ---
             detections = self._detector.detect(frame)
-            detections = self._maybe_detect_zoomed(frame, detections, frame_no=frame_no)
 
             # --- Tracking ---
             tracks = self._tracker.update(detections, frame_size=(frame_w, frame_h))

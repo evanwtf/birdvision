@@ -57,6 +57,25 @@
     height: 100%;
     pointer-events: none;
   }
+  #stream-btn {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: calc(110px + env(safe-area-inset-bottom));
+    z-index: 16;
+    background: #4caf50;
+    color: #fff;
+    border: none;
+    padding: 16px 40px;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #stream-btn:active { background: #388e3c; }
+  #stream-btn.hidden { display: none; }
+
   #zoom-controls {
     position: absolute;
     left: 16px;
@@ -416,6 +435,7 @@
 <div id="viewport">
   <video id="camera" autoplay playsinline muted></video>
   <canvas id="overlay"></canvas>
+  <button id="stream-btn" class="hidden">Start Streaming</button>
   <div id="zoom-controls" class="hidden" aria-label="Camera zoom controls">
     <button id="zoom-out-btn" type="button" aria-label="Zoom out">-</button>
     <span id="zoom-label">1.0x</span>
@@ -509,6 +529,7 @@
   const settToggle  = document.getElementById("settings-toggle");
   const settPanel   = document.getElementById("settings-panel");
   const settArrow   = document.getElementById("settings-arrow");
+  const streamBtn      = document.getElementById("stream-btn");
   const startScreen    = document.getElementById("start-screen");
   const startBtn       = document.getElementById("start-btn");
   const startError     = document.getElementById("start-error");
@@ -790,7 +811,7 @@
     }
   }
 
-  // --- Start button ---
+  // --- Start button (opens camera + zoom controls) ---
   startBtn.addEventListener("click", async function() {
     startError.textContent = "";
     startError.classList.remove("prominent");
@@ -801,14 +822,20 @@
     var ok = await startCamera();
     if (ok) {
       startScreen.classList.add("hidden");
-      connectWs();
-      requestWakeLock();
-      startGps();
+      streamBtn.classList.remove("hidden");
       requestAnimationFrame(redrawLoop);
     } else {
       startBtn.disabled = false;
       startBtn.textContent = "Start Camera";
     }
+  });
+
+  // --- Stream button (connects WebSocket after user has zoomed) ---
+  streamBtn.addEventListener("click", function() {
+    streamBtn.classList.add("hidden");
+    connectWs();
+    requestWakeLock();
+    startGps();
   });
 
   // --- Overlay sizing ---
@@ -974,6 +1001,7 @@
     ctx.clearRect(0, 0, overlay.clientWidth, overlay.clientHeight);
     fpsDisplay.textContent = "";
     uploadStatus.textContent = "";
+    streamBtn.classList.add("hidden");
     startScreen.classList.add("server-error");
     startScreen.classList.remove("hidden");
     startError.textContent = message;
