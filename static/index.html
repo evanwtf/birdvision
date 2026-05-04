@@ -470,7 +470,8 @@
   <span class="indicator disconnected" id="conn-indicator"></span>
   <span id="conn-text">Disconnected</span>
   <span id="gps-status"></span>
-  <span style="margin-left:auto" id="fps-display"></span>
+  <span style="margin-left:auto" id="bw-display"></span>
+  <span id="fps-display"></span>
 </div>
 
 <!-- Camera + overlay -->
@@ -559,6 +560,7 @@
   const connText    = document.getElementById("conn-text");
   const gpsStatus   = document.getElementById("gps-status");
   const fpsDisplay  = document.getElementById("fps-display");
+  const bwDisplay   = document.getElementById("bw-display");
   const fpsSlider   = document.getElementById("fps-slider");
   const fpsValue    = document.getElementById("fps-value");
   const qualSlider  = document.getElementById("quality-slider");
@@ -606,6 +608,50 @@
   let lastDetections = [];
   let lastResultTime = 0;
   const DETECTION_TTL_MS = 2000;
+
+  // --- Bandwidth tracking ---
+  let bytesSent = 0;
+  let bwTimer = null;
+  let bwKbps = 0;
+
+  function startBwTracker() {
+    bytesSent = 0;
+    bwKbps = 0;
+    bwDisplay.textContent = "";
+    if (bwTimer) clearInterval(bwTimer);
+    bwTimer = setInterval(function() {
+      bwKbps = bytesSent / 1024;
+      bytesSent = 0;
+      if (bwKbps > 0) {
+        bwDisplay.textContent = bwKbps.toFixed(0) + " KB/s";
+      }
+      updateHealthIndicator();
+    }, 1000);
+  }
+
+  function stopBwTracker() {
+    if (bwTimer) { clearInterval(bwTimer); bwTimer = null; }
+    bytesSent = 0;
+    bwKbps = 0;
+    bwDisplay.textContent = "";
+  }
+
+  function updateHealthIndicator() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    var targetFps = parseInt(fpsSlider.value);
+    // No frames expected yet — stay green
+    if (bwKbps <= 0 && targetFps <= 0) return;
+    var expectedKbps = targetFps * 50; // ~50 KB avg per 720p JPEG
+    if (expectedKbps <= 0) return;
+    var ratio = bwKbps / expectedKbps;
+    if (ratio >= 0.5) {
+      connInd.className = "indicator connected";
+    } else if (ratio >= 0.1) {
+      connInd.className = "indicator connecting";
+    } else {
+      connInd.className = "indicator disconnected";
+    }
+  }
   const DIGITAL_MAX_ZOOM = 15;
   const ZOOM_STEP = 0.5;
   let zoomLevel = parseFloat(localStorage.getItem("bv_zoom") || "1") || 1;
@@ -881,6 +927,7 @@
     streamBtn.classList.add("hidden");
     stopBtn.classList.remove("hidden");
     connectWs();
+    startBwTracker();
     requestWakeLock();
     startGps();
   });
@@ -889,6 +936,7 @@
   stopBtn.addEventListener("click", function() {
     suppressReconnect = true;
     stopSendLoop();
+    stopBwTracker();
     if (ws) {
       ws.onclose = null;
       ws.close();
@@ -1095,6 +1143,7 @@
   function showServerError(message) {
     suppressReconnect = true;
     stopSendLoop();
+    stopBwTracker();
     if (currentStream) {
       currentStream.getTracks().forEach(function(t) { t.stop(); });
       currentStream = null;
@@ -1179,6 +1228,7 @@
       blob.arrayBuffer().then(function(buf) {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(buf);
+          bytesSent += buf.byteLength;
           frameId++;
         }
       });
