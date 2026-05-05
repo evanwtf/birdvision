@@ -470,7 +470,8 @@
   <span class="indicator disconnected" id="conn-indicator"></span>
   <span id="conn-text">Disconnected</span>
   <span id="gps-status"></span>
-  <span style="margin-left:auto" id="bw-display"></span>
+  <span style="margin-left:auto" id="latency-display"></span>
+  <span id="bw-display"></span>
   <span id="fps-display"></span>
 </div>
 
@@ -561,6 +562,7 @@
   const gpsStatus   = document.getElementById("gps-status");
   const fpsDisplay  = document.getElementById("fps-display");
   const bwDisplay   = document.getElementById("bw-display");
+  const latencyDisplay = document.getElementById("latency-display");
   const fpsSlider   = document.getElementById("fps-slider");
   const fpsValue    = document.getElementById("fps-value");
   const qualSlider  = document.getElementById("quality-slider");
@@ -613,6 +615,36 @@
   let bytesSent = 0;
   let bwTimer = null;
   let bwKbps = 0;
+
+  // --- Latency tracking ---
+  let latencyTimer = null;
+  let latencyMs = 0;
+
+  function pingServer() {
+    var start = performance.now();
+    fetch("/ping", { method: "GET", cache: "no-store" }).then(function(resp) {
+      if (resp.ok) {
+        latencyMs = Math.round(performance.now() - start);
+        latencyDisplay.textContent = latencyMs + " ms";
+      }
+    }).catch(function() {
+      latencyDisplay.textContent = "";
+    });
+  }
+
+  function startLatencyTracker() {
+    latencyMs = 0;
+    latencyDisplay.textContent = "";
+    if (latencyTimer) clearInterval(latencyTimer);
+    pingServer();
+    latencyTimer = setInterval(pingServer, 3000);
+  }
+
+  function stopLatencyTracker() {
+    if (latencyTimer) { clearInterval(latencyTimer); latencyTimer = null; }
+    latencyMs = 0;
+    latencyDisplay.textContent = "";
+  }
 
   function startBwTracker() {
     bytesSent = 0;
@@ -928,6 +960,7 @@
     stopBtn.classList.remove("hidden");
     connectWs();
     startBwTracker();
+    startLatencyTracker();
     requestWakeLock();
     startGps();
   });
@@ -937,6 +970,7 @@
     suppressReconnect = true;
     stopSendLoop();
     stopBwTracker();
+    stopLatencyTracker();
     if (ws) {
       ws.onclose = null;
       ws.close();
@@ -1144,6 +1178,7 @@
     suppressReconnect = true;
     stopSendLoop();
     stopBwTracker();
+    stopLatencyTracker();
     if (currentStream) {
       currentStream.getTracks().forEach(function(t) { t.stop(); });
       currentStream = null;
