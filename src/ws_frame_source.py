@@ -175,8 +175,14 @@ class WebSocketFrameSource:
     # ASGI app
     # ------------------------------------------------------------------
 
+    async def _ping_endpoint(self, request: Request) -> JSONResponse:
+        return JSONResponse({"ok": True})
+
     def _build_app(self) -> Starlette:
-        routes = [WebSocketRoute("/ws", self._ws_endpoint)]
+        routes = [
+            WebSocketRoute("/ws", self._ws_endpoint),
+            Route("/ping", self._ping_endpoint, methods=["GET"]),
+        ]
 
         if self._upload_handler:
             routes.append(Route("/upload", self._upload_endpoint, methods=["POST"]))
