@@ -15,11 +15,16 @@ inference.
 - **Vision**: `ultralytics` (YOLOv8), `open-clip-torch` (BioCLIP), `transformers`,
   `torch`/`torchvision`, `opencv-python`, `pillow`
 - **Metadata**: `pyexiftool` (binary `exiftool` required at runtime)
-- **Pi pipeline** (separate dep group): `hailort` 4.23.0 (manual wheel install,
-  aarch64 only — not on PyPI), `opencv-python-headless`, `starlette`/`uvicorn`
+- **Pi pipeline**: lightweight runtime deps live in `requirements.pi.txt`
+  (`opencv-python-headless`, `pillow`, `psutil`, `pyyaml`, `numpy`,
+  `starlette`, `uvicorn`); HailoRT 4.23.0 is installed manually from
+  `pi/deps/` (aarch64 `.whl` + `.deb`, not on PyPI). The `[dependency-groups]
+  pi` slot in `pyproject.toml` is currently empty and reserved.
 - **Data**: SQLite (eBird priors, built from `ebird_data/*.txt`)
-- **Containers**: `cgr.dev/chainguard/python:latest-dev` (webapp + Pi),
-  `nvidia-container-toolkit` runtime on desktop
+- **Containers**: webapp uses `cgr.dev/chainguard/python:latest-dev`
+  (Wolfi/`apk`); `Dockerfile.pi` uses `ubuntu:24.04` because HailoRT ships as
+  a `.deb` and needs an apt-based runtime. Desktop Docker runtime is
+  `nvidia-container-toolkit`.
 - **Tests**: `pytest` (285 tests, `testpaths = ["tests"]`)
 
 ## Key Concepts & Terminology
@@ -65,7 +70,8 @@ Verified from `pyproject.toml`, `Dockerfile`, `docker-compose.yml`,
 ```bash
 # Setup
 uv sync                                                  # webapp/CI deps
-uv sync --group pi                                       # Pi-only (aarch64; needs local hailort wheel)
+# Pi setup: see pi/README.md — installs requirements.pi.txt plus
+# pi/deps/hailort_4.23.0_arm64.deb and the matching aarch64 wheel.
 
 # Run (local)
 uv run scripts/serve.py --config config.yaml --port 3587 # web UI
