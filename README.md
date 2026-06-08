@@ -508,3 +508,7 @@ Set `display.enabled: false` in `config.pi.yaml` for headless deployments.
 
 Each script writes a timestamped log file under `logs/retraining/` and prints
 the `tail -f` command at startup.
+
+## License
+
+[MIT](LICENSE). © 2026 Evan Hoffman.
