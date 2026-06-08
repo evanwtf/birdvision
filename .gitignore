@@ -7,6 +7,12 @@ venv/
 dist/
 build/
 
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
 # Models (downloaded automatically, don't commit)
 *.pt
 *.pth
