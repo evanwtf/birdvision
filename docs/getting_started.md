@@ -1,41 +1,202 @@
 # Getting Started
 
-A practical walkthrough from a fresh `git clone` to your first identified
-bird. This doc assumes you've already decided which target you want — a
-desktop webapp, a Raspberry Pi 5 backyard camera, or the phone-streaming
-sidecar — and walks through each.
+A practical walkthrough from a fresh `git clone` to the first bird ID on
+your phone. The primary deployment is **Pi sidecar mode** — phone is the
+camera, Pi does the inference, results stream back. Other deployments
+are covered in §3 and §4.
 
 If you're just curious about the project, the [README](../README.md)
-covers what it does and the [project timeline](project_timeline.md)
+covers what it does and [`docs/project_timeline.md`](project_timeline.md)
 covers how it was built.
 
 ---
 
-## 1. Pick your target
+## 0. Bill of materials
 
-| Target | What you need | When to pick it |
+Everything you need to gather **before** starting. The hardware
+arrives in days; the software downloads take minutes; the models are
+~30 MB.
+
+### Hardware (sidecar mode — minimum)
+
+| Item | Approx. price | Source | Notes |
+|---|---|---|---|
+| Raspberry Pi 5 8 GB AI Kit (26 TOPS) | $379 | [CanaKit](https://www.canakit.com/raspberry-pi-5-8gb-quick-start-kit-ai-128gb-26t.html) | Includes Pi 5, Hailo-8 M.2 accelerator, 128 GB storage, case with active cooling, PSU |
+| Phone with camera | $0 | already own | iOS Safari 14.5+ or Android Chrome — anything from the last ~5 years |
+| WiFi network | $0 | already own | Pi and phone must be on the same LAN |
+
+That's it. The Pi 5 AI Kit is the only meaningful purchase.
+
+### Hardware (backyard mode — adds the following)
+
+| Item | Approx. price | Source | Notes |
+|---|---|---|---|
+| HDMI → USB capture card | ~$120 | Elgato Cam Link 4K or equivalent | YUYV 4:2:2 / NV12 at 1080p60 |
+| Camera with HDMI out | varies | camcorder, DSLR, action cam | Any camera that does live HDMI output |
+| Pi Touch Display 2 (optional) | $52 | [Raspberry Pi store](https://www.raspberrypi.com/products/touch-display-2/) | For live overlay; not required if running headless |
+
+### Hardware (desktop webapp — separate machine)
+
+| Item | Notes |
+|---|---|
+| NVIDIA GPU + Linux | tested on RTX 3080 Ti / Ubuntu; anything with `nvidia-container-toolkit` support |
+
+### Software — installed on the Pi
+
+| Package | Source | Notes |
 |---|---|---|
-| **Desktop webapp** | NVIDIA GPU + Docker | You want a browser UI to upload videos and photos and get results |
-| **Pi backyard mode** | Raspberry Pi 5 + Hailo-8 + USB capture card | You want live ID from a permanent camera feed |
-| **Pi sidecar mode** | Raspberry Pi 5 + Hailo-8 + phone | You want to point a phone at birds and see results in real time |
+| Ubuntu 24.04 aarch64 | [raspberrypi.com](https://www.raspberrypi.com/software/operating-systems/) | Pi 5 official image |
+| Docker + Docker Compose | `apt install docker.io docker-compose-v2` | Standard |
+| HailoRT 4.23.0 `.deb` | [hailo.ai/developer-zone](https://hailo.ai/developer-zone/) → SW Downloads → HailoRT | Free account required; not on PyPI |
+| HailoRT 4.23.0 `.whl` (aarch64) | same | Match your Python version (cp312 / cp313) |
 
-The rest of this doc has one section per target. Start with the desktop
-webapp if you're not sure — it's the lowest-friction way to see the
-pipeline work.
+### Software — installed on your laptop / dev machine
+
+| Package | Why | Install |
+|---|---|---|
+| `git` | clone the repo | already have |
+| `ssh` | deploy to the Pi | already have |
+| Hugging Face CLI (`hf`) | download the models | `uv tool install huggingface-hub` |
+| (Optional) `op` CLI | resolve secrets at deploy time | `brew install --cask 1password-cli` |
+
+### Models — downloaded from Hugging Face
+
+All three live in
+[`k10z/birdvision-efficientnet-s`](https://huggingface.co/k10z/birdvision-efficientnet-s).
+
+| File | Size | Purpose |
+|---|---|---|
+| `yolov8n.hef` | 4 MB | Bird detector (Hailo-8 INT8) |
+| `efficientnet_s_birds.hef` | 23 MB | Species classifier (237 species, Hailo-8 INT8) |
+| `species_labels.json` | 5 KB | Class index → species name map |
+
+One `hf download` command fetches all three (see §1.3).
 
 ---
 
-## 2. Desktop webapp
+## 1. Pi sidecar mode (phone streaming, recommended)
 
-### 2.1 Prerequisites
+### 1.1 Prepare the Pi
 
-- Linux host with an NVIDIA GPU
-- Docker + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
-- 10 GB free disk for model weights and cached uploads
-- (Optional) A Google Cloud project with an OAuth client if you want
-  login-gated uploads. See [docs/google_oauth_setup.md](google_oauth_setup.md).
+Flash Ubuntu 24.04 aarch64 to the storage, boot, set a hostname (this
+guide assumes `birdvision-pi`), and verify the Hailo PCIe driver loaded:
 
-### 2.2 First boot
+```bash
+ls -l /dev/hailo0
+# crw-rw-rw- 1 root root 234, 0 ... /dev/hailo0
+```
+
+Install Docker:
+
+```bash
+sudo apt update
+sudo apt install -y docker.io docker-compose-v2
+sudo usermod -aG docker $USER
+# log out and back in for the group change to take effect
+```
+
+### 1.2 Clone the repo
+
+```bash
+git clone https://github.com/evanwtf/birdvision.git
+cd birdvision
+cp config.pi.sidecar.yaml.example config.pi.sidecar.yaml
+```
+
+Edit `config.pi.sidecar.yaml` and set `metadata.latitude` /
+`metadata.longitude` to your camera location (used for eBird priors).
+
+### 1.3 Drop in the HailoRT packages and models
+
+Download HailoRT from
+[hailo.ai/developer-zone](https://hailo.ai/developer-zone/) → SW
+Downloads → HailoRT 4.23.0:
+
+```bash
+# On the Pi, in the repo root:
+cp ~/Downloads/hailort_4.23.0_arm64.deb pi/deps/
+cp ~/Downloads/hailort-4.23.0-cp312-cp312-linux_aarch64.whl pi/deps/
+# (Use the cp312 or cp313 wheel matching your Python.)
+```
+
+Download the models from Hugging Face (the `hf` CLI is the cleanest
+path; alternatively you can drag-drop from the HF web UI):
+
+```bash
+uv tool install huggingface-hub   # one-time, installs `hf`
+hf download k10z/birdvision-efficientnet-s \
+  yolov8n.hef efficientnet_s_birds.hef species_labels.json \
+  --local-dir pi/models
+```
+
+### 1.4 Build and launch
+
+```bash
+docker compose -f docker-compose.pi.yml build
+docker compose -f docker-compose.pi.yml --profile sidecar up
+```
+
+The Pi serves an HTTPS page on port 8765 via a Caddy reverse proxy
+(self-signed cert; phone shows a one-time warning).
+
+### 1.5 Connect the phone
+
+On any phone on the same WiFi: visit `https://<pi-ip>/` in Safari or
+Chrome. Accept the cert warning once, then tap **Start Camera** and
+grant camera access. Bird detections render as overlay boxes with
+species labels, in real time.
+
+That's the whole thing.
+
+---
+
+## 2. What's happening under the hood
+
+When the phone streams a frame to the Pi:
+
+1. The browser captures a frame from `getUserMedia`, JPEG-encodes it,
+   and ships it over the WebSocket.
+2. The Pi decodes the JPEG, runs YOLOv8n on Hailo (~5 ms), tracks
+   detections across recent frames, and every Nth frame runs the
+   EfficientNet classifier on each crop (~44 ms).
+3. eBird priors re-rank predictions by what's actually plausible for
+   the location and week.
+4. Boxes + species labels go back to the phone, which overlays them
+   on the live preview.
+
+End-to-end latency target: well under one frame at 10–15 FPS on the
+phone side.
+
+---
+
+## 3. Pi backyard mode (USB capture, optional)
+
+Same Pi, no phone in the loop. The Pi reads HDMI through a USB capture
+card connected to a permanent camera, runs the same pipeline, and
+optionally writes a live overlay to a Pi Touch Display 2.
+
+```bash
+cp config.pi.yaml.example config.pi.yaml
+# edit metadata.latitude/longitude and stream.device if your capture
+# card isn't at /dev/video0
+docker compose -f docker-compose.pi.yml --profile backyard up
+```
+
+You can't run backyard and sidecar at the same time — both need
+exclusive access to the Hailo chip.
+
+See [`docs/pi_pipeline.md`](pi_pipeline.md) for model retraining,
+Hailo DFC compilation, and the deeper hardware notes.
+
+---
+
+## 4. Desktop webapp (NVIDIA GPU, optional)
+
+Browser UI for batch-processing video and photos. Detection runs on
+YOLOv8 (PyTorch), classification on BioCLIP (zero-shot) with an
+optional secondary HuggingFace classifier in an ensemble. Includes a
+token-authenticated JSON API (`POST /api/v1/videos`) for motion-event
+cameras that want to post clips directly.
 
 ```bash
 git clone https://github.com/evanwtf/birdvision.git
@@ -45,137 +206,48 @@ docker compose build
 docker compose up
 ```
 
-Open `http://localhost:3587`. The first request triggers model downloads
-(BioCLIP + the ensemble classifier, ~5 GB total). They cache to `./models/`
-and reuse across restarts.
+First request triggers ~5 GB of model downloads (BioCLIP + the
+ensemble classifier). Models cache to `./models/` and reuse across
+restarts. Open `http://localhost:3587` to upload your first clip.
 
-Upload a video or photo. You should see a job appear, transition from
-`pending` → `running` → `complete`, and land on a results page with
-species predictions, confidence scores, annotated crops, and links to
-Cornell All About Birds.
-
-### 2.3 Adding OAuth (optional)
-
-By default the upload route is open. For multi-user deploys you want
-Google OAuth.
-
-1. Follow [docs/google_oauth_setup.md](google_oauth_setup.md) to mint a
-   client ID + secret in Google Cloud.
-2. Store them in [1Password](https://1password.com) (recommended) or your
-   secret manager of choice. The repo includes
-   [`.env.op.example`](../.env.op.example) for the `op run` pattern.
-3. Add allowed uploader emails to `auth.allowed_emails` in `config.yaml`.
-4. Launch with `op run --env-file .env.op.example -- docker compose up`.
-
-### 2.4 The HTTP API
-
-Once OAuth is set up, the `/api/v1/videos` endpoint lets external clients
-post motion-event clips. Token-based auth. See the
-[HTTP API](../README.md#http-api) section in the README for the request
-shape and an example.
-
----
-
-## 3. Pi backyard mode
-
-Real-time inference from a permanent camera. The Pi reads HDMI through a
-USB capture card and writes detections to a Touch Display 2 overlay (or
-runs headless).
-
-### 3.1 Hardware
-
-- Raspberry Pi 5, 8 GB RAM, aarch64 Ubuntu 24.04
-- Hailo-8 AI accelerator (PCIe M.2) — included in the CanaKit AI kits
-- USB capture card (e.g. Elgato Cam Link 4K)
-- (Optional) Pi Touch Display 2 — 5" portrait
-
-### 3.2 Setup
-
-```bash
-git clone https://github.com/evanwtf/birdvision.git
-cd birdvision
-cp config.pi.yaml.example config.pi.yaml
-```
-
-Drop the Hailo packages into `pi/deps/` (they aren't on PyPI — download
-from [hailo.ai/developer-zone](https://hailo.ai/developer-zone/)):
-
-- `hailort_4.23.0_arm64.deb`
-- `hailort-4.23.0-…aarch64.whl`
-
-Drop the compiled models into `pi/models/`:
-
-- `yolov8n.hef` — bird detector
-- `efficientnet_s_birds.hef` — species classifier
-- `species_labels.json` — class index → species name
-
-The trained EfficientNet weights and HEF are published at
-[huggingface.co/k10z/birdvision-efficientnet-s](https://huggingface.co/k10z/birdvision-efficientnet-s).
-
-Then:
-
-```bash
-docker compose -f docker-compose.pi.yml --profile backyard up
-```
-
-For deeper detail (model retraining, Hailo DFC compilation), see
-[docs/pi_pipeline.md](pi_pipeline.md).
-
----
-
-## 4. Pi sidecar mode
-
-Phone browser streams camera frames to the Pi over HTTPS/WebSocket; the
-Pi runs the same Hailo pipeline and pushes detections back. No native
-app.
-
-Same hardware as backyard mode minus the capture card and display.
-
-```bash
-git clone https://github.com/evanwtf/birdvision.git
-cd birdvision
-cp config.pi.sidecar.yaml.example config.pi.sidecar.yaml
-docker compose -f docker-compose.pi.yml --profile sidecar up
-```
-
-The Pi serves an HTTPS page on port 8765 via Caddy (self-signed cert,
-phone shows a one-time warning). Phone visits
-`https://<pi-ip>/` → grants camera permission → starts streaming.
-Detections render as boxes + species labels on the phone view.
+For Google OAuth login, see [`docs/google_oauth_setup.md`](google_oauth_setup.md)
+and the [Secrets section](../README.md#secrets) in the README.
 
 ---
 
 ## 5. Where things go on disk
 
-| Path | Contents | Persists across restarts? |
-|---|---|---|
-| `./videos/assets/` | Content-addressed (sha256) ingested clips | Yes |
-| `./videos/asset_index.json` | Asset metadata index | Yes |
-| `./results/` | Per-job JSON + crops + annotated stills | Yes |
-| `./models/` | Cached model weights | Yes |
-| `./logs/retraining/` | Training script output | Yes |
-| `./data/ebird_priors.db` | Built at image-build time from `ebird_data/` | Rebuilt on `docker compose build` |
-| `pi/models/` | HEF + label artifacts (Pi only) | Yes |
-| `pi/deps/` | HailoRT `.whl` + `.deb` | Yes |
+| Path | Contents |
+|---|---|
+| `pi/models/` | HEFs + species label map (downloaded in §1.3) |
+| `pi/deps/` | HailoRT `.deb` + `.whl` (placed in §1.3) |
+| `./results/` | Per-job JSON + crops + annotated stills (backyard / desktop) |
+| `./videos/assets/` | Content-addressed uploaded clips (desktop) |
+| `./models/` | Cached PyTorch / BioCLIP weights (desktop) |
+| `./data/ebird_priors.db` | Built at image-build time from `ebird_data/` |
 
-Nothing in those paths is gitignored data you'd want to back up unless
-the source clips themselves matter to you.
+All gitignored.
 
 ---
 
 ## 6. Troubleshooting
 
-- **`docker compose up` fails with "config.yaml not found":** you skipped
-  step 2.2 — `cp config.yaml.example config.yaml`.
-- **Model downloads stall on first request:** check `./models/` exists and
-  is writable; the container runs as a non-root user.
-- **OAuth callback returns "redirect_uri_mismatch":** the URI you
-  authorized in Google Cloud must exactly match `auth.redirect_uri` in
-  `config.yaml`, scheme and trailing slash included.
-- **Pi container can't access `/dev/hailo0`:** confirm `hailort` is
-  loaded (`lsmod | grep hailo`) and the device exists; the compose file
-  passes it through explicitly.
-- **Coverage gate fails on a PR:** run `uv run pytest --cov=src
-  --cov-report=term-missing` locally to see which file dropped coverage.
+- **`docker compose up` fails with "config.pi.sidecar.yaml not found":**
+  you skipped §1.2. Copy from the `.example`.
+- **Browser warns about the cert:** expected — Caddy issues a
+  self-signed cert on demand. Accept it once.
+- **Pi container can't open `/dev/hailo0`:** confirm `hailort` loaded
+  (`lsmod | grep hailo`) and that you placed the `.deb` + `.whl` in
+  `pi/deps/` before the Docker build.
+- **`hf download` fails with 401:** the model files in
+  `k10z/birdvision-efficientnet-s` are public; if `hf` is asking for
+  auth it likely means you previously logged in with an expired
+  token. Run `hf auth logout` or just delete `~/.cache/huggingface/token`.
+- **Backyard mode says `/dev/video0` not found:** confirm the USB
+  capture card is connected and recognized (`v4l2-ctl
+  --list-devices`).
+- **Coverage gate fails on a PR (dev only):** run `uv run pytest
+  --cov=src --cov-report=term-missing` locally to see which file
+  dropped coverage.
 
 For anything else, the issue tracker is the right place.

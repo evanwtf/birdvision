@@ -1,67 +1,53 @@
 # BirdVision
 
-Bird species identification from video and photos using local computer vision
-models. Aimed at the Long Island / Northeast US region, no cloud dependencies.
+**Real-time bird ID, in your hand.** Point your phone at a bird; a
+Raspberry Pi on your local network runs detection + species
+classification on a Hailo-8 AI accelerator; bounding boxes and species
+labels stream back to the phone's browser in real time. No cloud, no
+native app, no model uploads. ~$450 in hardware end to end.
 
-The same `src/` library powers three different deployments — pick whichever
-matches your hardware:
+📱  **Sidecar mode** is the primary deployment. The phone is the
+camera; the Pi is the brain. Walk through your yard, your local park,
+or a hike — every bird you point the phone at gets identified within
+~50 ms of inference time.
 
-### 🖥️  Desktop webapp (NVIDIA GPU)
+Before starting, the [bill of materials](docs/getting_started.md#0-bill-of-materials)
+in the Getting Started doc lists every piece of hardware, every software
+package, and every model file you'll need to gather. The setup walkthrough
+that follows it takes you from `git clone` to a live sidecar in about an
+hour, most of which is unattended downloads.
 
-Browser UI for uploading videos and photos. Detection runs on YOLOv8;
-classification runs BioCLIP zero-shot, optionally ensembled with a
-secondary HuggingFace classifier, on a CUDA GPU. Also exposes a JSON API
-(`POST /api/v1/videos`) so motion-event cameras can post clips directly.
+The same `src/` library also powers two other deployments built earlier
+in the project, kept here for users with the matching hardware:
 
-**You need:** an NVIDIA GPU and Docker with
-[nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
-See [Setup → Docker](#docker-recommended).
-
-### 📷  Raspberry Pi 5 + Hailo-8 — backyard mode (USB capture card)
-
-Real-time inference from a permanent camera. Reads HDMI through a USB
-capture card (e.g. Elgato Cam Link 4K reading from any camcorder), runs
-YOLOv8n + a fine-tuned EfficientNet compiled to the Hailo-8 accelerator
-(26 TOPS, ~2 W), and optionally writes a live overlay with detection
-boxes + closed-caption-style species labels to a Pi Touch Display 2
-framebuffer.
-
-**You need:** a Raspberry Pi 5 with a Hailo-8 M.2 accelerator, a USB
-capture card, and a camera with HDMI out. See
-[`docs/pi_pipeline.md`](docs/pi_pipeline.md).
-
-### 📱  Raspberry Pi 5 + Hailo-8 — sidecar mode (phone streaming)
-
-Phone browser streams camera frames to the Pi over HTTPS/WebSocket; the
-Pi runs the same Hailo pipeline and pushes detection boxes + species
-labels back. No native app — any phone with a camera and a modern
-browser works.
-
-**You need:** a Raspberry Pi 5 with a Hailo-8 M.2 accelerator and a
-phone on the same network. See [`docs/pi_pipeline.md`](docs/pi_pipeline.md).
+- 📷  **Pi backyard mode** — permanent camera via USB capture card,
+  optional Touch Display 2 overlay. Same Pi, same Hailo pipeline; no
+  phone in the loop. [Setup](docs/getting_started.md#3-pi-backyard-mode-usb-capture-optional).
+- 🖥️  **Desktop webapp (NVIDIA GPU)** — browser UI for batch-uploading
+  videos and photos, BioCLIP + ensemble classifier on a CUDA GPU,
+  plus a JSON ingest API for motion-event cameras. [Setup](docs/getting_started.md#4-desktop-webapp-nvidia-gpu-optional).
 
 ## How it works
 
-The pipeline stages are the same across all three deployments:
+The Pi sidecar pipeline (and its variants on the other deployments):
 
-1. **Detection** — find birds in each frame (YOLOv8 on desktop,
-   YOLOv8n HEF on Pi)
-2. **Tracking** — assign stable IDs across frames, classify every N frames
-3. **Classification** — zero-shot species ID from cropped bird images
-   (BioCLIP on desktop, fine-tuned EfficientNet HEF on Pi). Desktop can
-   ensemble BioCLIP with a secondary HuggingFace classifier via a
-   weighted geometric mean. Events are weighted by proximity to frame
-   center — centered bird = better crop = more weight
-4. **eBird priors** — observed species frequency for the recording
-   location and week re-ranks predictions. Supports seasonal (default)
-   or annual-only mode, plus user-defined local prior overrides via YAML
-5. **Explanation** — each desktop result includes a plain-English
-   summary of what the model saw visually vs. what the location/season
-   data contributed
+1. **Detection** — YOLOv8n HEF on Hailo-8 finds birds in each frame
+2. **Tracking** — IoU + centroid matching gives each bird a stable ID
+   across frames, so a bird visible for 4 seconds produces one result,
+   not 120
+3. **Classification** — fine-tuned EfficientNet-V2-S HEF (237 species)
+   runs on every Nth frame per track, accumulating per-track
+   predictions. Events near frame center get more weight (centered
+   bird = better crop = better signal)
+4. **eBird priors** — observed species frequency for the location and
+   week re-ranks predictions. Multiplicative reweighting against
+   regional bar-chart data, with optional user-defined per-location
+   overrides
+5. **Result** — top species + confidence streams back to the phone
+   browser as overlay boxes and labels, in real time
 
-Desktop models download automatically on first run. Pi HEF models and
-HailoRT packages are placed manually because Hailo's runtime packages
-are proprietary.
+Inference is fully local. The phone never leaves your network; no
+frames are uploaded anywhere.
 
 ## Background
 
