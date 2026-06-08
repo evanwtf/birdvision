@@ -1,6 +1,5 @@
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -12,44 +11,44 @@ class Track:
     disappeared: int = 0
     frame_count: int = 0
     last_classified_frame: int = -9999
-    matched_detection_idx: Optional[int] = None
+    matched_detection_idx: int | None = None
     # Weighted (post-prior) predictions, one list per classification event
-    prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
-    prediction_weights: List[float] = field(default_factory=list)
+    prediction_history: list[list[tuple[str, float]]] = field(default_factory=list)
+    prediction_weights: list[float] = field(default_factory=list)
     # Raw visual predictions (pre-prior), parallel to prediction_history
-    raw_prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
+    raw_prediction_history: list[list[tuple[str, float]]] = field(default_factory=list)
     # Per-model breakdown (only populated when ensemble is active)
-    bioclip_prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
-    efficientnet_prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
+    bioclip_prediction_history: list[list[tuple[str, float]]] = field(default_factory=list)
+    efficientnet_prediction_history: list[list[tuple[str, float]]] = field(default_factory=list)
 
     def _weighted_average(
-        self, history: List[List[Tuple[str, float]]]
-    ) -> Optional[List[Tuple[str, float]]]:
+        self, history: list[list[tuple[str, float]]]
+    ) -> list[tuple[str, float]] | None:
         if not history:
             return None
         weights = self.prediction_weights if self.prediction_weights else [1.0] * len(history)
         total_weight = sum(weights)
-        scores: Dict[str, float] = {}
-        for preds, w in zip(history, weights):
+        scores: dict[str, float] = {}
+        for preds, w in zip(history, weights, strict=False):
             for species, prob in preds:
                 scores[species] = scores.get(species, 0.0) + prob * w
         return sorted([(s, p / total_weight) for s, p in scores.items()], key=lambda x: -x[1])
 
     @property
-    def best_bioclip_prediction(self) -> Optional[List[Tuple[str, float]]]:
+    def best_bioclip_prediction(self) -> list[tuple[str, float]] | None:
         return self._weighted_average(self.bioclip_prediction_history)
 
     @property
-    def best_efficientnet_prediction(self) -> Optional[List[Tuple[str, float]]]:
+    def best_efficientnet_prediction(self) -> list[tuple[str, float]] | None:
         return self._weighted_average(self.efficientnet_prediction_history)
 
     @property
-    def best_raw_prediction(self) -> Optional[List[Tuple[str, float]]]:
+    def best_raw_prediction(self) -> list[tuple[str, float]] | None:
         """Weighted average of raw visual scores (before eBird priors)."""
         return self._weighted_average(self.raw_prediction_history)
 
     @property
-    def best_prediction(self) -> Optional[List[Tuple[str, float]]]:
+    def best_prediction(self) -> list[tuple[str, float]] | None:
         """Weighted average of probabilities across all classification events."""
         return self._weighted_average(self.prediction_history)
 
@@ -86,10 +85,10 @@ class BirdTracker:
         self.iou_threshold = iou_threshold
         self.centroid_max_distance = centroid_max_distance
         self.next_id = 0
-        self.tracks: Dict[int, Track] = OrderedDict()
-        self.completed_tracks: Dict[int, Track] = {}  # pruned tracks, kept for summary
+        self.tracks: dict[int, Track] = OrderedDict()
+        self.completed_tracks: dict[int, Track] = {}  # pruned tracks, kept for summary
 
-    def update(self, detections, frame_size: Optional[Tuple[int, int]] = None) -> Dict[int, Track]:
+    def update(self, detections, frame_size: tuple[int, int] | None = None) -> dict[int, Track]:
         """Update tracks with new detections. Returns all active tracks."""
         for track in self.tracks.values():
             track.matched_detection_idx = None
@@ -179,7 +178,7 @@ class BirdTracker:
         self._prune()
         return self.tracks
 
-    def _new_track(self, bbox: np.ndarray, matched_detection_idx: Optional[int] = None):
+    def _new_track(self, bbox: np.ndarray, matched_detection_idx: int | None = None):
         self.tracks[self.next_id] = Track(
             track_id=self.next_id,
             bbox=bbox,

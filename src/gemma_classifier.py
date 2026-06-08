@@ -16,7 +16,6 @@ Usage:
 
 import logging
 import time
-import warnings
 
 import cv2
 import numpy as np
@@ -44,13 +43,13 @@ class GemmaClassifier:
                 prompt, e.g. "Nassau County, Long Island, New York". Helps the
                 model apply ecological context.
         """
-        from transformers import pipeline as hf_pipeline
-
         # Suppress transformers generation-config conflict messages.
         # These are emitted via the transformers logger (not warnings.warn),
         # so PYTHONWARNINGS and warnings.filterwarnings have no effect on them.
         # The behaviour is correct (max_new_tokens wins); this is pure noise.
         import re as _re
+
+        from transformers import pipeline as hf_pipeline
 
         class _GenerationNoiseFilter(logging.Filter):
             _patterns = [
@@ -107,7 +106,6 @@ class GemmaClassifier:
         self._build_prompt()
 
     def _build_prompt(self) -> None:
-        location = f" photographed in {self._location_hint}" if self._location_hint else ""
         # Don't embed the full species list in the prompt — 238 species makes
         # the context huge and causes the model to fixate on list structure
         # rather than the image. Ask for the species name and fuzzy-match

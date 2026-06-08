@@ -21,8 +21,8 @@ import yaml
 
 from src.tuner import (
     BASELINE_TARGET_SPECIES,
-    default_baseline_video_path,
     SingleVideoTuningRunner,
+    default_baseline_video_path,
 )
 
 logging.basicConfig(

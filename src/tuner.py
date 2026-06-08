@@ -6,7 +6,7 @@ from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .pipeline import BirdIdentificationPipeline
 
@@ -103,19 +103,19 @@ class TrialResult:
     reason: str
     elapsed_s: float
     results_dir: str
-    results_json: Optional[str]
+    results_json: str | None
     target_species: str
     target_confidence: float
     raw_target_confidence: float
-    target_rank: Optional[int]
-    success_species: Optional[str]
+    target_rank: int | None
+    success_species: str | None
     success_confidence: float
-    top_species: Optional[str]
+    top_species: str | None
     top_confidence: float
     reached_target: bool
     changed_params: dict[str, Any]
     tuned_params: dict[str, Any]
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class SingleVideoTuningRunner:
@@ -125,12 +125,12 @@ class SingleVideoTuningRunner:
         config: dict,
         video_path: str,
         target_species: str,
-        success_species_contains: Optional[str] = None,
+        success_species_contains: str | None = None,
         stop_confidence: float,
         time_budget_s: float,
-        results_dir: Optional[str] = None,
-        max_trials: Optional[int] = None,
-        video_date: Optional[datetime] = None,
+        results_dir: str | None = None,
+        max_trials: int | None = None,
+        video_date: datetime | None = None,
     ):
         self.base_config = copy.deepcopy(config)
         self.video_path = str(Path(video_path))
@@ -163,7 +163,7 @@ class SingleVideoTuningRunner:
         self.trials: list[TrialResult] = []
         self.seen_configs: set[str] = set()
         self.stop_reason = "not_started"
-        self.initial_top_species: Optional[str] = None
+        self.initial_top_species: str | None = None
 
     def _elapsed_s(self) -> float:
         return time.monotonic() - self.started_at
@@ -189,7 +189,7 @@ class SingleVideoTuningRunner:
                 changed[path] = value
         return changed
 
-    def _lookup_target_metrics(self, summary: dict) -> tuple[float, float, Optional[int]]:
+    def _lookup_target_metrics(self, summary: dict) -> tuple[float, float, int | None]:
         predictions = summary.get("video_predictions", [])
         for idx, prediction in enumerate(predictions, start=1):
             if prediction.get("species") == self.target_species:
@@ -200,7 +200,7 @@ class SingleVideoTuningRunner:
                 )
         return 0.0, 0.0, None
 
-    def _lookup_success_metrics(self, summary: dict) -> tuple[Optional[str], float]:
+    def _lookup_success_metrics(self, summary: dict) -> tuple[str | None, float]:
         if not self.success_species_contains:
             return self.target_species, self._lookup_target_metrics(summary)[0]
 
@@ -216,7 +216,7 @@ class SingleVideoTuningRunner:
                 best_confidence = confidence
         return best_species, best_confidence
 
-    def _record_summary(self, best_trial: Optional[TrialResult]) -> None:
+    def _record_summary(self, best_trial: TrialResult | None) -> None:
         payload = {
             "run_id": self.run_id,
             "video_path": self.video_path,
@@ -316,7 +316,7 @@ class SingleVideoTuningRunner:
         self.seen_configs.add(self._config_fingerprint(trial_config))
         return trial
 
-    def _is_better(self, candidate: TrialResult, incumbent: Optional[TrialResult]) -> bool:
+    def _is_better(self, candidate: TrialResult, incumbent: TrialResult | None) -> bool:
         if candidate.error:
             return False
         if incumbent is None or incumbent.error:
@@ -360,8 +360,8 @@ class SingleVideoTuningRunner:
                 self.stop_reason = "max_trials_reached"
                 break
 
-            round_best_trial: Optional[TrialResult] = None
-            round_best_config: Optional[dict] = None
+            round_best_trial: TrialResult | None = None
+            round_best_config: dict | None = None
 
             for path, values in TUNING_SPACE.items():
                 current_value = _get_nested(best_config, path)

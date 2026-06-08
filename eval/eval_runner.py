@@ -75,7 +75,7 @@ def _load_classifier_backend(model_cfg: dict):
         return BioCLIPBackend(model_cfg)
     if backend == "gemma4":
         try:
-            from src.gemma_classifier import GemmaClassifier
+            from src.gemma_classifier import GemmaClassifier  # noqa: F401  availability probe
         except ImportError:
             logger.warning(
                 "gemma_classifier module not found — Gemma 4 backend requires issue #58 to be merged. "
@@ -475,7 +475,9 @@ def run(cfg: dict, max_clips: int | None = None) -> None:
                 / "species_lists"
                 / "north_america_common.txt"
             )
-            all_species = [l.strip() for l in species_file.read_text().splitlines() if l.strip()]
+            all_species = [
+                line.strip() for line in species_file.read_text().splitlines() if line.strip()
+            ]
             logger.info("Loaded %d species from %s", len(all_species), species_file)
             classifier = GemmaClassifier(
                 model_name=model_cfg["model"],
@@ -492,7 +494,9 @@ def run(cfg: dict, max_clips: int | None = None) -> None:
                 / "species_lists"
                 / "north_america_common.txt"
             )
-            all_species = [l.strip() for l in species_file.read_text().splitlines() if l.strip()]
+            all_species = [
+                line.strip() for line in species_file.read_text().splitlines() if line.strip()
+            ]
             logger.info("Loaded %d species from %s", len(all_species), species_file)
             classifier = HFImageClassifier(
                 model_name=model_cfg["model"],

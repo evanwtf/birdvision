@@ -94,7 +94,8 @@ uv run pytest tests/test_tracker.py                      # single file
 uv run pytest tests/test_tracker.py::TestName::test_name # single test
 ```
 
-No lint, formatter, or type-checker is configured in this repo.
+Ruff is configured for lint and format (`uv run ruff check`,
+`uv run ruff format`). No type-checker is configured.
 
 ## Project Layout
 

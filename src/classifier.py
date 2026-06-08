@@ -1,5 +1,4 @@
 import logging
-from typing import List, Tuple
 
 import numpy as np
 import open_clip
@@ -18,7 +17,7 @@ class BirdClassifier:
     ):
         self.device = device
         self.top_k = top_k
-        self.species_names: List[str] = []
+        self.species_names: list[str] = []
         self.text_features: torch.Tensor = None
 
         logger.info(f"Loading BioCLIP model: {model_name}")
@@ -28,7 +27,7 @@ class BirdClassifier:
         logger.info("BioCLIP ready.")
 
     def set_species(
-        self, species_names: List[str], prompt_template: str = "a photo of a {species}"
+        self, species_names: list[str], prompt_template: str = "a photo of a {species}"
     ):
         """Pre-compute and cache text embeddings for all candidate species."""
         self.species_names = species_names
@@ -47,7 +46,7 @@ class BirdClassifier:
         self.text_features = torch.cat(all_features, dim=0)
         logger.info("Species embeddings ready.")
 
-    def _encode_crops(self, crops_bgr: List[np.ndarray]) -> np.ndarray:
+    def _encode_crops(self, crops_bgr: list[np.ndarray]) -> np.ndarray:
         """Run BioCLIP image encoder and return full softmax probability matrix (n_crops × n_species)."""
         if self.text_features is None:
             raise RuntimeError("Call set_species() before classifying.")
@@ -60,7 +59,7 @@ class BirdClassifier:
             probs = (100.0 * image_features @ self.text_features.T).softmax(dim=-1).cpu().numpy()
         return probs
 
-    def classify_batch(self, crops_bgr: List[np.ndarray]) -> List[List[Tuple[str, float]]]:
+    def classify_batch(self, crops_bgr: list[np.ndarray]) -> list[list[tuple[str, float]]]:
         """Classify a batch of BGR image crops. Returns top-k (species, probability) per crop."""
         if not crops_bgr:
             return []
@@ -71,7 +70,7 @@ class BirdClassifier:
             results.append([(self.species_names[i], float(row[i])) for i in top_idx])
         return results
 
-    def classify_batch_all_scores(self, crops_bgr: List[np.ndarray]) -> List[np.ndarray]:
+    def classify_batch_all_scores(self, crops_bgr: list[np.ndarray]) -> list[np.ndarray]:
         """Like classify_batch but returns the full probability vector per crop (all species)."""
         if not crops_bgr:
             return []

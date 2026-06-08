@@ -9,7 +9,6 @@ from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
-
 from log_utils import add_logging_args, configure_logging
 
 logger = logging.getLogger(__name__)

@@ -11,7 +11,6 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import List, Tuple
 
 import numpy as np
 
@@ -58,7 +57,7 @@ class HailoClassifier:
         self._shared_vdevice = vdevice
 
         logger.info("Loading species labels: %s", labels_path)
-        self.species_names: List[str] = json.loads(Path(labels_path).read_text())
+        self.species_names: list[str] = json.loads(Path(labels_path).read_text())
         logger.info("Loaded %d species labels", len(self.species_names))
 
         self._init_hailo()
@@ -69,7 +68,6 @@ class HailoClassifier:
             ConfigureParams,
             FormatType,
             HailoStreamInterface,
-            InferVStreams,
             InputVStreamParams,
             OutputVStreamParams,
             VDevice,
@@ -108,7 +106,7 @@ class HailoClassifier:
     # Public interface (matches classifier.py BirdClassifier)
     # ------------------------------------------------------------------
 
-    def set_species(self, species_names: List[str], **kwargs) -> None:
+    def set_species(self, species_names: list[str], **kwargs) -> None:
         """No-op — species order is fixed at training/compilation time.
 
         Validates that the provided list matches the loaded labels if given.
@@ -121,7 +119,7 @@ class HailoClassifier:
                 len(self.species_names),
             )
 
-    def classify_batch(self, crops_bgr: List[np.ndarray]) -> List[List[Tuple[str, float]]]:
+    def classify_batch(self, crops_bgr: list[np.ndarray]) -> list[list[tuple[str, float]]]:
         """Classify a batch of BGR crops. Returns top-k (species, score) per crop."""
         if not crops_bgr:
             return []
@@ -132,7 +130,7 @@ class HailoClassifier:
             results.append([(self.species_names[i], float(row[i])) for i in top_idx])
         return results
 
-    def classify_batch_all_scores(self, crops_bgr: List[np.ndarray]) -> List[np.ndarray]:
+    def classify_batch_all_scores(self, crops_bgr: list[np.ndarray]) -> list[np.ndarray]:
         """Like classify_batch but returns the full probability vector per crop."""
         if not crops_bgr:
             return []
@@ -143,7 +141,7 @@ class HailoClassifier:
     # Internal inference
     # ------------------------------------------------------------------
 
-    def _run_inference(self, crops_bgr: List[np.ndarray]) -> np.ndarray:
+    def _run_inference(self, crops_bgr: list[np.ndarray]) -> np.ndarray:
         """Preprocess crops, run Hailo inference, return softmax probs (N, classes)."""
         from hailo_platform import InferVStreams
 
@@ -152,14 +150,16 @@ class HailoClassifier:
         )
 
         t0 = time.perf_counter()
-        with InferVStreams(
-            self._network_group,
-            self._input_vstream_params,
-            self._output_vstream_params,
-        ) as pipeline:
-            with self._network_group.activate(self._network_group_params):
-                input_data = {self._input_name: batch}
-                raw_output = pipeline.infer(input_data)
+        with (
+            InferVStreams(
+                self._network_group,
+                self._input_vstream_params,
+                self._output_vstream_params,
+            ) as pipeline,
+            self._network_group.activate(self._network_group_params),
+        ):
+            input_data = {self._input_name: batch}
+            raw_output = pipeline.infer(input_data)
 
         logits = raw_output[self._output_name]  # (N, num_classes)
         elapsed_ms = (time.perf_counter() - t0) * 1000

@@ -1,7 +1,7 @@
+from dataclasses import dataclass
+
 import numpy as np
 from ultralytics import YOLO
-from dataclasses import dataclass
-from typing import List, Tuple
 
 BIRD_CLASS_ID = 14  # COCO class index for "bird"
 
@@ -28,15 +28,15 @@ class BirdDetector:
         self.fallback_crop_ratio = fallback_crop_ratio
         self.dedupe_iou_threshold = dedupe_iou_threshold
 
-    def detect(self, frame: np.ndarray) -> List[Detection]:
+    def detect(self, frame: np.ndarray) -> list[Detection]:
         return self._detect_in_region(frame, origin=(0, 0))
 
-    def detect_zoomed(self, frame: np.ndarray) -> List[Detection]:
+    def detect_zoomed(self, frame: np.ndarray) -> list[Detection]:
         region, origin = self._center_crop_region(frame)
         detections = self._detect_in_region(region, origin=origin, full_frame=frame)
         return self._dedupe(detections)
 
-    def _center_crop_region(self, frame: np.ndarray) -> Tuple[np.ndarray, Tuple[int, int]]:
+    def _center_crop_region(self, frame: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
         h, w = frame.shape[:2]
         crop_ratio = min(max(self.fallback_crop_ratio, 0.2), 1.0)
         crop_w = max(1, int(round(w * crop_ratio)))
@@ -51,9 +51,9 @@ class BirdDetector:
         self,
         frame: np.ndarray,
         *,
-        origin: Tuple[int, int],
+        origin: tuple[int, int],
         full_frame: np.ndarray | None = None,
-    ) -> List[Detection]:
+    ) -> list[Detection]:
         results = self.model(
             frame,
             conf=self.confidence,
@@ -83,8 +83,8 @@ class BirdDetector:
                     )
         return detections
 
-    def _dedupe(self, detections: List[Detection]) -> List[Detection]:
-        kept: List[Detection] = []
+    def _dedupe(self, detections: list[Detection]) -> list[Detection]:
+        kept: list[Detection] = []
         for det in sorted(detections, key=lambda item: item.confidence, reverse=True):
             if any(
                 self._iou(det.bbox, existing.bbox) >= self.dedupe_iou_threshold for existing in kept

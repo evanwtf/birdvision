@@ -20,12 +20,13 @@ Bounding box coordinates in results are normalized [0, 1].
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import queue
 import threading
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -53,7 +54,7 @@ class WebSocketFrameSource:
         self,
         host: str = "0.0.0.0",
         port: int = 8765,
-        static_dir: Optional[str] = None,
+        static_dir: str | None = None,
         max_buffered_frames: int = 2,
         upload_handler=None,
         client_idle_timeout_seconds: float = 30.0,
@@ -66,9 +67,9 @@ class WebSocketFrameSource:
         self._stop = False
         # Queue stores (bgr, metadata_dict) tuples
         self._frame_queue: queue.Queue = queue.Queue(maxsize=max_buffered_frames)
-        self._result_queue: Optional[asyncio.Queue] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._server_thread: Optional[threading.Thread] = None
+        self._result_queue: asyncio.Queue | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._server_thread: threading.Thread | None = None
         self._loop_ready = threading.Event()
         self._pending_metadata: dict = {}
         self._metadata: dict = {}
@@ -89,7 +90,7 @@ class WebSocketFrameSource:
             self._bytes_received = 0
             return n
 
-    def frames(self) -> Iterator[Tuple[int, np.ndarray]]:
+    def frames(self) -> Iterator[tuple[int, np.ndarray]]:
         """Yield (frame_number, bgr_frame) from WebSocket JPEG frames."""
         self._start_server()
         frame_no = 0
@@ -279,7 +280,7 @@ class WebSocketFrameSource:
                         ws.receive(),
                         timeout=self._client_idle_timeout,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.info(
                         "Closing idle client after %.0fs without frames: %s",
                         self._client_idle_timeout,
@@ -292,10 +293,8 @@ class WebSocketFrameSource:
                     break
 
                 if "text" in msg:
-                    try:
+                    with contextlib.suppress(json.JSONDecodeError):
                         self._pending_metadata = json.loads(msg["text"])
-                    except json.JSONDecodeError:
-                        pass
 
                 elif "bytes" in msg:
                     raw = msg["bytes"]
@@ -306,14 +305,10 @@ class WebSocketFrameSource:
                     if bgr is not None:
                         meta_copy = self._pending_metadata.copy()
                         if self._frame_queue.full():
-                            try:
+                            with contextlib.suppress(queue.Empty):
                                 self._frame_queue.get_nowait()
-                            except queue.Empty:
-                                pass
-                        try:
+                        with contextlib.suppress(queue.Full):
                             self._frame_queue.put_nowait((bgr, meta_copy))
-                        except queue.Full:
-                            pass
                         self._pending_metadata = {}
         except WebSocketDisconnect:
             pass

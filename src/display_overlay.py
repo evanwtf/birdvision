@@ -20,13 +20,14 @@ Verified facts carried from the display test in #89 (see pi/display_test/):
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import logging
 import mmap
 import struct
 import threading
 import time
-from typing import Iterable, Optional, Sequence
+from collections.abc import Iterable, Sequence
 
 import cv2
 import numpy as np
@@ -76,16 +77,16 @@ class DisplayOverlay:
         self._show_boxes = show_boxes
         self._min_dt = 1.0 / max(1.0, target_fps)
 
-        self._mm: Optional[mmap.mmap] = None
+        self._mm: mmap.mmap | None = None
         self._fd = None
         self._fb_w = 0
         self._fb_h = 0
         self._bpp = 32
 
         self._lock = threading.Lock()
-        self._state: Optional[tuple] = None  # (frame, bboxes, caption, fps)
+        self._state: tuple | None = None  # (frame, bboxes, caption, fps)
         self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
         try:
             self._open()
@@ -102,7 +103,7 @@ class DisplayOverlay:
     # ------------------------------------------------------------------
 
     def _open(self) -> None:
-        self._fd = open(self._device, "r+b")
+        self._fd = open(self._device, "r+b")  # noqa: SIM115  long-lived framebuffer handle
 
         vinfo = fcntl.ioctl(self._fd, FBIOGET_VSCREENINFO, b"\x00" * 160)
         xres, yres, _xv, _yv, _xo, _yo, bpp = struct.unpack_from("7I", vinfo, 0)
@@ -142,8 +143,8 @@ class DisplayOverlay:
         self,
         frame: np.ndarray,
         bboxes: Sequence[Iterable[float]] = (),
-        top_species: Optional[str] = None,
-        top_score: Optional[float] = None,
+        top_species: str | None = None,
+        top_score: float | None = None,
         fps: float = 0.0,
     ) -> None:
         """Hand the newest frame + state to the background writer.
@@ -164,16 +165,12 @@ class DisplayOverlay:
         if self._thread is not None:
             self._thread.join(timeout=2.0)
         if self._mm is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._mm.close()
-            except Exception:
-                pass
             self._mm = None
         if self._fd is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._fd.close()
-            except Exception:
-                pass
             self._fd = None
         self._enabled = False
 
@@ -202,7 +199,7 @@ class DisplayOverlay:
         self,
         frame: np.ndarray,
         bboxes: Sequence[Iterable[float]],
-        caption: Optional[str],
+        caption: str | None,
         fps: float,
     ) -> None:
         cv_rotate = _CV_ROTATIONS.get(self._rotate)

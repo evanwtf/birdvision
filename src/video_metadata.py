@@ -2,12 +2,12 @@
 Extract date/time, GPS coordinates, and basic media metadata using ExifTool.
 """
 
+import contextlib
 import logging
 import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import exiftool
@@ -15,7 +15,7 @@ import exiftool
 logger = logging.getLogger(__name__)
 
 _et_lock = threading.RLock()
-_et_instance: Optional[exiftool.ExifToolHelper] = None
+_et_instance: exiftool.ExifToolHelper | None = None
 
 
 def _get_exiftool() -> exiftool.ExifToolHelper:
@@ -23,10 +23,8 @@ def _get_exiftool() -> exiftool.ExifToolHelper:
     with _et_lock:
         if _et_instance is None or not _et_instance.running:
             if _et_instance is not None:
-                try:
+                with contextlib.suppress(Exception):
                     _et_instance.terminate()
-                except Exception:
-                    pass
             _et_instance = exiftool.ExifToolHelper()
             _et_instance.run()
         return _et_instance
@@ -41,19 +39,19 @@ DATETIME_FORMATS = [
 
 @dataclass
 class VideoMetadata:
-    recorded_at: Optional[datetime] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    camera_make: Optional[str] = None
-    camera_model: Optional[str] = None
-    focal_length: Optional[str] = None
+    recorded_at: datetime | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    camera_make: str | None = None
+    camera_model: str | None = None
+    focal_length: str | None = None
 
     @property
     def has_gps(self) -> bool:
         return self.latitude is not None and self.longitude is not None
 
     @property
-    def camera_info(self) -> Optional[str]:
+    def camera_info(self) -> str | None:
         """Human-readable camera description, e.g. 'Apple iPhone 15 Pro, 77mm'."""
         parts = []
         if self.camera_make and self.camera_model:
@@ -69,7 +67,7 @@ class VideoMetadata:
         return ", ".join(parts) if parts else None
 
     @property
-    def osm_url(self) -> Optional[str]:
+    def osm_url(self) -> str | None:
         if not self.has_gps:
             return None
         return (
@@ -80,25 +78,25 @@ class VideoMetadata:
 
 @dataclass
 class MediaMetadata:
-    recorded_at: Optional[datetime] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    camera_make: Optional[str] = None
-    camera_model: Optional[str] = None
-    focal_length: Optional[str] = None
-    width: Optional[int] = None
-    height: Optional[int] = None
-    duration_s: Optional[float] = None
-    fps: Optional[float] = None
-    video_codec: Optional[str] = None
-    metadata_error: Optional[str] = None
+    recorded_at: datetime | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    camera_make: str | None = None
+    camera_model: str | None = None
+    focal_length: str | None = None
+    width: int | None = None
+    height: int | None = None
+    duration_s: float | None = None
+    fps: float | None = None
+    video_codec: str | None = None
+    metadata_error: str | None = None
 
     @property
     def has_gps(self) -> bool:
         return self.latitude is not None and self.longitude is not None
 
     @property
-    def camera_info(self) -> Optional[str]:
+    def camera_info(self) -> str | None:
         return VideoMetadata(
             recorded_at=self.recorded_at,
             latitude=self.latitude,

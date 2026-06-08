@@ -13,7 +13,7 @@ import subprocess
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http import HTTPStatus
 from pathlib import Path
 from time import perf_counter
@@ -21,17 +21,18 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 import yaml
-
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from starlette.middleware.sessions import SessionMiddleware
 from starlette.datastructures import UploadFile as StarletteUploadFile
+from starlette.middleware.sessions import SessionMiddleware
 
 try:
     from authlib.integrations.starlette_client import OAuth
 except ImportError:  # pragma: no cover - keeps app importable until deps are installed
     OAuth = None
+
+import contextlib
 
 from .pipeline import BirdIdentificationPipeline
 from .video_metadata import MediaMetadata, VideoMetadata, inspect_media
@@ -68,16 +69,16 @@ class Job:
 
     def __post_init__(self):
         self.status = "pending"  # pending | running | done | error
-        self.result: Optional[dict] = None
-        self.error: Optional[str] = None
-        self.video_meta: Optional[VideoMetadata] = None
+        self.result: dict | None = None
+        self.error: str | None = None
+        self.video_meta: VideoMetadata | None = None
         self.image_paths: list[str] = []
         self.assets: list[dict[str, Any]] = []
         self.created_at: datetime = datetime.now()
-        self.selected_date: Optional[datetime] = None
-        self.result_stem: Optional[str] = None
-        self.submitted_by: Optional[str] = None
-        self.source_event_id: Optional[str] = None  # opaque upstream id (API uploads only)
+        self.selected_date: datetime | None = None
+        self.result_stem: str | None = None
+        self.submitted_by: str | None = None
+        self.source_event_id: str | None = None  # opaque upstream id (API uploads only)
 
     @property
     def slug(self) -> str:
@@ -90,7 +91,7 @@ class Job:
             return species_label
         return Path(self.filename).stem
 
-    def _high_confidence_species_label(self) -> Optional[str]:
+    def _high_confidence_species_label(self) -> str | None:
         """Return the top species label when confidence is strictly above 90%."""
         if self.status != "done" or not self.result:
             return None
@@ -152,7 +153,7 @@ class Job:
             n = self.result["image_info"].get("count", 0)
         return n
 
-    def _species_summary_label(self) -> Optional[str]:
+    def _species_summary_label(self) -> str | None:
         """Build a label like 'Mourning Dove (82%), Blue Jay (74%), 2 others'."""
         if not self.result or self.status != "done":
             return None
@@ -194,13 +195,13 @@ class Job:
         return species_text
 
     @property
-    def thumbnail_url(self) -> Optional[str]:
+    def thumbnail_url(self) -> str | None:
         filename = self._thumbnail_filename()
         if not filename:
             return None
         return f"/jobs/{self.id}/crops/{quote(filename)}"
 
-    def _thumbnail_filename(self) -> Optional[str]:
+    def _thumbnail_filename(self) -> str | None:
         if not self.result or self.status != "done":
             return None
 
@@ -246,17 +247,17 @@ class Job:
 class AuthSettings:
     enabled: bool
     debug_mode: bool
-    google_client_id: Optional[str]
-    google_client_secret: Optional[str]
-    redirect_uri: Optional[str]
-    session_secret: Optional[str]
+    google_client_id: str | None
+    google_client_secret: str | None
+    redirect_uri: str | None
+    session_secret: str | None
     allowed_emails: set[str]
 
 
 SAFARI_COMPATIBLE_CODECS = {"avc1", "hvc1", "hev1"}
 
 
-def transcode_to_h264(input_path: Path) -> Optional[Path]:
+def transcode_to_h264(input_path: Path) -> Path | None:
     """Transcode a video to H.264/AAC in an MP4 container using ffmpeg.
 
     Returns the output path on success, or None if ffmpeg is unavailable or fails.
@@ -343,7 +344,7 @@ class AssetStore:
         }
         self.index_path.write_text(json.dumps(payload, indent=2))
 
-    def get(self, sha256: str) -> Optional[dict[str, Any]]:
+    def get(self, sha256: str) -> dict[str, Any] | None:
         record = self._assets.get(sha256)
         if record is None:
             return None
@@ -359,9 +360,9 @@ class AssetStore:
         self,
         *,
         original_filename: str,
-        content_type: Optional[str],
+        content_type: str | None,
         data: bytes,
-        client_metadata: Optional[dict[str, Any]] = None,
+        client_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         safe_name = Path(original_filename or "upload").name or "upload"
         ext = Path(safe_name).suffix.lower()
@@ -443,7 +444,7 @@ class AssetStore:
             "canonical_path": str(stored_path) if processing_issue is None else None,
         }
 
-    def ingest_path(self, path: str, original_filename: Optional[str] = None) -> dict[str, Any]:
+    def ingest_path(self, path: str, original_filename: str | None = None) -> dict[str, Any]:
         source = Path(path)
         return self.inspect_bytes(
             original_filename=original_filename or source.name,
@@ -468,7 +469,7 @@ _executor = ThreadPoolExecutor(max_workers=1)
 
 
 def create_app(
-    config: dict, templates_dir: str = "templates", config_path: Optional[Path] = None
+    config: dict, templates_dir: str = "templates", config_path: Path | None = None
 ) -> FastAPI:
     app = FastAPI(title="BirdVision")
     templates = Jinja2Templates(directory=templates_dir)
@@ -510,7 +511,7 @@ def create_app(
                 f"/api/v1/videos will return 503 until tokens are configured"
             )
 
-    pipeline: Optional[BirdIdentificationPipeline] = None
+    pipeline: BirdIdentificationPipeline | None = None
 
     def current_config() -> dict[str, Any]:
         return load_runtime_config(config, config_path)
@@ -876,11 +877,11 @@ def create_app(
         request: Request,
         file: UploadFile = File(...),
         captured_at: str = Form(...),
-        latitude: Optional[float] = Form(None),
-        longitude: Optional[float] = Form(None),
-        source: Optional[str] = Form(None),
-        source_event_id: Optional[str] = Form(None),
-        x_api_token: Optional[str] = Header(None, alias="X-API-Token"),
+        latitude: float | None = Form(None),
+        longitude: float | None = Form(None),
+        source: str | None = Form(None),
+        source_event_id: str | None = Form(None),
+        x_api_token: str | None = Header(None, alias="X-API-Token"),
     ):
         # ── Auth ──────────────────────────────────────────────────────────
         # Token-based auth, separate from the browser /upload Google OAuth
@@ -901,11 +902,11 @@ def create_app(
         # ── Validate captured_at ──────────────────────────────────────────
         try:
             video_date = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
-        except ValueError:
+        except ValueError as err:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail=f"captured_at must be ISO-8601, got: {captured_at!r}",
-            )
+            ) from err
 
         # ── Read file and ingest into the content-addressed asset store ───
         contents = await file.read()
@@ -1223,9 +1224,7 @@ def create_app(
     return app
 
 
-def load_runtime_config(
-    initial_config: dict[str, Any], config_path: Optional[Path]
-) -> dict[str, Any]:
+def load_runtime_config(initial_config: dict[str, Any], config_path: Path | None) -> dict[str, Any]:
     if config_path and config_path.exists():
         try:
             return yaml.safe_load(config_path.read_text()) or {}
@@ -1290,21 +1289,21 @@ def parse_bool(value: Any) -> bool:
     return bool(value)
 
 
-def normalize_secret(value: Any) -> Optional[str]:
+def normalize_secret(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     stripped = value.strip()
     return stripped or None
 
 
-def normalize_email(value: Any) -> Optional[str]:
+def normalize_email(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
     stripped = value.strip().lower()
     return stripped or None
 
 
-def current_user_email(request: Request) -> Optional[str]:
+def current_user_email(request: Request) -> str | None:
     return normalize_email(request.session.get("email"))
 
 
@@ -1322,8 +1321,8 @@ def log_rejected_upload(
     filename: str,
     size_bytes: int,
     sha256: str,
-    content_type: Optional[str],
-    actor: Optional[str] = None,
+    content_type: str | None,
+    actor: str | None = None,
 ) -> None:
     proxy_ip, real_ip, forwarded_for, x_real_ip = extract_request_ips(request)
     logger.warning(
@@ -1346,7 +1345,7 @@ async def log_rejected_upload_batch(
     files: list[StarletteUploadFile],
     *,
     reason: str,
-    actor: Optional[str] = None,
+    actor: str | None = None,
 ) -> None:
     for upload in files:
         filename = Path(upload.filename or "upload").name
@@ -1363,7 +1362,7 @@ async def log_rejected_upload_batch(
         )
 
 
-def split_forwarded_for(value: Optional[str]) -> list[str]:
+def split_forwarded_for(value: str | None) -> list[str]:
     if not value:
         return []
     return [part.strip() for part in value.split(",") if part.strip()]
@@ -1383,7 +1382,7 @@ def extract_request_ips(request: Request) -> tuple[str, str, str, str]:
     )
 
 
-def can_upload_email(email: Optional[str], settings: AuthSettings) -> bool:
+def can_upload_email(email: str | None, settings: AuthSettings) -> bool:
     if not settings.enabled:
         return True
     return bool(email and email in settings.allowed_emails)
@@ -1395,7 +1394,7 @@ class RejectedUploadError(Exception):
     filename: str
     size_bytes: int
     sha256: str
-    content_type: Optional[str] = None
+    content_type: str | None = None
 
 
 def normalize_theme(value: Any) -> str:
@@ -1437,7 +1436,7 @@ def build_template_auth_context(request: Request, settings: AuthSettings) -> dic
 
 def require_upload_access(
     request: Request, settings: AuthSettings
-) -> Optional[JSONResponse | RedirectResponse]:
+) -> JSONResponse | RedirectResponse | None:
     if not settings.enabled:
         return None
 
@@ -1550,10 +1549,8 @@ def _load_existing_jobs(results_dir: Path):
                     asset["stored_path"] for asset in job.assets if asset.get("stored_path")
                 ]
             if result.get("date"):
-                try:
+                with contextlib.suppress(ValueError):
                     job.selected_date = datetime.fromisoformat(result["date"])
-                except ValueError:
-                    pass
             job.submitted_by = result.get("submitted_by")
             job.source_event_id = result.get("source_event_id")
             if job.assets:
@@ -1564,10 +1561,8 @@ def _load_existing_jobs(results_dir: Path):
                     longitude=result["longitude"],
                 )
                 if result.get("date"):
-                    try:
+                    with contextlib.suppress(ValueError):
                         vm.recorded_at = datetime.fromisoformat(result["date"])
-                    except ValueError:
-                        pass
                 job.video_meta = vm
             _jobs[job_id] = job
             loaded += 1
@@ -1613,8 +1608,8 @@ def _persist_source_event_id(results_dir: Path, result_stem: str, source_event_i
 async def _worker(
     loop: asyncio.AbstractEventLoop,
     pipeline: BirdIdentificationPipeline,
-    config_path: Optional[Path] = None,
-    results_dir: Optional[Path] = None,
+    config_path: Path | None = None,
+    results_dir: Path | None = None,
     asset_store: Optional["AssetStore"] = None,
 ):
     while True:
@@ -1870,7 +1865,7 @@ def _split_asset_groups(
     return groups
 
 
-def classify_media_type(filename: str, content_type: Optional[str]) -> str:
+def classify_media_type(filename: str, content_type: str | None) -> str:
     ext = Path(filename).suffix.lower()
     if ext in VIDEO_EXTENSIONS:
         return "video"
@@ -1884,7 +1879,7 @@ def classify_media_type(filename: str, content_type: Optional[str]) -> str:
     return "unknown"
 
 
-def build_job_asset(indexed: dict[str, Any], original_filename: Optional[str]) -> dict[str, Any]:
+def build_job_asset(indexed: dict[str, Any], original_filename: str | None) -> dict[str, Any]:
     return {
         "sha256": indexed["sha256"],
         "stored_path": indexed["stored_path"],
@@ -1922,10 +1917,8 @@ def build_video_meta_from_asset(asset: dict[str, Any]) -> VideoMetadata:
     )
     recorded_at = asset.get("recorded_at")
     if recorded_at:
-        try:
+        with contextlib.suppress(ValueError):
             meta.recorded_at = datetime.fromisoformat(recorded_at)
-        except ValueError:
-            pass
     # camera_info is stored pre-formatted in the asset index; parse it
     # back into make/model so VideoMetadata.camera_info property works
     camera_info = asset.get("camera_info")
@@ -1947,10 +1940,10 @@ def result_name_seed(assets: list[dict[str, Any]], media_type: str) -> str:
 
 
 def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
-def first_value(server_value: Any, client_metadata: Optional[dict[str, Any]], key: str) -> Any:
+def first_value(server_value: Any, client_metadata: dict[str, Any] | None, key: str) -> Any:
     if server_value is not None:
         return server_value
     if client_metadata and client_metadata.get(key) is not None:
@@ -1962,7 +1955,7 @@ def asset_is_processable(asset: dict[str, Any]) -> bool:
     return asset.get("processable", True)
 
 
-def asset_processing_issue(media_type: str, inspected: MediaMetadata) -> Optional[str]:
+def asset_processing_issue(media_type: str, inspected: MediaMetadata) -> str | None:
     if media_type != "video":
         return None
     if any(
@@ -1990,7 +1983,7 @@ def unprocessable_assets_message(count: int) -> str:
     )
 
 
-def validate_upload_selection(files: list[StarletteUploadFile]) -> Optional[str]:
+def validate_upload_selection(files: list[StarletteUploadFile]) -> str | None:
     image_count = sum(
         1 for upload in files if Path(upload.filename or "").suffix.lower() in IMAGE_EXTENSIONS
     )
@@ -1999,13 +1992,13 @@ def validate_upload_selection(files: list[StarletteUploadFile]) -> Optional[str]
     return None
 
 
-def validate_upload_size(filename: str, size_bytes: int) -> Optional[str]:
+def validate_upload_size(filename: str, size_bytes: int) -> str | None:
     if size_bytes <= MAX_UPLOAD_FILE_BYTES:
         return None
     return f"{Path(filename).name} exceeds the 50 MB upload limit."
 
 
-def validate_upload_extension(filename: str) -> Optional[str]:
+def validate_upload_extension(filename: str) -> str | None:
     if Path(filename).suffix.lower() in KNOWN_UPLOAD_EXTENSIONS:
         return None
     return (
@@ -2016,10 +2009,10 @@ def validate_upload_extension(filename: str) -> Optional[str]:
 
 def resolution_warning_text(
     *,
-    media_type: Optional[str],
-    width: Optional[int],
-    height: Optional[int],
-) -> Optional[str]:
+    media_type: str | None,
+    width: int | None,
+    height: int | None,
+) -> str | None:
     if width is None or height is None:
         return None
     long_edge = max(width, height)

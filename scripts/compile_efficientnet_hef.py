@@ -26,9 +26,9 @@ import time
 from pathlib import Path
 
 import numpy as np
+from log_utils import add_logging_args, configure_logging, estimate_remaining, format_duration
 from PIL import Image
 from tqdm import tqdm
-from log_utils import add_logging_args, configure_logging, estimate_remaining, format_duration
 
 logger = logging.getLogger(__name__)
 
@@ -102,11 +102,11 @@ def compile_hef(onnx_path: Path, calib_data: np.ndarray, output_path: Path) -> N
     """Translate, optimize, and compile ONNX → HEF using the Hailo DFC Python SDK."""
     try:
         from hailo_sdk_client import ClientRunner
-    except ImportError:
+    except ImportError as err:
         raise SystemExit(
             "hailo_sdk_client not found — install the Hailo Dataflow Compiler from "
             "https://hailo.ai/developer-zone/ (x86_64 only, requires account)"
-        )
+        ) from err
 
     logger.info("Initializing DFC for hailo8...")
     runner = ClientRunner(hw_arch="hailo8")

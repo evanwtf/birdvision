@@ -10,12 +10,10 @@ import numpy as np
 import pytest
 
 from src.pipeline import (
-    SWAN_SPECIES,
     BirdIdentificationPipeline,
     compact_path,
     resolution_warning_text,
 )
-
 
 # ---------------------------------------------------------------------------
 # compact_path

@@ -18,17 +18,16 @@ import signal
 import tempfile
 import time
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
 import psutil
 
-from .tracker import BirdTracker
-from .stream_capture import V4L2FrameSource
-from .hailo_detector import HailoDetector
-from .hailo_classifier import HailoClassifier
 from .display_overlay import DisplayOverlay
+from .hailo_classifier import HailoClassifier
+from .hailo_detector import HailoDetector
+from .stream_capture import V4L2FrameSource
+from .tracker import BirdTracker
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +88,7 @@ def _expanded_crop(
     padding_ratio_min: float = 0.04,
     closeup_area_ratio: float = 0.06,
     min_crop_area: int = 2500,
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """Extract a padded crop from frame.  Mirrors pipeline.py _expanded_crop logic."""
     x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
     box_w = max(0, x2 - x1)
@@ -217,7 +216,7 @@ class RealtimePipeline:
                 logger.warning("Could not load eBird priors: %s — running without", exc)
 
         # Optional framebuffer display overlay (Pi Touch Display 2)
-        self._display: Optional[DisplayOverlay] = None
+        self._display: DisplayOverlay | None = None
         disp_cfg = config.get("display", {})
         if disp_cfg.get("enabled", False):
             self._display = DisplayOverlay(
@@ -243,8 +242,8 @@ class RealtimePipeline:
         t_window_start = time.monotonic()
         t_stats_last = time.monotonic()
         window_events: list = []  # (species, score) from classify events this window
-        caption_species: Optional[str] = None
-        caption_score: Optional[float] = None
+        caption_species: str | None = None
+        caption_score: float | None = None
         caption_expiry: float = 0.0
         current_fps: float = 0.0
         current_bw_kbps: float = 0.0
@@ -292,7 +291,7 @@ class RealtimePipeline:
                 meta_lat = client_meta.get("lat")
                 meta_lon = client_meta.get("lon")
 
-                for tid, preds in zip(track_ids_to_classify, results):
+                for tid, preds in zip(track_ids_to_classify, results, strict=False):
                     track = tracks[tid]
                     track.last_classified_frame = frame_no
 
@@ -473,7 +472,7 @@ class RealtimePipeline:
             return self._process_image_upload(file_bytes, filename)
         return self._process_video_upload(file_bytes, filename)
 
-    def _make_upload_debug_dir(self, filename: str) -> Optional[Path]:
+    def _make_upload_debug_dir(self, filename: str) -> Path | None:
         upload_stem = _safe_path_component(Path(filename).stem)
         run_id = time.strftime("%Y%m%d_%H%M%S")
         dirname = f"{upload_stem}_{run_id}"
@@ -508,7 +507,7 @@ class RealtimePipeline:
 
     def _save_upload_debug_crop(
         self,
-        debug_dir: Optional[Path],
+        debug_dir: Path | None,
         crop: np.ndarray,
         *,
         prefix: str,
@@ -576,7 +575,7 @@ class RealtimePipeline:
 
             if crops:
                 all_preds = self._classifier.classify_batch(crops)
-                for idx, preds, crop in zip(det_indices, all_preds, crops):
+                for idx, preds, crop in zip(det_indices, all_preds, crops, strict=False):
                     det = detections[idx]
                     if self._metadata is not None:
                         preds = self._metadata.apply(preds)

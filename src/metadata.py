@@ -18,7 +18,6 @@ import math
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import yaml
 
@@ -64,13 +63,13 @@ def _date_to_period(dt: datetime) -> int:
 class MetadataPrior:
     def __init__(
         self,
-        latitude: Optional[float] = None,
-        longitude: Optional[float] = None,
-        db_path: Optional[str] = None,
-        fips: Optional[str] = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        db_path: str | None = None,
+        fips: str | None = None,
         zero_floor: float = 0.01,
         prior_mode: str = "seasonal",  # "seasonal" | "location_only"
-        local_priors_file: Optional[str] = None,
+        local_priors_file: str | None = None,
     ):
         self.latitude = latitude
         self.longitude = longitude
@@ -78,9 +77,9 @@ class MetadataPrior:
         self.default_fips = fips
         self.zero_floor = zero_floor
         self.prior_mode = prior_mode
-        self._con: Optional[sqlite3.Connection] = None
+        self._con: sqlite3.Connection | None = None
         self._county_fips: set[str] = set()
-        self._county_names: Dict[str, str] = {}
+        self._county_names: dict[str, str] = {}
         self._local_locations: list[dict] = []
 
         if local_priors_file and Path(local_priors_file).exists():
@@ -118,9 +117,9 @@ class MetadataPrior:
 
     def resolve_region(
         self,
-        latitude: Optional[float] = None,
-        longitude: Optional[float] = None,
-    ) -> Optional[dict]:
+        latitude: float | None = None,
+        longitude: float | None = None,
+    ) -> dict | None:
         lat = self.latitude if latitude is None else latitude
         lon = self.longitude if longitude is None else longitude
 
@@ -148,9 +147,9 @@ class MetadataPrior:
 
     def resolve_county_name(
         self,
-        latitude: Optional[float] = None,
-        longitude: Optional[float] = None,
-    ) -> Optional[str]:
+        latitude: float | None = None,
+        longitude: float | None = None,
+    ) -> str | None:
         region = self.resolve_region(latitude=latitude, longitude=longitude)
         if not region:
             return None
@@ -158,9 +157,9 @@ class MetadataPrior:
 
     def _query_frequencies_annual(
         self,
-        fips_list: List[str],
-        species_names: List[str],
-    ) -> Dict[str, float]:
+        fips_list: list[str],
+        species_names: list[str],
+    ) -> dict[str, float]:
         """Return average frequency across all 48 periods (year-round)."""
         placeholders = ",".join("?" * len(species_names))
         fips_placeholders = ",".join("?" * len(fips_list))
@@ -177,9 +176,9 @@ class MetadataPrior:
 
     def _resolve_local_overrides(
         self,
-        latitude: Optional[float],
-        longitude: Optional[float],
-    ) -> Dict[str, float]:
+        latitude: float | None,
+        longitude: float | None,
+    ) -> dict[str, float]:
         """Return per-species override dict for the first matching location, or {} if none match."""
         if latitude is None or longitude is None or not self._local_locations:
             return {}
@@ -192,11 +191,11 @@ class MetadataPrior:
 
     def get_priors(
         self,
-        species_names: List[str],
-        dt: Optional[datetime] = None,
-        latitude: Optional[float] = None,
-        longitude: Optional[float] = None,
-    ) -> Dict[str, float]:
+        species_names: list[str],
+        dt: datetime | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
+    ) -> dict[str, float]:
         if self._con is None:
             return {s: 1.0 for s in species_names}
         if self.prior_mode == "seasonal" and dt is None:
@@ -237,11 +236,11 @@ class MetadataPrior:
 
     def apply(
         self,
-        predictions: List[Tuple[str, float]],
-        dt: Optional[datetime] = None,
-        latitude: Optional[float] = None,
-        longitude: Optional[float] = None,
-    ) -> List[Tuple[str, float]]:
+        predictions: list[tuple[str, float]],
+        dt: datetime | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
+    ) -> list[tuple[str, float]]:
         """Re-weight and re-normalize predictions using eBird location/time priors."""
         species = [s for s, _ in predictions]
         priors = self.get_priors(species, dt, latitude=latitude, longitude=longitude)

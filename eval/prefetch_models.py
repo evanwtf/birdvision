@@ -41,8 +41,8 @@ def prefetch_bioclip(model_name: str) -> None:
 
 def prefetch_gemma(model_name: str) -> None:
     logger.info("Checking Gemma model: %s  (this may download several GB)", model_name)
-    from transformers import AutoProcessor, AutoModelForImageTextToText
     import torch
+    from transformers import AutoModelForImageTextToText, AutoProcessor
 
     # Download processor first (small) — confirms the model ID is valid before
     # we pull the weights.
@@ -64,8 +64,8 @@ def prefetch_gemma(model_name: str) -> None:
 
 def prefetch_hf_image_classifier(model_name: str) -> None:
     logger.info("Checking HF image classifier: %s", model_name)
-    from transformers import pipeline as hf_pipeline
     from PIL import Image
+    from transformers import pipeline as hf_pipeline
 
     pipe = hf_pipeline("image-classification", model=model_name, device=-1, top_k=1)
     pipe(Image.new("RGB", (224, 224)))

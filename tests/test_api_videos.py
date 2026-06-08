@@ -8,8 +8,8 @@ import yaml
 from fastapi.testclient import TestClient
 
 import src.webapp as webapp_module
-from src.webapp import Job
 from src.video_metadata import MediaMetadata
+from src.webapp import Job
 
 
 class _FakePipeline:

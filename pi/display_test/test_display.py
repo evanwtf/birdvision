@@ -70,7 +70,7 @@ def open_framebuffer(device: str):
     Uses FBIOGET_VSCREENINFO / FBIOGET_FSCREENINFO ioctls for reliable
     dimensions rather than guessing from sysfs virtual_size.
     """
-    fd = open(device, "r+b")
+    fd = open(device, "r+b")  # noqa: SIM115  caller owns mmap+fd lifecycle
 
     # struct fb_var_screeninfo — first fields we care about:
     #   u32 xres, yres, xres_virtual, yres_virtual, xoffset, yoffset, bits_per_pixel

@@ -1,14 +1,13 @@
 """Unit tests for WebSocketFrameSource."""
 
 import asyncio
+import contextlib
 import json
 import queue
 import threading
-import time
 
 import cv2
 import numpy as np
-import pytest
 
 from src.ws_frame_source import WebSocketFrameSource
 
@@ -81,10 +80,8 @@ class TestMetadataParsing:
     def test_invalid_json_ignored(self):
         src = WebSocketFrameSource.__new__(WebSocketFrameSource)
         src._metadata = {"existing": True}
-        try:
+        with contextlib.suppress(json.JSONDecodeError):
             json.loads("not json {{{")
-        except json.JSONDecodeError:
-            pass
         assert src._metadata == {"existing": True}
 
 

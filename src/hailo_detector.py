@@ -26,10 +26,9 @@ if the format differs from the above, it can be diagnosed from the Pi logs.
 
 import logging
 import time
-from typing import List, Tuple
+from dataclasses import dataclass
 
 import numpy as np
-from dataclasses import dataclass
 
 
 @dataclass
@@ -134,7 +133,7 @@ class HailoDetector:
     # Public interface (matches detector.py BirdDetector)
     # ------------------------------------------------------------------
 
-    def detect(self, frame: np.ndarray) -> List[Detection]:
+    def detect(self, frame: np.ndarray) -> list[Detection]:
         """Run YOLOv8 inference and return bird detections.
 
         Args:
@@ -187,12 +186,12 @@ class HailoDetector:
         logger.debug("Detections: %d birds above threshold %.2f", len(crops_added), self.threshold)
         return crops_added
 
-    def detect_zoomed(self, frame: np.ndarray) -> List[Detection]:
+    def detect_zoomed(self, frame: np.ndarray) -> list[Detection]:
         """Run detection on the center crop and map boxes to full-frame coords."""
         region, origin = self._center_crop_region(frame)
         detections = self.detect(region)
         origin_x, origin_y = origin
-        remapped: List[Detection] = []
+        remapped: list[Detection] = []
 
         frame_h, frame_w = frame.shape[:2]
         for det in detections:
@@ -213,7 +212,7 @@ class HailoDetector:
 
         return self._dedupe(remapped)
 
-    def _center_crop_region(self, frame: np.ndarray) -> Tuple[np.ndarray, Tuple[int, int]]:
+    def _center_crop_region(self, frame: np.ndarray) -> tuple[np.ndarray, tuple[int, int]]:
         h, w = frame.shape[:2]
         crop_ratio = min(max(self.fallback_crop_ratio, 0.2), 1.0)
         crop_w = max(1, int(round(w * crop_ratio)))
@@ -224,8 +223,8 @@ class HailoDetector:
         y2 = min(h, y1 + crop_h)
         return frame[y1:y2, x1:x2], (x1, y1)
 
-    def _dedupe(self, detections: List[Detection]) -> List[Detection]:
-        kept: List[Detection] = []
+    def _dedupe(self, detections: list[Detection]) -> list[Detection]:
+        kept: list[Detection] = []
         for det in sorted(detections, key=lambda item: item.confidence, reverse=True):
             if any(
                 self._iou(det.bbox, existing.bbox) >= self.dedupe_iou_threshold for existing in kept
@@ -254,15 +253,17 @@ class HailoDetector:
     def _run_inference(self, input_batch: np.ndarray) -> dict:
         from hailo_platform import InferVStreams
 
-        with InferVStreams(
-            self._network_group,
-            self._input_vstream_params,
-            self._output_vstream_params,
-        ) as pipeline:
-            with self._network_group.activate(self._network_group_params):
-                return pipeline.infer({self._input_name: input_batch})
+        with (
+            InferVStreams(
+                self._network_group,
+                self._input_vstream_params,
+                self._output_vstream_params,
+            ) as pipeline,
+            self._network_group.activate(self._network_group_params),
+        ):
+            return pipeline.infer({self._input_name: input_batch})
 
-    def _parse_detections(self, raw_output: dict, frame_h: int, frame_w: int) -> List[Detection]:
+    def _parse_detections(self, raw_output: dict, frame_h: int, frame_w: int) -> list[Detection]:
         """Decode Hailo NMS output into Detection objects.
 
         yolov8_nms_postprocess returns a single key whose value is a Python list
@@ -275,7 +276,7 @@ class HailoDetector:
         Fallback: if the value is a numpy array instead of a list (single combined
         tensor), tries (N, 6) format with [y1, x1, y2, x2, score, class_id].
         """
-        detections: List[Detection] = []
+        detections: list[Detection] = []
 
         val = next(iter(raw_output.values()))
 
@@ -287,7 +288,7 @@ class HailoDetector:
             # Unwrap outer list if needed
             per_class = val[0] if (len(val) == 1 and isinstance(val[0], list)) else val
 
-            if BIRD_CLASS_ID >= len(per_class):
+            if len(per_class) <= BIRD_CLASS_ID:
                 logger.warning(
                     "NMS per-class list has %d entries, expected >= %d",
                     len(per_class),

@@ -3,15 +3,16 @@
 import json
 import os
 import subprocess
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.webapp import (
+    SAFARI_COMPATIBLE_CODECS,
     AuthSettings,
     Job,
-    SAFARI_COMPATIBLE_CODECS,
+    _load_api_tokens,
+    _load_existing_jobs,
+    _persist_source_event_id,
+    _persist_submitted_by,
     build_auth_settings,
     build_job_display_name,
     can_upload_email,
@@ -27,12 +28,7 @@ from src.webapp import (
     slugify_result_name,
     transcode_to_h264,
     validate_asset_batch,
-    _load_api_tokens,
-    _persist_source_event_id,
-    _persist_submitted_by,
-    _load_existing_jobs,
 )
-
 
 # ---------------------------------------------------------------------------
 # parse_bool
@@ -1113,7 +1109,7 @@ class TestTranscodeToH264:
                 MagicMock(returncode=0),
             )[1]
 
-            result = transcode_to_h264(input_file)
+            transcode_to_h264(input_file)
 
         assert mock_run.called
         cmd = mock_run.call_args[0][0]

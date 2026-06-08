@@ -4,7 +4,6 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -12,7 +11,7 @@ import numpy as np
 from .classifier import BirdClassifier
 from .detector import BirdDetector
 from .metadata import MetadataPrior
-from .tracker import BirdTracker, Track
+from .tracker import BirdTracker
 from .video_metadata import extract as extract_media_metadata
 
 logger = logging.getLogger(__name__)
@@ -23,9 +22,9 @@ SWAN_SPECIES = {"Mute Swan", "Tundra Swan"}
 def resolution_warning_text(
     *,
     media_type: str,
-    width: Optional[int],
-    height: Optional[int],
-) -> Optional[str]:
+    width: int | None,
+    height: int | None,
+) -> str | None:
     if width is None or height is None:
         return None
     long_edge = max(width, height)
@@ -130,9 +129,9 @@ class BirdIdentificationPipeline:
     def _build_prior(
         self,
         *,
-        latitude: Optional[float] = None,
-        longitude: Optional[float] = None,
-        fips: Optional[str] = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        fips: str | None = None,
         use_default_fips: bool = True,
     ) -> MetadataPrior:
         return MetadataPrior(
@@ -297,14 +296,14 @@ class BirdIdentificationPipeline:
         new_species_file = sp.get("list_file")
         new_prompt = sp.get("prompt_template", "a photo of a {species}")
         if new_prompt != self.prompt_template:
-            logger.info(f"Config reload: prompt_template changed, re-computing embeddings")
+            logger.info("Config reload: prompt_template changed, re-computing embeddings")
             self.prompt_template = new_prompt
             self.load_species(new_species_file)
 
-    def load_species(self, species_file: Optional[str]):
+    def load_species(self, species_file: str | None):
         if species_file and os.path.exists(species_file):
             with open(species_file) as f:
-                species = [l.strip() for l in f if l.strip() and not l.startswith("#")]
+                species = [line.strip() for line in f if line.strip() and not line.startswith("#")]
             logger.info(f"Loaded {len(species)} species from {species_file}")
         else:
             from .pipeline_defaults import COMMON_NA_BIRDS
@@ -313,7 +312,7 @@ class BirdIdentificationPipeline:
             species = COMMON_NA_BIRDS
         self.classifier.set_species(species, prompt_template=self.prompt_template)
 
-    def _expanded_crop(self, frame: np.ndarray, bbox: np.ndarray) -> Optional[np.ndarray]:
+    def _expanded_crop(self, frame: np.ndarray, bbox: np.ndarray) -> np.ndarray | None:
         box_w = max(0, int(bbox[2] - bbox[0]))
         box_h = max(0, int(bbox[3] - bbox[1]))
         box_area = box_w * box_h
@@ -342,11 +341,11 @@ class BirdIdentificationPipeline:
         return frame[y1:y2, x1:x2]
 
     def _build_video_predictions(
-        self, track_predictions: List[List[Tuple[str, float]]]
-    ) -> List[dict]:
+        self, track_predictions: list[list[tuple[str, float]]]
+    ) -> list[dict]:
         """Aggregate track-level predictions into a video-level presence summary."""
-        species_scores: Dict[str, float] = {}
-        supporting_tracks: Dict[str, int] = {}
+        species_scores: dict[str, float] = {}
+        supporting_tracks: dict[str, int] = {}
 
         for preds in track_predictions:
             seen_species = set()
@@ -371,9 +370,9 @@ class BirdIdentificationPipeline:
 
     def _build_species_summary(
         self,
-        weighted_scores: Dict[str, float],
-        raw_scores: Dict[str, float],
-    ) -> List[dict]:
+        weighted_scores: dict[str, float],
+        raw_scores: dict[str, float],
+    ) -> list[dict]:
         ranked = sorted(weighted_scores.items(), key=lambda item: -item[1])
         return [
             {
@@ -386,12 +385,12 @@ class BirdIdentificationPipeline:
 
     def _apply_waterbird_shape_adjustment(
         self,
-        preds: List[Tuple[str, float]],
+        preds: list[tuple[str, float]],
         *,
         bbox: np.ndarray,
         frame_width: int,
         frame_height: int,
-    ) -> List[Tuple[str, float]]:
+    ) -> list[tuple[str, float]]:
         if not preds:
             return preds
 
@@ -430,17 +429,17 @@ class BirdIdentificationPipeline:
 
     def _select_video_gallery_plan(
         self,
-        candidates: List[dict],
+        candidates: list[dict],
         *,
         total_frames: int,
         fps: float,
         min_frames: int = 3,
         max_frames: int = 6,
-    ) -> List[dict]:
+    ) -> list[dict]:
         if total_frames <= 0:
             return []
 
-        selected: List[dict] = []
+        selected: list[dict] = []
         min_gap = max(int(total_frames / 10), int((fps or 1) * 1.5), 1)
         for candidate in sorted(candidates, key=lambda item: (-item["score"], item["frame"])):
             if any(abs(candidate["frame"] - existing["frame"]) < min_gap for existing in selected):
@@ -474,9 +473,9 @@ class BirdIdentificationPipeline:
     def _write_video_gallery_frames(
         self,
         video_path: str,
-        gallery_plan: List[dict],
+        gallery_plan: list[dict],
         crops_dir: Path,
-    ) -> List[dict]:
+    ) -> list[dict]:
         if not gallery_plan:
             return []
 
@@ -515,7 +514,7 @@ class BirdIdentificationPipeline:
     def _draw_image_annotations(
         self,
         frame: np.ndarray,
-        detections: List[dict],
+        detections: list[dict],
     ) -> np.ndarray:
         annotated = frame.copy()
         box_color = (32, 32, 220)
@@ -567,10 +566,10 @@ class BirdIdentificationPipeline:
         height: int,
         frames_with_detections: set,
         crops_dir: Path,
-        video_date: Optional[datetime],
-        latitude: Optional[float],
-        longitude: Optional[float],
-    ) -> List[dict]:
+        video_date: datetime | None,
+        latitude: float | None,
+        longitude: float | None,
+    ) -> list[dict]:
         """Extract evenly-spaced stills from a video, snapped to tracked frames,
         and annotate them with detection boxes like photo jobs."""
         if not frames_with_detections or duration_s <= 0:
@@ -581,7 +580,7 @@ class BirdIdentificationPipeline:
         window = int(fps)  # +/-1 second
 
         # Compute evenly-spaced target frames, snap each to nearest detected frame
-        selected_frames: List[int] = []
+        selected_frames: list[int] = []
         for i in range(num_stills):
             t = (i + 0.5) * duration_s / num_stills
             target_frame = int(t * fps)
@@ -605,7 +604,7 @@ class BirdIdentificationPipeline:
             logger.warning("Could not reopen video for stills: %s", video_path)
             return []
 
-        stills: List[dict] = []
+        stills: list[dict] = []
         try:
             for still_idx, frame_no in enumerate(selected_frames):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
@@ -625,10 +624,10 @@ class BirdIdentificationPipeline:
                         crops.append(crop)
                         crop_indices.append(det_idx)
 
-                det_results: List[dict] = []
+                det_results: list[dict] = []
                 if crops:
                     batch_preds = self.classifier.classify_batch(crops)
-                    for i, (preds, crop) in enumerate(zip(batch_preds, crops)):
+                    for i, (preds, _crop) in enumerate(zip(batch_preds, crops, strict=False)):
                         raw_preds = preds[:]
                         raw_top_conf = raw_preds[0][1] if raw_preds else 0.0
                         if raw_top_conf < self.min_event_confidence:
@@ -689,13 +688,13 @@ class BirdIdentificationPipeline:
     def process_video(
         self,
         video_path: str,
-        video_date: Optional[datetime] = None,
-        latitude: Optional[float] = None,
-        longitude: Optional[float] = None,
-        result_stem: Optional[str] = None,
-        source_filename: Optional[str] = None,
-        display_name: Optional[str] = None,
-        asset_records: Optional[list[dict]] = None,
+        video_date: datetime | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        result_stem: str | None = None,
+        source_filename: str | None = None,
+        display_name: str | None = None,
+        asset_records: list[dict] | None = None,
     ) -> dict:
         """
         Process a single video. Returns a summary dict and writes a JSON results file.
@@ -735,10 +734,10 @@ class BirdIdentificationPipeline:
 
         frame_idx = 0
         # track_id -> list of per-event dicts
-        track_events: Dict[int, List[dict]] = {}
+        track_events: dict[int, list[dict]] = {}
         # track_id -> best crop (highest top-1 confidence seen so far)
-        best_crops: Dict[int, Tuple[np.ndarray, float]] = {}  # tid -> (crop_bgr, confidence)
-        gallery_candidates: List[dict] = []
+        best_crops: dict[int, tuple[np.ndarray, float]] = {}  # tid -> (crop_bgr, confidence)
+        gallery_candidates: list[dict] = []
         frames_with_detections: set = set()
 
         try:
@@ -756,19 +755,18 @@ class BirdIdentificationPipeline:
                 )
                 if should_try_small_bird_fallback:
                     detections = self.detector.detect_zoomed(frame)
-                    if detections:
-                        if self.verbose_runtime_logs:
-                            logger.info(
-                                f"  [{frame_idx / fps:.1f}s] recovered {len(detections)} detection(s) "
-                                "via center zoom fallback"
-                            )
+                    if detections and self.verbose_runtime_logs:
+                        logger.info(
+                            f"  [{frame_idx / fps:.1f}s] recovered {len(detections)} detection(s) "
+                            "via center zoom fallback"
+                        )
                 tracks = self.tracker.update(detections, frame_size=(width, height))
 
                 if any(t.disappeared == 0 for t in tracks.values()):
                     frames_with_detections.add(frame_idx)
 
                 # Map active tracks to their matching detection (for crop access)
-                det_for_track: Dict[int, object] = {}
+                det_for_track: dict[int, object] = {}
                 for tid, track in tracks.items():
                     if track.disappeared > 0 or track.matched_detection_idx is None:
                         continue
@@ -780,14 +778,15 @@ class BirdIdentificationPipeline:
                 for tid, track in tracks.items():
                     if track.disappeared > 0:
                         continue
-                    if (frame_idx - track.last_classified_frame) >= self.classify_every_n:
-                        if tid in det_for_track:
-                            crop = self._expanded_crop(frame, det_for_track[tid].bbox)
-                            if crop is None:
-                                track.last_classified_frame = frame_idx
-                                continue
-                            to_classify_ids.append(tid)
-                            to_classify_crops.append(crop)
+                    if (frame_idx - track.last_classified_frame) >= self.classify_every_n and (
+                        tid in det_for_track
+                    ):
+                        crop = self._expanded_crop(frame, det_for_track[tid].bbox)
+                        if crop is None:
+                            track.last_classified_frame = frame_idx
+                            continue
+                        to_classify_ids.append(tid)
+                        to_classify_crops.append(crop)
 
                 if to_classify_crops:
                     batch_results = self.classifier.classify_batch(to_classify_crops)
@@ -799,7 +798,12 @@ class BirdIdentificationPipeline:
                         self.classifier, "last_efficientnet_results", [None] * len(batch_results)
                     )
                     for tid, preds, crop, bc_preds, en_preds in zip(
-                        to_classify_ids, batch_results, to_classify_crops, bc_batch, en_batch
+                        to_classify_ids,
+                        batch_results,
+                        to_classify_crops,
+                        bc_batch,
+                        en_batch,
+                        strict=False,
                     ):
                         raw_preds = preds[:]  # save pre-prior visual scores
                         raw_top_conf = raw_preds[0][1] if raw_preds else 0.0
@@ -885,7 +889,7 @@ class BirdIdentificationPipeline:
         # Save best crop per track
         crops_dir = Path(self.results_dir) / (Path(video_path).stem + "_crops")
         crops_dir.mkdir(parents=True, exist_ok=True)
-        saved_crops: Dict[int, str] = {}
+        saved_crops: dict[int, str] = {}
         for tid, (crop_bgr, _) in best_crops.items():
             crop_path = crops_dir / f"track_{tid}.jpg"
             cv2.imwrite(str(crop_path), crop_bgr)
@@ -914,8 +918,8 @@ class BirdIdentificationPipeline:
 
         # Build per-track summaries using averaged predictions
         track_summaries = []
-        video_track_predictions: List[List[Tuple[str, float]]] = []
-        video_raw_predictions: List[List[Tuple[str, float]]] = []
+        video_track_predictions: list[list[tuple[str, float]]] = []
+        video_raw_predictions: list[list[tuple[str, float]]] = []
         for tid, track in {**self.tracker.completed_tracks, **self.tracker.tracks}.items():
             best = track.best_prediction
             top_conf = best[0][1] if best else 0.0
@@ -1012,9 +1016,9 @@ class BirdIdentificationPipeline:
 
     def _build_explanation(
         self,
-        best: List[Tuple[str, float]],
-        raw: Optional[List[Tuple[str, float]]],
-        video_date: Optional[datetime],
+        best: list[tuple[str, float]],
+        raw: list[tuple[str, float]] | None,
+        video_date: datetime | None,
     ) -> str:
         if not raw:
             return ""
@@ -1053,7 +1057,7 @@ class BirdIdentificationPipeline:
         raw_top = raw_top3[0][0]
         if raw_top != top_final:
             # Find how much more likely top_final is vs raw_top visually
-            raw_final_prob = next((p for s, p in raw_top3 if s == top_final), None)
+            next((p for s, p in raw_top3 if s == top_final), None)
             raw_top_freq = priors.get(raw_top, 0.01)
             final_freq = priors.get(top_final, 0.01)
             if raw_top_freq > 0 and final_freq > raw_top_freq:
@@ -1075,14 +1079,14 @@ class BirdIdentificationPipeline:
         self,
         image_paths: list[str],
         *,
-        source_filenames: Optional[list[str]] = None,
-        video_date: Optional[datetime] = None,
-        latitude: Optional[float] = None,
-        longitude: Optional[float] = None,
-        job_id: Optional[str] = None,
-        result_stem: Optional[str] = None,
-        display_name: Optional[str] = None,
-        asset_records: Optional[list[dict]] = None,
+        source_filenames: list[str] | None = None,
+        video_date: datetime | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        job_id: str | None = None,
+        result_stem: str | None = None,
+        display_name: str | None = None,
+        asset_records: list[dict] | None = None,
     ) -> dict:
         """
         Classify birds in one or more photos. Returns a summary dict and writes
@@ -1150,8 +1154,8 @@ class BirdIdentificationPipeline:
                     crop_indices.append(det_idx)
 
             det_results = []
-            image_species_scores: Dict[str, float] = {}
-            image_raw_species_scores: Dict[str, float] = {}
+            image_species_scores: dict[str, float] = {}
+            image_raw_species_scores: dict[str, float] = {}
             if crops:
                 batch_preds = self.classifier.classify_batch(crops)
                 img_bc_batch = getattr(
@@ -1161,7 +1165,7 @@ class BirdIdentificationPipeline:
                     self.classifier, "last_efficientnet_results", [None] * len(batch_preds)
                 )
                 for i, (preds, crop, img_bc_preds, img_en_preds) in enumerate(
-                    zip(batch_preds, crops, img_bc_batch, img_en_batch)
+                    zip(batch_preds, crops, img_bc_batch, img_en_batch, strict=False)
                 ):
                     raw_preds = preds[:]
                     raw_top_conf = raw_preds[0][1] if raw_preds else 0.0

@@ -33,11 +33,11 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+from log_utils import add_logging_args, configure_logging, estimate_remaining, format_duration
 from torch.utils.data import DataLoader, random_split
 from torchvision import datasets, transforms
 from torchvision.models import EfficientNet_V2_S_Weights, efficientnet_v2_s
 from tqdm import tqdm
-from log_utils import add_logging_args, configure_logging, estimate_remaining, format_duration
 
 logger = logging.getLogger(__name__)
 

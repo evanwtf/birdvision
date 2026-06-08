@@ -13,9 +13,8 @@ Cam Link 4K supported formats on Pi (from v4l2-ctl --list-formats-ext):
 """
 
 import logging
-import signal
 import time
-from typing import Iterator, Tuple
+from collections.abc import Iterator
 
 import cv2
 import numpy as np
@@ -49,7 +48,7 @@ class V4L2FrameSource:
         self.fourcc = fourcc
         self._stop = False
 
-    def frames(self) -> Iterator[Tuple[int, np.ndarray]]:
+    def frames(self) -> Iterator[tuple[int, np.ndarray]]:
         """Yield (frame_number, bgr_frame) until stop() is called or an error occurs."""
         cap = self._open()
         frame_no = 0

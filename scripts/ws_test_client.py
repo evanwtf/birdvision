@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import asyncio
+import contextlib
 import json
 import logging
 import signal
@@ -139,10 +140,8 @@ async def stream_video(args: argparse.Namespace) -> None:
                 await asyncio.sleep(interval)
 
             recv_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await recv_task
-            except asyncio.CancelledError:
-                pass
 
     except websockets.ConnectionClosed:
         logger.warning("Server closed connection")

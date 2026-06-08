@@ -1,12 +1,9 @@
 """Unit tests for src/video_metadata.py — camera_info, osm_url, and extract."""
 
 from datetime import datetime
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from src.video_metadata import MediaMetadata, VideoMetadata, extract
-
 
 # ---------------------------------------------------------------------------
 # VideoMetadata.camera_info

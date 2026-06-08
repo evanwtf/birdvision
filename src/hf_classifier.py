@@ -70,7 +70,6 @@ NAME_OVERRIDES: dict[str, str] = {
     "YELLOW RUMPED WARBLER": "Yellow-rumped Warbler",
     "BLACKPOLL WARBLER": "Blackpoll Warbler",
     "BLACK AND WHITE WARBLER": "Black-and-white Warbler",
-    "COMMON YELLOWTHROAT": "Common Yellowthroat",
     "AMERICAN REDSTART": "American Redstart",
     "CHIPPING SPARROW": "Chipping Sparrow",
     "FIELD SPARROW": "Field Sparrow",

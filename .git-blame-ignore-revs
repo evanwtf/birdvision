@@ -1,0 +1,6 @@
+# Skip these revs when running `git blame`.
+# Configure once locally with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Initial ruff format pass — pure reformat, no behavior change.
+3c74aa4

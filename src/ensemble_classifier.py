@@ -83,7 +83,7 @@ class EnsembleClassifier:
         self.last_bioclip_results = []
         self.last_efficientnet_results = []
 
-        for crop, bc_probs in zip(crops_bgr, all_bc_probs):
+        for crop, bc_probs in zip(crops_bgr, all_bc_probs, strict=False):
             # Secondary model scores (dict over all species; 0.0 for unmapped).
             hf_scores = self._secondary.classify(crop)
 
