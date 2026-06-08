@@ -26,6 +26,14 @@ packages are placed manually because Hailo's runtime packages are proprietary.
 
 Requires [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
 
+First, copy the config template:
+
+```bash
+cp config.yaml.example config.yaml
+```
+
+Then build and start:
+
 ```bash
 docker compose build
 docker compose up
@@ -36,15 +44,9 @@ photos and view results with species predictions, confidence scores, annotated
 image/video artifacts, and links to Cornell All About Birds for each candidate
 species.
 
-If you want Google OAuth login for uploads, export secrets before `docker compose up`:
+For Google OAuth login, see the [Secrets](#secrets) section below.
 
-```bash
-export GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
-export GOOGLE_CLIENT_SECRET="your-client-secret"
-export SESSION_SECRET="$(python -c 'import secrets; print(secrets.token_hex(32))')"
-```
-
-If BirdVision is served behind HTTPS through a reverse proxy, also set the
+If BirdVision is served behind HTTPS through a reverse proxy, set the
 exact callback URL under `auth.redirect_uri` in `config.yaml`, for example
 `https://birdvision.example.com/auth/callback`.
 
@@ -508,6 +510,36 @@ Set `display.enabled: false` in `config.pi.yaml` for headless deployments.
 
 Each script writes a timestamped log file under `logs/retraining/` and prints
 the `tail -f` command at startup.
+
+## Secrets
+
+OAuth credentials and the session signing key are read from environment
+variables (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`),
+falling back to `config.yaml` if unset. The recommended pattern is to
+keep them in [1Password](https://1password.com) and resolve them at
+launch time with `op run`:
+
+```bash
+# .env.op.example — template committed; real values stay in 1Password
+GOOGLE_CLIENT_ID=op://BirdVision/google-oauth/client id
+GOOGLE_CLIENT_SECRET=op://BirdVision/google-oauth/password
+SESSION_SECRET=op://BirdVision/session-secret/password
+```
+
+Launch:
+
+```bash
+op run --env-file .env.op.example -- docker compose up
+```
+
+On a headless server, set `OP_SERVICE_ACCOUNT_TOKEN` in the host
+environment (not in the `.env.op` file) so `op` runs non-interactively.
+Service accounts can be scoped to a single vault (`BirdVision`) and have
+no access to the rest of your 1Password account.
+
+`config.yaml`, `config.pi.yaml`, and `config.pi.sidecar.yaml` are
+gitignored. Copy from the matching `.example` files when setting up a
+new deployment.
 
 ## License
 

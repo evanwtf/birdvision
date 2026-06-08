@@ -38,6 +38,15 @@ data/ebird_priors.db
 # Claude Code local settings
 .claude/
 
+# Local config files — real values live outside the repo (1Password +
+# host-edited copies). Templates ship as *.example, see README.
+config.yaml
+config.pi.yaml
+config.pi.sidecar.yaml
+
+# Local deploy env — real .env.op may exist for testing
+.env.op
+
 # API tokens (real file gitignored; api_tokens.yaml.example is committed)
 api_tokens.yaml
 
