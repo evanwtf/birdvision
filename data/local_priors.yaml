@@ -14,7 +14,7 @@
 #   0.001 = habitat-incompatible (diving duck at a feeder, etc.)
 
 locations:
-  - name: "Nassau County Backyard Feeder"
+  - name: "Example Backyard Feeder"
     lat: 40.7
     lon: -73.5
     radius_km: 0.5
