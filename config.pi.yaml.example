@@ -1,13 +1,16 @@
-# BirdVision Pi — Sidecar mode (phone streaming via WebSocket)
-# Used by the birdvision-sidecar service in docker-compose.pi.yml.
-# Phone opens http://<pi-ip>:8765/ in browser → camera streams to Pi → results overlay.
+# BirdVision Pi — Backyard mode (USB capture card, e.g. Elgato Cam Link 4K).
+# For phone sidecar mode, use config.pi.sidecar.yaml.example instead.
+# Copy to config.pi.yaml and edit.
 
 stream:
-  source: websocket
-  ws_host: 0.0.0.0
-  ws_port: 8765
-  ws_static_dir: /app/static
+  source: v4l2
+  device: /dev/video0
+  format: yuyv422
+  width: 1920
+  height: 1080
+  framerate: 59.94
 
+# HailoRT 4.23.0 — matches hailort_4.23.0_arm64.deb installed on host
 detector:
   hef: /app/pi/models/yolov8n.hef
   confidence: 0.4
@@ -38,6 +41,7 @@ scoring:
   center_weight_strength: 2.0
 
 metadata:
+  # Coords for the camera location — used for eBird prior lookup.
   latitude: 40.7
   longitude: -73.5
   ebird_db: /app/data/ebird_priors.db
@@ -50,6 +54,12 @@ output:
   log_interval_seconds: 1
   stats_interval_seconds: 30
 
-# No display overlay in sidecar mode — results go to the phone browser.
+# Pi Touch Display 2 overlay — live feed + CC-style species caption on /dev/fb0.
+# Set enabled: false for headless/SSH deployments without a framebuffer.
 display:
-  enabled: false
+  enabled: true
+  device: /dev/fb0
+  rotate: 90              # 0/90/180/270 — physical display is landscape via 90° CW
+  show_fps: false
+  show_boxes: true
+  caption_ttl_seconds: 3  # how long a species label stays on screen after last event
