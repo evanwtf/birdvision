@@ -21,7 +21,7 @@ arrives in days; the software downloads take minutes; the models are
 
 | Item | Approx. price | Source | Notes |
 |---|---|---|---|
-| Raspberry Pi 5 8 GB AI Kit (26 TOPS) | $379 | [CanaKit](https://www.canakit.com/raspberry-pi-5-8gb-quick-start-kit-ai-128gb-26t.html) | Includes Pi 5, Hailo-8 M.2 accelerator, 128 GB storage, case with active cooling, PSU |
+| Raspberry Pi 5 Quick-Start AI Kit | ~$380 | [CanaKit](https://www.canakit.com/canakit-raspberry-pi-5-quick-start-ai-13-26-tops-kit.html) | Pick the **26 TOPS** option (Hailo-8). The 13 TOPS variant uses the Hailo-8L and isn't tested against this project. Kit also includes 128 GB storage, case with active cooling, PSU. |
 | Phone with camera | $0 | already own | iOS Safari 14.5+ or Android Chrome — anything from the last ~5 years |
 | WiFi network | $0 | already own | Pi and phone must be on the same LAN |
 
