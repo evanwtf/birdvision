@@ -58,7 +58,11 @@ class FileFrameSource:
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             logger.info(
                 "Opened %s  %dx%d  %.2f fps  %d frames",
-                self._file_path.name, width, height, native_fps, total_frames,
+                self._file_path.name,
+                width,
+                height,
+                native_fps,
+                total_frames,
             )
 
             min_interval = 1.0 / self._fps_limit if self._fps_limit else 0.0

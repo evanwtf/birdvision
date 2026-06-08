@@ -38,6 +38,7 @@ from src.webapp import (
 # parse_bool
 # ---------------------------------------------------------------------------
 
+
 class TestParseBool:
     def test_true_bool(self):
         assert parse_bool(True) is True
@@ -82,6 +83,7 @@ class TestParseBool:
 # normalize_secret
 # ---------------------------------------------------------------------------
 
+
 class TestNormalizeSecret:
     def test_valid_string(self):
         assert normalize_secret("my-secret") == "my-secret"
@@ -106,6 +108,7 @@ class TestNormalizeSecret:
 # normalize_email
 # ---------------------------------------------------------------------------
 
+
 class TestNormalizeEmail:
     def test_lowercases(self):
         assert normalize_email("User@Example.COM") == "user@example.com"
@@ -126,6 +129,7 @@ class TestNormalizeEmail:
 # ---------------------------------------------------------------------------
 # debug_mode_enabled
 # ---------------------------------------------------------------------------
+
 
 class TestDebugModeEnabled:
     def test_env_var_override(self):
@@ -156,10 +160,17 @@ class TestDebugModeEnabled:
 # build_auth_settings
 # ---------------------------------------------------------------------------
 
+
 class TestBuildAuthSettings:
     def test_enabled_with_all_fields(self):
         with patch.dict(os.environ, {}, clear=True):
-            for key in ("BIRDVISION_DEBUG", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET", "GOOGLE_REDIRECT_URI"):
+            for key in (
+                "BIRDVISION_DEBUG",
+                "GOOGLE_CLIENT_ID",
+                "GOOGLE_CLIENT_SECRET",
+                "SESSION_SECRET",
+                "GOOGLE_REDIRECT_URI",
+            ):
                 os.environ.pop(key, None)
             config = {
                 "auth": {
@@ -176,7 +187,12 @@ class TestBuildAuthSettings:
 
     def test_disabled_without_required_fields(self):
         with patch.dict(os.environ, {}, clear=True):
-            for key in ("BIRDVISION_DEBUG", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET"):
+            for key in (
+                "BIRDVISION_DEBUG",
+                "GOOGLE_CLIENT_ID",
+                "GOOGLE_CLIENT_SECRET",
+                "SESSION_SECRET",
+            ):
                 os.environ.pop(key, None)
             settings = build_auth_settings({})
         assert settings.enabled is False
@@ -197,11 +213,15 @@ class TestBuildAuthSettings:
         assert settings.debug_mode is True
 
     def test_env_vars_override_config(self):
-        with patch.dict(os.environ, {
-            "GOOGLE_CLIENT_ID": "env-id",
-            "GOOGLE_CLIENT_SECRET": "env-secret",
-            "SESSION_SECRET": "env-session",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "GOOGLE_CLIENT_ID": "env-id",
+                "GOOGLE_CLIENT_SECRET": "env-secret",
+                "SESSION_SECRET": "env-session",
+            },
+            clear=True,
+        ):
             os.environ.pop("BIRDVISION_DEBUG", None)
             config = {
                 "auth": {
@@ -217,7 +237,12 @@ class TestBuildAuthSettings:
 
     def test_normalizes_emails(self):
         with patch.dict(os.environ, {}, clear=True):
-            for key in ("BIRDVISION_DEBUG", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "SESSION_SECRET"):
+            for key in (
+                "BIRDVISION_DEBUG",
+                "GOOGLE_CLIENT_ID",
+                "GOOGLE_CLIENT_SECRET",
+                "SESSION_SECRET",
+            ):
                 os.environ.pop(key, None)
             config = {
                 "auth": {
@@ -236,36 +261,53 @@ class TestBuildAuthSettings:
 # can_upload_email
 # ---------------------------------------------------------------------------
 
+
 class TestCanUploadEmail:
     def test_auth_disabled_always_allowed(self):
         settings = AuthSettings(
-            enabled=False, debug_mode=True, google_client_id=None,
-            google_client_secret=None, redirect_uri=None,
-            session_secret=None, allowed_emails=set(),
+            enabled=False,
+            debug_mode=True,
+            google_client_id=None,
+            google_client_secret=None,
+            redirect_uri=None,
+            session_secret=None,
+            allowed_emails=set(),
         )
         assert can_upload_email(None, settings) is True
 
     def test_allowed_email(self):
         settings = AuthSettings(
-            enabled=True, debug_mode=False, google_client_id="x",
-            google_client_secret="x", redirect_uri=None,
-            session_secret="x", allowed_emails={"user@test.com"},
+            enabled=True,
+            debug_mode=False,
+            google_client_id="x",
+            google_client_secret="x",
+            redirect_uri=None,
+            session_secret="x",
+            allowed_emails={"user@test.com"},
         )
         assert can_upload_email("user@test.com", settings) is True
 
     def test_disallowed_email(self):
         settings = AuthSettings(
-            enabled=True, debug_mode=False, google_client_id="x",
-            google_client_secret="x", redirect_uri=None,
-            session_secret="x", allowed_emails={"user@test.com"},
+            enabled=True,
+            debug_mode=False,
+            google_client_id="x",
+            google_client_secret="x",
+            redirect_uri=None,
+            session_secret="x",
+            allowed_emails={"user@test.com"},
         )
         assert can_upload_email("other@test.com", settings) is False
 
     def test_none_email_when_auth_enabled(self):
         settings = AuthSettings(
-            enabled=True, debug_mode=False, google_client_id="x",
-            google_client_secret="x", redirect_uri=None,
-            session_secret="x", allowed_emails={"user@test.com"},
+            enabled=True,
+            debug_mode=False,
+            google_client_id="x",
+            google_client_secret="x",
+            redirect_uri=None,
+            session_secret="x",
+            allowed_emails={"user@test.com"},
         )
         assert can_upload_email(None, settings) is False
 
@@ -273,6 +315,7 @@ class TestCanUploadEmail:
 # ---------------------------------------------------------------------------
 # require_upload_access
 # ---------------------------------------------------------------------------
+
 
 def _make_request(path="/upload", session=None):
     request = MagicMock()
@@ -284,17 +327,25 @@ def _make_request(path="/upload", session=None):
 class TestRequireUploadAccess:
     def test_auth_disabled_returns_none(self):
         settings = AuthSettings(
-            enabled=False, debug_mode=True, google_client_id=None,
-            google_client_secret=None, redirect_uri=None,
-            session_secret=None, allowed_emails=set(),
+            enabled=False,
+            debug_mode=True,
+            google_client_id=None,
+            google_client_secret=None,
+            redirect_uri=None,
+            session_secret=None,
+            allowed_emails=set(),
         )
         assert require_upload_access(_make_request(), settings) is None
 
     def test_no_email_page_redirects(self):
         settings = AuthSettings(
-            enabled=True, debug_mode=False, google_client_id="x",
-            google_client_secret="x", redirect_uri=None,
-            session_secret="x", allowed_emails=set(),
+            enabled=True,
+            debug_mode=False,
+            google_client_id="x",
+            google_client_secret="x",
+            redirect_uri=None,
+            session_secret="x",
+            allowed_emails=set(),
         )
         result = require_upload_access(_make_request("/upload"), settings)
         assert result is not None
@@ -302,9 +353,13 @@ class TestRequireUploadAccess:
 
     def test_no_email_api_returns_401(self):
         settings = AuthSettings(
-            enabled=True, debug_mode=False, google_client_id="x",
-            google_client_secret="x", redirect_uri=None,
-            session_secret="x", allowed_emails=set(),
+            enabled=True,
+            debug_mode=False,
+            google_client_id="x",
+            google_client_secret="x",
+            redirect_uri=None,
+            session_secret="x",
+            allowed_emails=set(),
         )
         result = require_upload_access(_make_request("/api/upload"), settings)
         assert result is not None
@@ -312,9 +367,13 @@ class TestRequireUploadAccess:
 
     def test_non_whitelisted_api_returns_403(self):
         settings = AuthSettings(
-            enabled=True, debug_mode=False, google_client_id="x",
-            google_client_secret="x", redirect_uri=None,
-            session_secret="x", allowed_emails={"allowed@test.com"},
+            enabled=True,
+            debug_mode=False,
+            google_client_id="x",
+            google_client_secret="x",
+            redirect_uri=None,
+            session_secret="x",
+            allowed_emails={"allowed@test.com"},
         )
         request = _make_request("/api/upload", session={"email": "other@test.com"})
         result = require_upload_access(request, settings)
@@ -323,9 +382,13 @@ class TestRequireUploadAccess:
 
     def test_whitelisted_returns_none(self):
         settings = AuthSettings(
-            enabled=True, debug_mode=False, google_client_id="x",
-            google_client_secret="x", redirect_uri=None,
-            session_secret="x", allowed_emails={"user@test.com"},
+            enabled=True,
+            debug_mode=False,
+            google_client_id="x",
+            google_client_secret="x",
+            redirect_uri=None,
+            session_secret="x",
+            allowed_emails={"user@test.com"},
         )
         request = _make_request("/upload", session={"email": "user@test.com"})
         assert require_upload_access(request, settings) is None
@@ -334,6 +397,7 @@ class TestRequireUploadAccess:
 # ---------------------------------------------------------------------------
 # validate_asset_batch
 # ---------------------------------------------------------------------------
+
 
 class TestValidateAssetBatch:
     def test_empty_list(self):
@@ -385,6 +449,7 @@ class TestValidateAssetBatch:
 # classify_media_type
 # ---------------------------------------------------------------------------
 
+
 class TestClassifyMediaType:
     def test_video_extension(self):
         assert classify_media_type("bird.mp4", None) == "video"
@@ -413,6 +478,7 @@ class TestClassifyMediaType:
 # build_job_display_name
 # ---------------------------------------------------------------------------
 
+
 class TestBuildJobDisplayName:
     def test_single_image(self):
         assets = [{"original_filename": "robin.jpg"}]
@@ -430,6 +496,7 @@ class TestBuildJobDisplayName:
 # ---------------------------------------------------------------------------
 # slugify_result_name
 # ---------------------------------------------------------------------------
+
 
 class TestSlugifyResultName:
     def test_simple_filename(self):
@@ -457,6 +524,7 @@ class TestSlugifyResultName:
 # result_name_seed
 # ---------------------------------------------------------------------------
 
+
 class TestResultNameSeed:
     def test_single_image(self):
         assets = [{"original_filename": "robin.jpg"}]
@@ -474,6 +542,7 @@ class TestResultNameSeed:
 # ---------------------------------------------------------------------------
 # resolution_warning_text (webapp version)
 # ---------------------------------------------------------------------------
+
 
 class TestWebappResolutionWarningText:
     def test_none_dimensions(self):
@@ -501,6 +570,7 @@ class TestWebappResolutionWarningText:
 # ---------------------------------------------------------------------------
 # Job.has_detections
 # ---------------------------------------------------------------------------
+
 
 class TestJobHasDetections:
     def _video_job(self, status="done", tracks=None):
@@ -556,10 +626,12 @@ class TestJobHasDetections:
 
     def test_image_with_mixed_photos_is_visible(self):
         # At least one photo has a detection
-        job = self._image_job(images=[
-            {"detections": []},
-            {"detections": [{"bbox": [0, 0, 10, 10]}]},
-        ])
+        job = self._image_job(
+            images=[
+                {"detections": []},
+                {"detections": [{"bbox": [0, 0, 10, 10]}]},
+            ]
+        )
         assert job.has_detections is True
 
     def test_image_with_no_images_is_hidden(self):
@@ -582,11 +654,13 @@ class TestJobSlug:
         job.result = {
             "type": "video",
             "tracks": [{"track_id": 1}],
-            "video_predictions": [{
-                "species": species,
-                "presence_probability": probability,
-                "supporting_tracks": 1,
-            }],
+            "video_predictions": [
+                {
+                    "species": species,
+                    "presence_probability": probability,
+                    "supporting_tracks": 1,
+                }
+            ],
         }
         return job
 
@@ -595,13 +669,17 @@ class TestJobSlug:
         job.status = "done"
         job.result = {
             "type": "images",
-            "images": [{
-                "species_summary": [{
-                    "species": species,
-                    "probability": probability,
-                }],
-                "detections": [{"bbox": [0, 0, 10, 10]}],
-            }],
+            "images": [
+                {
+                    "species_summary": [
+                        {
+                            "species": species,
+                            "probability": probability,
+                        }
+                    ],
+                    "detections": [{"bbox": [0, 0, 10, 10]}],
+                }
+            ],
         }
         return job
 
@@ -633,6 +711,7 @@ class TestJobSlug:
 
     def test_only_alphanumeric_and_hyphens(self):
         import re as _re
+
         slug = self._make_job("bird@photo#2024.jpg").slug
         assert _re.match(r"^[a-z0-9-]+$", slug)
 
@@ -656,6 +735,7 @@ class TestJobSlug:
 # ---------------------------------------------------------------------------
 # Job.thumbnail_url
 # ---------------------------------------------------------------------------
+
 
 class TestJobThumbnailUrl:
     def test_pending_job_has_no_thumbnail(self):
@@ -729,6 +809,7 @@ class TestJobThumbnailUrl:
 # Job.submitted_by
 # ---------------------------------------------------------------------------
 
+
 class TestJobSubmittedBy:
     def test_default_is_none(self):
         job = Job(id="abc123", filename="bird.mp4", media_type="video")
@@ -749,6 +830,7 @@ class TestJobSubmittedBy:
 # ---------------------------------------------------------------------------
 # _persist_submitted_by
 # ---------------------------------------------------------------------------
+
 
 class TestPersistSubmittedBy:
     def test_writes_submitted_by_to_json(self, tmp_path):
@@ -782,6 +864,7 @@ class TestPersistSubmittedBy:
 # ---------------------------------------------------------------------------
 # _load_existing_jobs restores submitted_by
 # ---------------------------------------------------------------------------
+
 
 class TestLoadExistingJobsSubmittedBy:
     def test_submitted_by_restored_from_json(self, tmp_path, monkeypatch):
@@ -837,6 +920,7 @@ class TestLoadExistingJobsSubmittedBy:
 # _load_api_tokens
 # ---------------------------------------------------------------------------
 
+
 class TestLoadApiTokens:
     def test_missing_file_returns_empty(self, tmp_path):
         assert _load_api_tokens(tmp_path / "nope.yaml") == {}
@@ -871,16 +955,13 @@ class TestLoadApiTokens:
             "    token: t1\n"
             "  - name: bad-no-token\n"
             "  - name: bad-empty-token\n"
-            "    token: \"\"\n"
+            '    token: ""\n'
         )
         assert _load_api_tokens(f) == {"t1": "good"}
 
     def test_unknown_name_falls_back(self, tmp_path):
         f = tmp_path / "tokens.yaml"
-        f.write_text(
-            "tokens:\n"
-            "  - token: just-a-token\n"
-        )
+        f.write_text("tokens:\n  - token: just-a-token\n")
         assert _load_api_tokens(f) == {"just-a-token": "unknown"}
 
     def test_malformed_yaml_returns_empty(self, tmp_path):
@@ -897,6 +978,7 @@ class TestLoadApiTokens:
 # ---------------------------------------------------------------------------
 # _persist_source_event_id
 # ---------------------------------------------------------------------------
+
 
 class TestPersistSourceEventId:
     def test_writes_source_event_id_to_json(self, tmp_path):
@@ -926,6 +1008,7 @@ class TestPersistSourceEventId:
 # ---------------------------------------------------------------------------
 # _load_existing_jobs restores source_event_id
 # ---------------------------------------------------------------------------
+
 
 class TestLoadExistingJobsSourceEventId:
     def test_source_event_id_restored_from_json(self, tmp_path, monkeypatch):
@@ -957,14 +1040,18 @@ class TestLoadExistingJobsSourceEventId:
 
         job_id = "d" * 32
         stem = f"{job_id}_clip"
-        (tmp_path / f"{stem}_results.json").write_text(json.dumps({
-            "type": "video",
-            "video": "/p.mp4",
-            "source_filename": "p.mp4",
-            "display_name": "p.mp4",
-            "tracks": [],
-            "video_predictions": [],
-        }))
+        (tmp_path / f"{stem}_results.json").write_text(
+            json.dumps(
+                {
+                    "type": "video",
+                    "video": "/p.mp4",
+                    "source_filename": "p.mp4",
+                    "display_name": "p.mp4",
+                    "tracks": [],
+                    "video_predictions": [],
+                }
+            )
+        )
 
         _load_existing_jobs(tmp_path)
         assert webapp_module._jobs[job_id].source_event_id is None
@@ -973,6 +1060,7 @@ class TestLoadExistingJobsSourceEventId:
 # ---------------------------------------------------------------------------
 # current_user_email
 # ---------------------------------------------------------------------------
+
 
 class TestCurrentUserEmail:
     def test_returns_email_from_session(self):
@@ -989,6 +1077,7 @@ class TestCurrentUserEmail:
 # ---------------------------------------------------------------------------
 # SAFARI_COMPATIBLE_CODECS
 # ---------------------------------------------------------------------------
+
 
 class TestSafariCompatibleCodecs:
     def test_h264_is_compatible(self):
@@ -1009,6 +1098,7 @@ class TestSafariCompatibleCodecs:
 # transcode_to_h264
 # ---------------------------------------------------------------------------
 
+
 class TestTranscodeToH264:
     def test_calls_ffmpeg_with_expected_args(self, tmp_path):
         input_file = tmp_path / "clip.webm"
@@ -1019,7 +1109,8 @@ class TestTranscodeToH264:
             # Simulate ffmpeg creating the tmp file
             tmp_out = tmp_path / "clip_h264.tmp.mp4"
             mock_run.side_effect = lambda *a, **kw: (
-                tmp_out.write_bytes(b"fake h264"), MagicMock(returncode=0)
+                tmp_out.write_bytes(b"fake h264"),
+                MagicMock(returncode=0),
             )[1]
 
             result = transcode_to_h264(input_file)

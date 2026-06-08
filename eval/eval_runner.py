@@ -54,14 +54,19 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Classifier backends
 # ---------------------------------------------------------------------------
 
+
 class BioCLIPBackend:
     """Reads predictions from an existing results JSON; no GPU inference."""
 
     def __init__(self, cfg: dict):
         pass
 
-    def classify_crops(self, crops_dir: Path, crop_files: list[str]) -> list[list[tuple[str, float]]]:
-        raise RuntimeError("BioCLIP backend uses existing results; call extract_bioclip_tracks instead.")
+    def classify_crops(
+        self, crops_dir: Path, crop_files: list[str]
+    ) -> list[list[tuple[str, float]]]:
+        raise RuntimeError(
+            "BioCLIP backend uses existing results; call extract_bioclip_tracks instead."
+        )
 
 
 def _load_classifier_backend(model_cfg: dict):
@@ -74,7 +79,8 @@ def _load_classifier_backend(model_cfg: dict):
         except ImportError:
             logger.warning(
                 "gemma_classifier module not found — Gemma 4 backend requires issue #58 to be merged. "
-                "Skipping model: %s", model_cfg.get("id")
+                "Skipping model: %s",
+                model_cfg.get("id"),
             )
             return None
         # Species list is loaded separately; classifier is initialized lazily
@@ -83,7 +89,9 @@ def _load_classifier_backend(model_cfg: dict):
         try:
             from src.hf_classifier import HFImageClassifier  # noqa: F401
         except ImportError:
-            logger.warning("hf_classifier module not found — skipping model: %s", model_cfg.get("id"))
+            logger.warning(
+                "hf_classifier module not found — skipping model: %s", model_cfg.get("id")
+            )
             return None
         # Classifier is initialized lazily (needs species list)
         return model_cfg
@@ -93,6 +101,7 @@ def _load_classifier_backend(model_cfg: dict):
 # ---------------------------------------------------------------------------
 # Sidecar helpers
 # ---------------------------------------------------------------------------
+
 
 def sidecar_path(eval_dir: Path, asset_sha: str, model_id: str) -> Path:
     return eval_dir / f"{asset_sha}_{model_id}.json"
@@ -114,28 +123,31 @@ def read_sidecar(path: Path) -> dict | None:
 # Extract BioCLIP tracks from existing results JSON
 # ---------------------------------------------------------------------------
 
+
 def extract_bioclip_tracks(result: dict) -> list[dict]:
     """Pull per-track predictions out of an existing pipeline results JSON."""
     tracks_out = []
     for track in result.get("tracks", []):
         avg_preds = track.get("averaged_predictions", [])
         top_species = [
-            {"species": p["species"], "score": round(p["probability"], 4)}
-            for p in avg_preds[:10]
+            {"species": p["species"], "score": round(p["probability"], 4)} for p in avg_preds[:10]
         ]
         if not top_species:
             continue
-        tracks_out.append({
-            "track_id": track.get("track_id", 0),
-            "crop_file": track.get("crop", ""),
-            "top_species": top_species,
-        })
+        tracks_out.append(
+            {
+                "track_id": track.get("track_id", 0),
+                "crop_file": track.get("crop", ""),
+                "top_species": top_species,
+            }
+        )
     return tracks_out
 
 
 # ---------------------------------------------------------------------------
 # Gemma inference on annotated stills
 # ---------------------------------------------------------------------------
+
 
 def _run_gemma_on_stills(
     result: dict,
@@ -171,11 +183,13 @@ def _run_gemma_on_stills(
                 for sp, sc in sorted(scores.items(), key=lambda x: -x[1])
                 if sc > 0
             ][:10]
-            tracks_out.append({
-                "track_id": track.get("track_id", 0),
-                "crop_file": crop_file,
-                "top_species": top_species,
-            })
+            tracks_out.append(
+                {
+                    "track_id": track.get("track_id", 0),
+                    "crop_file": crop_file,
+                    "top_species": top_species,
+                }
+            )
         return tracks_out
 
     seen_track_ids: set[int] = set()
@@ -214,11 +228,13 @@ def _run_gemma_on_stills(
                 if sc > 0
             ][:10]
 
-            tracks_out.append({
-                "track_id": track_id,
-                "crop_file": annotated_file,
-                "top_species": top_species,
-            })
+            tracks_out.append(
+                {
+                    "track_id": track_id,
+                    "crop_file": annotated_file,
+                    "top_species": top_species,
+                }
+            )
 
     return tracks_out
 
@@ -226,6 +242,7 @@ def _run_gemma_on_stills(
 # ---------------------------------------------------------------------------
 # HF image-classifier inference on padded crops from video stills
 # ---------------------------------------------------------------------------
+
 
 def _run_hf_on_stills(
     result: dict,
@@ -264,11 +281,13 @@ def _run_hf_on_stills(
                 if sc > 0
             ][:10]
             if top_species:
-                tracks_out.append({
-                    "track_id": track.get("track_id", 0),
-                    "crop_file": crop_file,
-                    "top_species": top_species,
-                })
+                tracks_out.append(
+                    {
+                        "track_id": track.get("track_id", 0),
+                        "crop_file": crop_file,
+                        "top_species": top_species,
+                    }
+                )
         return tracks_out
 
     seen_track_ids: set[int] = set()
@@ -317,11 +336,13 @@ def _run_hf_on_stills(
             ][:10]
 
             if top_species:
-                tracks_out.append({
-                    "track_id": track_id,
-                    "crop_file": annotated_file,
-                    "top_species": top_species,
-                })
+                tracks_out.append(
+                    {
+                        "track_id": track_id,
+                        "crop_file": annotated_file,
+                        "top_species": top_species,
+                    }
+                )
 
     return tracks_out
 
@@ -329,6 +350,7 @@ def _run_hf_on_stills(
 # ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
+
 
 def load_config(path: Path) -> dict:
     with open(path) as f:
@@ -366,8 +388,7 @@ def run(cfg: dict, max_clips: int | None = None) -> None:
 
     if skip_no_detections:
         result_files = [
-            f for f in result_files
-            if json.loads(f.read_text()).get("video_predictions")
+            f for f in result_files if json.loads(f.read_text()).get("video_predictions")
         ]
         logger.info("%d results have bird detections (skip_no_detections=true)", len(result_files))
 
@@ -397,13 +418,16 @@ def run(cfg: dict, max_clips: int | None = None) -> None:
             if not tracks:
                 continue
 
-            write_sidecar(sc_path, {
-                "model_id": model_id,
-                "model_label": label,
-                "asset_sha": asset_sha,
-                "source_results_file": result_file.name,
-                "tracks": tracks,
-            })
+            write_sidecar(
+                sc_path,
+                {
+                    "model_id": model_id,
+                    "model_label": label,
+                    "asset_sha": asset_sha,
+                    "source_results_file": result_file.name,
+                    "tracks": tracks,
+                },
+            )
             extracted += 1
 
         logger.info("BioCLIP: wrote/verified %d sidecars", extracted)
@@ -443,9 +467,13 @@ def run(cfg: dict, max_clips: int | None = None) -> None:
         # Lazy-init classifier
         if model_cfg.get("backend") == "gemma4":
             from src.gemma_classifier import GemmaClassifier
+
             species_file = Path(
                 cfg.get("species_list_file")
-                or Path(__file__).parent.parent / "data" / "species_lists" / "north_america_common.txt"
+                or Path(__file__).parent.parent
+                / "data"
+                / "species_lists"
+                / "north_america_common.txt"
             )
             all_species = [l.strip() for l in species_file.read_text().splitlines() if l.strip()]
             logger.info("Loaded %d species from %s", len(all_species), species_file)
@@ -456,9 +484,13 @@ def run(cfg: dict, max_clips: int | None = None) -> None:
             )
         elif model_cfg.get("backend") == "hf_image_classifier":
             from src.hf_classifier import HFImageClassifier
+
             species_file = Path(
                 cfg.get("species_list_file")
-                or Path(__file__).parent.parent / "data" / "species_lists" / "north_america_common.txt"
+                or Path(__file__).parent.parent
+                / "data"
+                / "species_lists"
+                / "north_america_common.txt"
             )
             all_species = [l.strip() for l in species_file.read_text().splitlines() if l.strip()]
             logger.info("Loaded %d species from %s", len(all_species), species_file)
@@ -475,7 +507,10 @@ def run(cfg: dict, max_clips: int | None = None) -> None:
 
             if model_cfg.get("backend") == "gemma4":
                 tracks_out = _run_gemma_on_stills(
-                    result, crops_dir, classifier, model_cfg,
+                    result,
+                    crops_dir,
+                    classifier,
+                    model_cfg,
                 )
             elif model_cfg.get("backend") == "hf_image_classifier":
                 tracks_out = _run_hf_on_stills(result, crops_dir, classifier)
@@ -485,13 +520,16 @@ def run(cfg: dict, max_clips: int | None = None) -> None:
 
             if tracks_out:
                 sc_path = sidecar_path(eval_dir, asset_sha, model_id)
-                write_sidecar(sc_path, {
-                    "model_id": model_id,
-                    "model_label": label,
-                    "asset_sha": asset_sha,
-                    "source_results_file": result_file.name,
-                    "tracks": tracks_out,
-                })
+                write_sidecar(
+                    sc_path,
+                    {
+                        "model_id": model_id,
+                        "model_label": label,
+                        "asset_sha": asset_sha,
+                        "source_results_file": result_file.name,
+                        "tracks": tracks_out,
+                    },
+                )
 
         logger.info("%s: done", model_id)
 

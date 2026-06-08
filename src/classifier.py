@@ -27,7 +27,9 @@ class BirdClassifier:
         self.tokenizer = open_clip.get_tokenizer(model_name)
         logger.info("BioCLIP ready.")
 
-    def set_species(self, species_names: List[str], prompt_template: str = "a photo of a {species}"):
+    def set_species(
+        self, species_names: List[str], prompt_template: str = "a photo of a {species}"
+    ):
         """Pre-compute and cache text embeddings for all candidate species."""
         self.species_names = species_names
         logger.info(f"Computing text embeddings for {len(species_names)} species...")
@@ -49,10 +51,9 @@ class BirdClassifier:
         """Run BioCLIP image encoder and return full softmax probability matrix (n_crops × n_species)."""
         if self.text_features is None:
             raise RuntimeError("Call set_species() before classifying.")
-        images = torch.stack([
-            self.preprocess(Image.fromarray(crop[:, :, ::-1]))
-            for crop in crops_bgr
-        ]).to(self.device)
+        images = torch.stack(
+            [self.preprocess(Image.fromarray(crop[:, :, ::-1])) for crop in crops_bgr]
+        ).to(self.device)
         with torch.no_grad():
             image_features = self.model.encode_image(images)
             image_features /= image_features.norm(dim=-1, keepdim=True)

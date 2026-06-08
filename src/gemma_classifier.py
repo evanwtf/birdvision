@@ -51,12 +51,14 @@ class GemmaClassifier:
         # so PYTHONWARNINGS and warnings.filterwarnings have no effect on them.
         # The behaviour is correct (max_new_tokens wins); this is pure noise.
         import re as _re
+
         class _GenerationNoiseFilter(logging.Filter):
             _patterns = [
                 _re.compile(r"Both `max_new_tokens`.*and `max_length`.*seem to have been set"),
                 _re.compile(r"Passing `generation_config` together with generation-related"),
                 _re.compile(r"You seem to be using the pipelines sequentially on GPU"),
             ]
+
             def filter(self, record: logging.LogRecord) -> bool:
                 msg = record.getMessage()
                 return not any(p.search(msg) for p in self._patterns)
@@ -67,6 +69,7 @@ class GemmaClassifier:
 
         logger.info("Loading Gemma classifier: %s (4-bit quantization)", model_name)
         from transformers import BitsAndBytesConfig
+
         bnb_config = BitsAndBytesConfig(load_in_4bit=True)
         # Pass device_map inside model_kwargs, not as a top-level pipeline arg.
         # When device_map is a top-level arg, the pipeline sets self.device and
@@ -104,11 +107,7 @@ class GemmaClassifier:
         self._build_prompt()
 
     def _build_prompt(self) -> None:
-        location = (
-            f" photographed in {self._location_hint}"
-            if self._location_hint
-            else ""
-        )
+        location = f" photographed in {self._location_hint}" if self._location_hint else ""
         # Don't embed the full species list in the prompt — 238 species makes
         # the context huge and causes the model to fixate on list structure
         # rather than the image. Ask for the species name and fuzzy-match
@@ -135,13 +134,15 @@ class GemmaClassifier:
         rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(rgb)
 
-        messages = [{
-            "role": "user",
-            "content": [
-                {"type": "image", "image": image},
-                {"type": "text", "text": self._prompt},
-            ],
-        }]
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image},
+                    {"type": "text", "text": self._prompt},
+                ],
+            }
+        ]
 
         t0 = time.monotonic()
         result = self._pipe(messages, max_new_tokens=16, return_full_text=False)
@@ -167,11 +168,13 @@ class GemmaClassifier:
         generated text. Strip anything of the form <...> before matching.
         """
         import re
+
         return re.sub(r"<[^>]*>", "", raw).strip()
 
     def _match_species(self, raw: str) -> str | None:
         """Exact → case-insensitive → fuzzy → None."""
         import difflib
+
         cleaned = self._clean_output(raw)
         if not cleaned:
             return None
@@ -190,7 +193,8 @@ class GemmaClassifier:
         matches = difflib.get_close_matches(
             cleaned.lower(),
             [s.lower() for s in self.species_list],
-            n=1, cutoff=0.6,
+            n=1,
+            cutoff=0.6,
         )
         if matches:
             canonical = self._species_lower[matches[0]]

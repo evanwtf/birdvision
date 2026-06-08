@@ -30,8 +30,12 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6371.0
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    )
     return R * 2 * math.asin(math.sqrt(a))
+
 
 # 48 periods/year: period = (month-1)*4 + (day-1)//(days_in_month//4)
 # Simpler approximation: period = day_of_year / (365/48)
@@ -88,7 +92,8 @@ class MetadataPrior:
                 logger.info(
                     "Local priors loaded: %r (%.4f, %.4f) radius=%.1fkm  %d species overridden",
                     loc.get("name", "unnamed"),
-                    loc.get("lat"), loc.get("lon"),
+                    loc.get("lat"),
+                    loc.get("lon"),
                     loc.get("radius_km", 1.0),
                     n_sp,
                 )

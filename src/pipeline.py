@@ -70,7 +70,10 @@ class BirdIdentificationPipeline:
         if ensemble_cfg.get("enabled", False):
             from .ensemble_classifier import EnsembleClassifier
             from .hf_classifier import HFImageClassifier
-            secondary_model = ensemble_cfg.get("secondary_model", "chriamue/bird-species-classifier")
+
+            secondary_model = ensemble_cfg.get(
+                "secondary_model", "chriamue/bird-species-classifier"
+            )
             logger.info("Ensemble mode enabled — loading secondary classifier: %s", secondary_model)
             secondary = HFImageClassifier(
                 model_name=secondary_model,
@@ -151,7 +154,9 @@ class BirdIdentificationPipeline:
 
         new_confidence = det.get("confidence", 0.3)
         if self.detector.confidence != new_confidence:
-            logger.info(f"Config reload: detector.confidence {self.detector.confidence} → {new_confidence}")
+            logger.info(
+                f"Config reload: detector.confidence {self.detector.confidence} → {new_confidence}"
+            )
             self.detector.confidence = new_confidence
 
         new_top_k = cls.get("top_k", 5)
@@ -161,12 +166,16 @@ class BirdIdentificationPipeline:
 
         new_classify_every_n = cls.get("classify_every_n_frames", 15)
         if self.classify_every_n != new_classify_every_n:
-            logger.info(f"Config reload: classify_every_n {self.classify_every_n} → {new_classify_every_n}")
+            logger.info(
+                f"Config reload: classify_every_n {self.classify_every_n} → {new_classify_every_n}"
+            )
             self.classify_every_n = new_classify_every_n
 
         new_crop_padding_ratio = cls.get("crop_padding_ratio", 0.12)
         if self.crop_padding_ratio != new_crop_padding_ratio:
-            logger.info(f"Config reload: crop_padding_ratio {self.crop_padding_ratio} → {new_crop_padding_ratio}")
+            logger.info(
+                f"Config reload: crop_padding_ratio {self.crop_padding_ratio} → {new_crop_padding_ratio}"
+            )
             self.crop_padding_ratio = new_crop_padding_ratio
 
         new_crop_padding_ratio_min = cls.get("crop_padding_ratio_min", 0.04)
@@ -199,12 +208,16 @@ class BirdIdentificationPipeline:
 
         new_max_disappeared = trk.get("max_disappeared", 30)
         if self.tracker.max_disappeared != new_max_disappeared:
-            logger.info(f"Config reload: tracker.max_disappeared {self.tracker.max_disappeared} → {new_max_disappeared}")
+            logger.info(
+                f"Config reload: tracker.max_disappeared {self.tracker.max_disappeared} → {new_max_disappeared}"
+            )
             self.tracker.max_disappeared = new_max_disappeared
 
         new_iou = trk.get("iou_threshold", 0.3)
         if self.tracker.iou_threshold != new_iou:
-            logger.info(f"Config reload: tracker.iou_threshold {self.tracker.iou_threshold} → {new_iou}")
+            logger.info(
+                f"Config reload: tracker.iou_threshold {self.tracker.iou_threshold} → {new_iou}"
+            )
             self.tracker.iou_threshold = new_iou
 
         new_centroid_max_distance = trk.get("centroid_max_distance", 0.15)
@@ -217,17 +230,23 @@ class BirdIdentificationPipeline:
 
         new_min_frames = trk.get("min_frames_to_report", 3)
         if self.min_frames_to_report != new_min_frames:
-            logger.info(f"Config reload: min_frames_to_report {self.min_frames_to_report} → {new_min_frames}")
+            logger.info(
+                f"Config reload: min_frames_to_report {self.min_frames_to_report} → {new_min_frames}"
+            )
             self.min_frames_to_report = new_min_frames
 
         new_min_conf = trk.get("min_confidence_to_report", 0.6)
         if self.min_confidence_to_report != new_min_conf:
-            logger.info(f"Config reload: min_confidence_to_report {self.min_confidence_to_report} → {new_min_conf}")
+            logger.info(
+                f"Config reload: min_confidence_to_report {self.min_confidence_to_report} → {new_min_conf}"
+            )
             self.min_confidence_to_report = new_min_conf
 
         new_cw = config.get("scoring", {}).get("center_weight_strength", 2.0)
         if self.center_weight_strength != new_cw:
-            logger.info(f"Config reload: center_weight_strength {self.center_weight_strength} → {new_cw}")
+            logger.info(
+                f"Config reload: center_weight_strength {self.center_weight_strength} → {new_cw}"
+            )
             self.center_weight_strength = new_cw
 
         new_small_bird_fallback = det.get("enable_small_bird_zoom_fallback", True)
@@ -258,7 +277,9 @@ class BirdIdentificationPipeline:
             or new_fips != self.prior_fips
             or new_prior_mode != self.prior_mode
         ):
-            logger.info(f"Config reload: location {new_lat}, {new_lon}, prior_mode {new_prior_mode}")
+            logger.info(
+                f"Config reload: location {new_lat}, {new_lon}, prior_mode {new_prior_mode}"
+            )
             self.prior_db_path = new_db_path
             self.prior_fips = new_fips
             self.prior_mode = new_prior_mode
@@ -287,6 +308,7 @@ class BirdIdentificationPipeline:
             logger.info(f"Loaded {len(species)} species from {species_file}")
         else:
             from .pipeline_defaults import COMMON_NA_BIRDS
+
             logger.warning("No species file found — using built-in NA bird list")
             species = COMMON_NA_BIRDS
         self.classifier.set_species(species, prompt_template=self.prompt_template)
@@ -319,7 +341,9 @@ class BirdIdentificationPipeline:
             return None
         return frame[y1:y2, x1:x2]
 
-    def _build_video_predictions(self, track_predictions: List[List[Tuple[str, float]]]) -> List[dict]:
+    def _build_video_predictions(
+        self, track_predictions: List[List[Tuple[str, float]]]
+    ) -> List[dict]:
         """Aggregate track-level predictions into a video-level presence summary."""
         species_scores: Dict[str, float] = {}
         supporting_tracks: Dict[str, int] = {}
@@ -428,19 +452,20 @@ class BirdIdentificationPipeline:
         if len(selected) < min_frames:
             desired = max(min_frames, min(max_frames, 4))
             fallback_frames = [
-                int(round((idx + 1) * total_frames / (desired + 1)))
-                for idx in range(desired)
+                int(round((idx + 1) * total_frames / (desired + 1))) for idx in range(desired)
             ]
             for frame_no in fallback_frames:
                 if any(abs(frame_no - existing["frame"]) < min_gap for existing in selected):
                     continue
-                selected.append({
-                    "frame": min(max(frame_no, 0), max(total_frames - 1, 0)),
-                    "timestamp_s": round(frame_no / fps, 2) if fps else None,
-                    "score": 0.0,
-                    "track_id": None,
-                    "species": None,
-                })
+                selected.append(
+                    {
+                        "frame": min(max(frame_no, 0), max(total_frames - 1, 0)),
+                        "timestamp_s": round(frame_no / fps, 2) if fps else None,
+                        "score": 0.0,
+                        "track_id": None,
+                        "species": None,
+                    }
+                )
                 if len(selected) >= min_frames:
                     break
 
@@ -467,17 +492,21 @@ class BirdIdentificationPipeline:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
                 ok, frame = cap.read()
                 if not ok or frame is None:
-                    logger.warning(f"Could not read gallery frame {frame_no} from {Path(video_path).name}")
+                    logger.warning(
+                        f"Could not read gallery frame {frame_no} from {Path(video_path).name}"
+                    )
                     continue
                 filename = f"frame_{idx:02d}_{frame_no:06d}.jpg"
                 cv2.imwrite(str(crops_dir / filename), frame)
-                gallery.append({
-                    "frame": frame_no,
-                    "timestamp_s": item.get("timestamp_s"),
-                    "file": filename,
-                    "track_id": item.get("track_id"),
-                    "species": item.get("species"),
-                })
+                gallery.append(
+                    {
+                        "frame": frame_no,
+                        "timestamp_s": item.get("timestamp_s"),
+                        "file": filename,
+                        "track_id": item.get("track_id"),
+                        "species": item.get("species"),
+                    }
+                )
         finally:
             cap.release()
 
@@ -613,18 +642,19 @@ class BirdIdentificationPipeline:
                         )
 
                         det_idx_val = crop_indices[i]
-                        det_results.append({
-                            "detection_index": len(det_results) + 1,
-                            "bbox": [float(x) for x in detections[det_idx_val].bbox],
-                            "species": [
-                                {"species": s, "probability": round(p, 4)}
-                                for s, p in preds[:5]
-                            ],
-                            "raw_species": [
-                                {"species": s, "probability": round(p, 4)}
-                                for s, p in raw_preds[:5]
-                            ],
-                        })
+                        det_results.append(
+                            {
+                                "detection_index": len(det_results) + 1,
+                                "bbox": [float(x) for x in detections[det_idx_val].bbox],
+                                "species": [
+                                    {"species": s, "probability": round(p, 4)} for s, p in preds[:5]
+                                ],
+                                "raw_species": [
+                                    {"species": s, "probability": round(p, 4)}
+                                    for s, p in raw_preds[:5]
+                                ],
+                            }
+                        )
 
                 if not det_results:
                     continue
@@ -634,17 +664,22 @@ class BirdIdentificationPipeline:
                 annotated = self._draw_image_annotations(frame, det_results)
                 cv2.imwrite(str(crops_dir / annotated_file), annotated)
 
-                stills.append({
-                    "frame": frame_no,
-                    "timestamp_s": timestamp_s,
-                    "annotated_file": annotated_file,
-                    "image_width": width,
-                    "image_height": height,
-                    "detections": det_results,
-                })
+                stills.append(
+                    {
+                        "frame": frame_no,
+                        "timestamp_s": timestamp_s,
+                        "annotated_file": annotated_file,
+                        "image_width": width,
+                        "image_height": height,
+                        "detections": det_results,
+                    }
+                )
                 logger.info(
                     "  Still %d/%d @ %.1fs: %d detection(s)",
-                    still_idx + 1, len(selected_frames), timestamp_s, len(det_results),
+                    still_idx + 1,
+                    len(selected_frames),
+                    timestamp_s,
+                    len(det_results),
                 )
         finally:
             cap.release()
@@ -757,8 +792,12 @@ class BirdIdentificationPipeline:
                 if to_classify_crops:
                     batch_results = self.classifier.classify_batch(to_classify_crops)
                     # Capture per-model scores if ensemble is active
-                    bc_batch = getattr(self.classifier, "last_bioclip_results", [None] * len(batch_results))
-                    en_batch = getattr(self.classifier, "last_efficientnet_results", [None] * len(batch_results))
+                    bc_batch = getattr(
+                        self.classifier, "last_bioclip_results", [None] * len(batch_results)
+                    )
+                    en_batch = getattr(
+                        self.classifier, "last_efficientnet_results", [None] * len(batch_results)
+                    )
                     for tid, preds, crop, bc_preds, en_preds in zip(
                         to_classify_ids, batch_results, to_classify_crops, bc_batch, en_batch
                     ):
@@ -780,7 +819,9 @@ class BirdIdentificationPipeline:
                             frame_width=width,
                             frame_height=height,
                         )
-                        preds = self.prior.apply(preds, dt=video_date, latitude=latitude, longitude=longitude)
+                        preds = self.prior.apply(
+                            preds, dt=video_date, latitude=latitude, longitude=longitude
+                        )
 
                         # Weight by proximity to frame center (Gaussian falloff)
                         bbox_cx = (bbox[0] + bbox[2]) / 2.0
@@ -806,20 +847,32 @@ class BirdIdentificationPipeline:
                             "frame": frame_idx,
                             "timestamp_s": round(timestamp_s, 2),
                             "track_id": tid,
-                            "predictions": [{"species": s, "probability": round(p, 4)} for s, p in preds],
-                            "bioclip_predictions": [{"species": s, "probability": round(p, 4)} for s, p in (bc_preds or [])[:5]],
-                            "efficientnet_predictions": [{"species": s, "probability": round(p, 4)} for s, p in (en_preds or [])[:5]],
-                            "raw_predictions": [{"species": s, "probability": round(p, 4)} for s, p in raw_preds[:5]],
+                            "predictions": [
+                                {"species": s, "probability": round(p, 4)} for s, p in preds
+                            ],
+                            "bioclip_predictions": [
+                                {"species": s, "probability": round(p, 4)}
+                                for s, p in (bc_preds or [])[:5]
+                            ],
+                            "efficientnet_predictions": [
+                                {"species": s, "probability": round(p, 4)}
+                                for s, p in (en_preds or [])[:5]
+                            ],
+                            "raw_predictions": [
+                                {"species": s, "probability": round(p, 4)} for s, p in raw_preds[:5]
+                            ],
                         }
                         track_events.setdefault(tid, []).append(event)
                         top_species = preds[0][0] if preds else None
-                        gallery_candidates.append({
-                            "frame": frame_idx,
-                            "timestamp_s": round(timestamp_s, 2),
-                            "score": float(raw_top_conf * center_weight),
-                            "track_id": tid,
-                            "species": top_species,
-                        })
+                        gallery_candidates.append(
+                            {
+                                "frame": frame_idx,
+                                "timestamp_s": round(timestamp_s, 2),
+                                "score": float(raw_top_conf * center_weight),
+                                "track_id": tid,
+                                "species": top_species,
+                            }
+                        )
                         self._log_event(event)
 
                 frame_idx += 1
@@ -866,7 +919,10 @@ class BirdIdentificationPipeline:
         for tid, track in {**self.tracker.completed_tracks, **self.tracker.tracks}.items():
             best = track.best_prediction
             top_conf = best[0][1] if best else 0.0
-            if track.frame_count < self.min_frames_to_report and top_conf < self.min_confidence_to_report:
+            if (
+                track.frame_count < self.min_frames_to_report
+                and top_conf < self.min_confidence_to_report
+            ):
                 continue
             if best:
                 raw = track.best_raw_prediction
@@ -876,25 +932,33 @@ class BirdIdentificationPipeline:
                     video_raw_predictions.append(raw)
                 bc_avg = track.best_bioclip_prediction
                 en_avg = track.best_efficientnet_prediction
-                track_summaries.append({
-                    "track_id": tid,
-                    "frames_tracked": track.frame_count,
-                    "classifications_made": len(track.prediction_history),
-                    "averaged_predictions": [
-                        {"species": s, "probability": round(p, 4)} for s, p in best[:5]
-                    ],
-                    "raw_predictions": [
-                        {"species": s, "probability": round(p, 4)} for s, p in raw[:5]
-                    ] if raw else [],
-                    "bioclip_predictions": [
-                        {"species": s, "probability": round(p, 4)} for s, p in bc_avg[:5]
-                    ] if bc_avg else [],
-                    "efficientnet_predictions": [
-                        {"species": s, "probability": round(p, 4)} for s, p in en_avg[:5]
-                    ] if en_avg else [],
-                    "explanation": explanation,
-                    "crop": saved_crops.get(tid),
-                })
+                track_summaries.append(
+                    {
+                        "track_id": tid,
+                        "frames_tracked": track.frame_count,
+                        "classifications_made": len(track.prediction_history),
+                        "averaged_predictions": [
+                            {"species": s, "probability": round(p, 4)} for s, p in best[:5]
+                        ],
+                        "raw_predictions": [
+                            {"species": s, "probability": round(p, 4)} for s, p in raw[:5]
+                        ]
+                        if raw
+                        else [],
+                        "bioclip_predictions": [
+                            {"species": s, "probability": round(p, 4)} for s, p in bc_avg[:5]
+                        ]
+                        if bc_avg
+                        else [],
+                        "efficientnet_predictions": [
+                            {"species": s, "probability": round(p, 4)} for s, p in en_avg[:5]
+                        ]
+                        if en_avg
+                        else [],
+                        "explanation": explanation,
+                        "crop": saved_crops.get(tid),
+                    }
+                )
 
         video_predictions = self._build_video_predictions(video_track_predictions)
         raw_video_predictions = self._build_video_predictions(video_raw_predictions)
@@ -935,7 +999,9 @@ class BirdIdentificationPipeline:
 
         # Write JSON results
         Path(self.results_dir).mkdir(parents=True, exist_ok=True)
-        out_path = Path(self.results_dir) / ((result_stem or Path(video_path).stem) + "_results.json")
+        out_path = Path(self.results_dir) / (
+            (result_stem or Path(video_path).stem) + "_results.json"
+        )
         with open(out_path, "w") as f:
             json.dump(summary, f, indent=2)
         logger.info("Results written to %s", self._display_path(out_path))
@@ -958,9 +1024,13 @@ class BirdIdentificationPipeline:
 
         # Visual summary
         visual_parts = [f"{s} ({p:.0%})" for s, p in raw_top3]
-        visual_str = ", ".join(visual_parts[:-1]) + f", or {visual_parts[-1]}" if len(visual_parts) > 1 else visual_parts[0]
+        visual_str = (
+            ", ".join(visual_parts[:-1]) + f", or {visual_parts[-1]}"
+            if len(visual_parts) > 1
+            else visual_parts[0]
+        )
 
-        if not hasattr(self.prior, '_con') or self.prior._con is None or video_date is None:
+        if not hasattr(self.prior, "_con") or self.prior._con is None or video_date is None:
             return f"Visually resembles {visual_str}. No location/date priors applied."
 
         # Get eBird frequencies for the raw top candidates
@@ -1051,19 +1121,21 @@ class BirdIdentificationPipeline:
             frame = cv2.imread(img_path)
             if frame is None:
                 logger.warning(f"Cannot read image: {img_path}")
-                image_results.append({
-                    "filename": source_filename,
-                    "date": img_meta.recorded_at.isoformat() if img_meta.recorded_at else None,
-                    "latitude": img_meta.latitude,
-                    "longitude": img_meta.longitude,
-                    "camera": img_meta.camera_info,
-                    "ebird_region": img_ebird_region,
-                    "image_width": None,
-                    "image_height": None,
-                    "annotated_file": None,
-                    "species_summary": [],
-                    "detections": [],
-                })
+                image_results.append(
+                    {
+                        "filename": source_filename,
+                        "date": img_meta.recorded_at.isoformat() if img_meta.recorded_at else None,
+                        "latitude": img_meta.latitude,
+                        "longitude": img_meta.longitude,
+                        "camera": img_meta.camera_info,
+                        "ebird_region": img_ebird_region,
+                        "image_width": None,
+                        "image_height": None,
+                        "annotated_file": None,
+                        "species_summary": [],
+                        "detections": [],
+                    }
+                )
                 continue
 
             detections = self.detector.detect(frame)
@@ -1082,8 +1154,12 @@ class BirdIdentificationPipeline:
             image_raw_species_scores: Dict[str, float] = {}
             if crops:
                 batch_preds = self.classifier.classify_batch(crops)
-                img_bc_batch = getattr(self.classifier, "last_bioclip_results", [None] * len(batch_preds))
-                img_en_batch = getattr(self.classifier, "last_efficientnet_results", [None] * len(batch_preds))
+                img_bc_batch = getattr(
+                    self.classifier, "last_bioclip_results", [None] * len(batch_preds)
+                )
+                img_en_batch = getattr(
+                    self.classifier, "last_efficientnet_results", [None] * len(batch_preds)
+                )
                 for i, (preds, crop, img_bc_preds, img_en_preds) in enumerate(
                     zip(batch_preds, crops, img_bc_batch, img_en_batch)
                 ):
@@ -1117,27 +1193,27 @@ class BirdIdentificationPipeline:
                         )
 
                     det_idx = crop_indices[i]
-                    det_results.append({
-                        "detection_index": len(det_results) + 1,
-                        "bbox": [float(x) for x in detections[det_idx].bbox],
-                        "species": [
-                            {"species": s, "probability": round(p, 4)}
-                            for s, p in preds[:5]
-                        ],
-                        "raw_species": [
-                            {"species": s, "probability": round(p, 4)}
-                            for s, p in raw_preds[:5]
-                        ],
-                        "bioclip_species": [
-                            {"species": s, "probability": round(p, 4)}
-                            for s, p in (img_bc_preds or [])[:5]
-                        ],
-                        "efficientnet_species": [
-                            {"species": s, "probability": round(p, 4)}
-                            for s, p in (img_en_preds or [])[:5]
-                        ],
-                        "crop_file": crop_file,
-                    })
+                    det_results.append(
+                        {
+                            "detection_index": len(det_results) + 1,
+                            "bbox": [float(x) for x in detections[det_idx].bbox],
+                            "species": [
+                                {"species": s, "probability": round(p, 4)} for s, p in preds[:5]
+                            ],
+                            "raw_species": [
+                                {"species": s, "probability": round(p, 4)} for s, p in raw_preds[:5]
+                            ],
+                            "bioclip_species": [
+                                {"species": s, "probability": round(p, 4)}
+                                for s, p in (img_bc_preds or [])[:5]
+                            ],
+                            "efficientnet_species": [
+                                {"species": s, "probability": round(p, 4)}
+                                for s, p in (img_en_preds or [])[:5]
+                            ],
+                            "crop_file": crop_file,
+                        }
+                    )
 
             annotated_file = None
             if det_results:
@@ -1145,23 +1221,28 @@ class BirdIdentificationPipeline:
                 annotated = self._draw_image_annotations(frame, det_results)
                 cv2.imwrite(str(crops_dir / annotated_file), annotated)
 
-            image_results.append({
-                "filename": source_filename,
-                "date": img_meta.recorded_at.isoformat() if img_meta.recorded_at else None,
-                "latitude": img_meta.latitude,
-                "longitude": img_meta.longitude,
-                "camera": img_meta.camera_info,
-                "ebird_region": img_ebird_region,
-                "image_width": int(frame.shape[1]),
-                "image_height": int(frame.shape[0]),
-                "annotated_file": annotated_file,
-                "species_summary": self._build_species_summary(image_species_scores, image_raw_species_scores),
-                "detections": det_results,
-            })
+            image_results.append(
+                {
+                    "filename": source_filename,
+                    "date": img_meta.recorded_at.isoformat() if img_meta.recorded_at else None,
+                    "latitude": img_meta.latitude,
+                    "longitude": img_meta.longitude,
+                    "camera": img_meta.camera_info,
+                    "ebird_region": img_ebird_region,
+                    "image_width": int(frame.shape[1]),
+                    "image_height": int(frame.shape[0]),
+                    "annotated_file": annotated_file,
+                    "species_summary": self._build_species_summary(
+                        image_species_scores, image_raw_species_scores
+                    ),
+                    "detections": det_results,
+                }
+            )
 
         summary = {
             "type": "images",
-            "display_name": display_name or (source_filenames[0] if source_filenames else Path(image_paths[0]).name),
+            "display_name": display_name
+            or (source_filenames[0] if source_filenames else Path(image_paths[0]).name),
             "date": video_date.isoformat() if video_date else None,
             "latitude": latitude,
             "longitude": longitude,
@@ -1187,10 +1268,7 @@ class BirdIdentificationPipeline:
         total_det = sum(len(img["detections"]) for img in summary["images"])
         logger.info("")
         logger.info("=" * 60)
-        logger.info(
-            f"Images: {summary['image_info']['count']} | "
-            f"Birds detected: {total_det}"
-        )
+        logger.info(f"Images: {summary['image_info']['count']} | Birds detected: {total_det}")
         for img in summary["images"]:
             n = len(img["detections"])
             logger.info(f"  {img['filename']}: {n} bird(s)")
@@ -1217,9 +1295,15 @@ class BirdIdentificationPipeline:
         raw_preds = event.get("raw_predictions", [])
 
         if bc_preds and en_preds:
-            bc_score = next((p["probability"] for p in bc_preds if p["species"] == top_species), None)
-            en_score = next((p["probability"] for p in en_preds if p["species"] == top_species), None)
-            raw_score = next((p["probability"] for p in raw_preds if p["species"] == top_species), None)
+            bc_score = next(
+                (p["probability"] for p in bc_preds if p["species"] == top_species), None
+            )
+            en_score = next(
+                (p["probability"] for p in en_preds if p["species"] == top_species), None
+            )
+            raw_score = next(
+                (p["probability"] for p in raw_preds if p["species"] == top_species), None
+            )
             parts = []
             if bc_score is not None:
                 parts.append(f"BioCLIP {bc_score:.1%}")
@@ -1234,17 +1318,15 @@ class BirdIdentificationPipeline:
             )
         else:
             others = ", ".join(
-                f"{p['species']} {p['probability']:.1%}"
-                for p in event["predictions"][1:3]
+                f"{p['species']} {p['probability']:.1%}" for p in event["predictions"][1:3]
             )
             logger.info(
                 f"  [{event['timestamp_s']:.1f}s] track#{event['track_id']} → "
-                f"{top_species} ({final_prob:.1%})"
-                + (f"  | also: {others}" if others else "")
+                f"{top_species} ({final_prob:.1%})" + (f"  | also: {others}" if others else "")
             )
 
     def _print_summary(self, summary: dict):
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Video: {Path(summary['video']).name}")
         print(f"Frames processed: {summary['frames_processed']}")
         if summary.get("video_predictions"):
@@ -1257,8 +1339,10 @@ class BirdIdentificationPipeline:
         print(f"Tracking details (nerd stuff): {len(summary['tracks'])} track(s)")
         print()
         for t in summary["tracks"]:
-            print(f"  Track #{t['track_id']} ({t['frames_tracked']} frames, "
-                  f"{t['classifications_made']} classifications)")
+            print(
+                f"  Track #{t['track_id']} ({t['frames_tracked']} frames, "
+                f"{t['classifications_made']} classifications)"
+            )
             for rank, p in enumerate(t["averaged_predictions"], 1):
                 print(f"    {rank}. {p['species']:<35} {p['probability']:.1%}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")

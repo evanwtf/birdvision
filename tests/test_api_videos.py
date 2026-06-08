@@ -54,9 +54,9 @@ def _make_client(tmp_path: Path, *, with_tokens: bool = True) -> TestClient:
     }
     if with_tokens:
         tokens_file = tmp_path / "tokens.yaml"
-        tokens_file.write_text(yaml.safe_dump({
-            "tokens": [{"name": "birdcamgrabber", "token": "secret-token"}]
-        }))
+        tokens_file.write_text(
+            yaml.safe_dump({"tokens": [{"name": "birdcamgrabber", "token": "secret-token"}]})
+        )
         cfg["webapp"]["api_tokens_file"] = str(tokens_file)
 
     app = webapp_module.create_app(cfg, templates_dir="templates")
@@ -211,7 +211,9 @@ class TestApiVideoUpload:
         payload = json.loads((tmp_path / "videos" / "asset_index.json").read_text())
         assert payload["assets"] == {}
 
-    def test_browser_inspect_reports_bad_video_without_persisting_asset(self, tmp_path, monkeypatch):
+    def test_browser_inspect_reports_bad_video_without_persisting_asset(
+        self, tmp_path, monkeypatch
+    ):
         monkeypatch.setattr(webapp_module, "inspect_media", lambda path: MediaMetadata())
 
         with _make_client(tmp_path) as client:
@@ -230,7 +232,9 @@ class TestApiVideoUpload:
         payload = json.loads((tmp_path / "videos" / "asset_index.json").read_text())
         assert payload["assets"] == {}
 
-    def test_browser_finalize_returns_info_when_only_bad_assets_selected(self, tmp_path, monkeypatch):
+    def test_browser_finalize_returns_info_when_only_bad_assets_selected(
+        self, tmp_path, monkeypatch
+    ):
         monkeypatch.setattr(webapp_module, "inspect_media", lambda path: MediaMetadata())
 
         with _make_client(tmp_path) as client:
@@ -242,11 +246,13 @@ class TestApiVideoUpload:
             finalize_response = client.post(
                 "/api/uploads/finalize",
                 json={
-                    "assets": [{
-                        "sha256": asset["sha256"],
-                        "original_filename": asset["original_filename"],
-                        "selected": True,
-                    }]
+                    "assets": [
+                        {
+                            "sha256": asset["sha256"],
+                            "original_filename": asset["original_filename"],
+                            "selected": True,
+                        }
+                    ]
                 },
             )
 
@@ -256,10 +262,7 @@ class TestApiVideoUpload:
         assert "could not be opened for processing" in body["info_message"]
 
     def test_browser_inspect_rejects_more_than_twenty_photos(self, tmp_path):
-        files = [
-            ("file", (f"photo-{idx}.jpg", b"jpeg-bytes", "image/jpeg"))
-            for idx in range(21)
-        ]
+        files = [("file", (f"photo-{idx}.jpg", b"jpeg-bytes", "image/jpeg")) for idx in range(21)]
 
         with _make_client(tmp_path) as client:
             response = client.post("/api/uploads/inspect", files=files)
@@ -287,7 +290,10 @@ class TestApiVideoUpload:
             )
 
         assert response.status_code == 400
-        assert "50 MB upload limit" in response.json()["error"] or "upload limit" in response.json()["error"]
+        assert (
+            "50 MB upload limit" in response.json()["error"]
+            or "upload limit" in response.json()["error"]
+        )
 
 
 class TestJobSlugRoutes:
@@ -298,11 +304,13 @@ class TestJobSlugRoutes:
             job.result = {
                 "type": "video",
                 "tracks": [{"track_id": 1}],
-                "video_predictions": [{
-                    "species": "Blue Jay",
-                    "presence_probability": 0.9731,
-                    "supporting_tracks": 1,
-                }],
+                "video_predictions": [
+                    {
+                        "species": "Blue Jay",
+                        "presence_probability": 0.9731,
+                        "supporting_tracks": 1,
+                    }
+                ],
             }
             webapp_module._jobs[job.id] = job
 
@@ -320,11 +328,13 @@ class TestRecentVisitorsListing:
             job.result = {
                 "type": "video",
                 "tracks": [{"track_id": 1}],
-                "video_predictions": [{
-                    "species": "Blue Jay",
-                    "presence_probability": 0.9731,
-                    "supporting_tracks": 1,
-                }],
+                "video_predictions": [
+                    {
+                        "species": "Blue Jay",
+                        "presence_probability": 0.9731,
+                        "supporting_tracks": 1,
+                    }
+                ],
                 "video_stills": [
                     {
                         "annotated_file": "still_00_000010_annotated.jpg",
@@ -345,7 +355,7 @@ class TestRecentVisitorsListing:
             page = client.get("/")
             assert page.status_code == 200
             assert "Recent Visitors" in page.text
-            assert f'/jobs/{job.id}/crops/still_01_000020_annotated.jpg' in page.text
+            assert f"/jobs/{job.id}/crops/still_01_000020_annotated.jpg" in page.text
             assert "Recent Jobs" not in page.text
 
             api = client.get("/api/jobs")
@@ -362,11 +372,13 @@ class TestRecentVisitorsListing:
             job.result = {
                 "type": "video",
                 "tracks": [{"track_id": 1}],
-                "video_predictions": [{
-                    "species": "Blue Jay",
-                    "presence_probability": 0.9731,
-                    "supporting_tracks": 1,
-                }],
+                "video_predictions": [
+                    {
+                        "species": "Blue Jay",
+                        "presence_probability": 0.9731,
+                        "supporting_tracks": 1,
+                    }
+                ],
             }
             webapp_module._jobs[job.id] = job
 

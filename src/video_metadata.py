@@ -1,6 +1,7 @@
 """
 Extract date/time, GPS coordinates, and basic media metadata using ExifTool.
 """
+
 import logging
 import threading
 from dataclasses import dataclass

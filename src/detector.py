@@ -74,17 +74,21 @@ class BirdDetector:
                     gy1 = max(0, y1 + origin_y)
                     gx2 = min(target_frame.shape[1], x2 + origin_x)
                     gy2 = min(target_frame.shape[0], y2 + origin_y)
-                    detections.append(Detection(
-                        bbox=np.array([gx1, gy1, gx2, gy2]),
-                        confidence=float(box.conf[0]),
-                        crop=target_frame[gy1:gy2, gx1:gx2],
-                    ))
+                    detections.append(
+                        Detection(
+                            bbox=np.array([gx1, gy1, gx2, gy2]),
+                            confidence=float(box.conf[0]),
+                            crop=target_frame[gy1:gy2, gx1:gx2],
+                        )
+                    )
         return detections
 
     def _dedupe(self, detections: List[Detection]) -> List[Detection]:
         kept: List[Detection] = []
         for det in sorted(detections, key=lambda item: item.confidence, reverse=True):
-            if any(self._iou(det.bbox, existing.bbox) >= self.dedupe_iou_threshold for existing in kept):
+            if any(
+                self._iou(det.bbox, existing.bbox) >= self.dedupe_iou_threshold for existing in kept
+            ):
                 continue
             kept.append(det)
         return kept

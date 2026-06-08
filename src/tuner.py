@@ -244,7 +244,8 @@ class SingleVideoTuningRunner:
         logger.info(
             "Trial %03d: %s",
             trial_index,
-            ", ".join(f"{key}={value}" for key, value in self._changed_params(trial_config).items()) or "baseline",
+            ", ".join(f"{key}={value}" for key, value in self._changed_params(trial_config).items())
+            or "baseline",
         )
 
         try:
@@ -253,7 +254,9 @@ class SingleVideoTuningRunner:
                 video_date=self.video_date,
                 result_stem=Path(self.video_path).stem,
             )
-            target_confidence, raw_target_confidence, target_rank = self._lookup_target_metrics(summary)
+            target_confidence, raw_target_confidence, target_rank = self._lookup_target_metrics(
+                summary
+            )
             success_species, success_confidence = self._lookup_success_metrics(summary)
             video_predictions = summary.get("video_predictions", [])
             top_prediction = video_predictions[0] if video_predictions else {}
@@ -430,6 +433,8 @@ class SingleVideoTuningRunner:
             "trial_count": len(self.trials),
             "initial_top_species": self.initial_top_species,
             "best_trial": asdict(best_trial),
-            "beat_initial_target_confidence": best_trial.target_confidence > self.trials[0].target_confidence,
-            "flipped_top_result": best_trial.top_species is not None and best_trial.top_species != self.initial_top_species,
+            "beat_initial_target_confidence": best_trial.target_confidence
+            > self.trials[0].target_confidence,
+            "flipped_top_result": best_trial.top_species is not None
+            and best_trial.top_species != self.initial_top_species,
         }

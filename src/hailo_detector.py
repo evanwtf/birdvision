@@ -35,14 +35,16 @@ from dataclasses import dataclass
 @dataclass
 class Detection:
     """Bird detection result — mirrors detector.py Detection for interface compatibility."""
-    bbox: np.ndarray   # [x1, y1, x2, y2] pixel coords
+
+    bbox: np.ndarray  # [x1, y1, x2, y2] pixel coords
     confidence: float
-    crop: np.ndarray   # BGR image crop
+    crop: np.ndarray  # BGR image crop
+
 
 logger = logging.getLogger(__name__)
 
-BIRD_CLASS_ID = 14   # COCO class index for "bird"
-INPUT_SIZE    = 640  # YOLOv8 canonical input resolution
+BIRD_CLASS_ID = 14  # COCO class index for "bird"
+INPUT_SIZE = 640  # YOLOv8 canonical input resolution
 
 
 def _preprocess_frame(frame_bgr: np.ndarray) -> np.ndarray:
@@ -52,6 +54,7 @@ def _preprocess_frame(frame_bgr: np.ndarray) -> np.ndarray:
     quantization calibration, so we pass raw uint8 pixel values.
     """
     import cv2
+
     resized = cv2.resize(frame_bgr, (INPUT_SIZE, INPUT_SIZE), interpolation=cv2.INTER_LINEAR)
     rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
     return rgb[np.newaxis].astype(np.uint8)  # (1, 640, 640, 3)
@@ -75,7 +78,7 @@ class HailoDetector:
         fallback_crop_ratio: float = 0.5,
         dedupe_iou_threshold: float = 0.5,
     ):
-        self.hef_path  = str(hef_path)
+        self.hef_path = str(hef_path)
         self.threshold = threshold
         self.fallback_crop_ratio = fallback_crop_ratio
         self.dedupe_iou_threshold = dedupe_iou_threshold
@@ -104,8 +107,8 @@ class HailoDetector:
         configure_params = ConfigureParams.create_from_hef(
             hef=hef, interface=HailoStreamInterface.PCIe
         )
-        network_groups         = self._target.configure(hef, configure_params)
-        self._network_group    = network_groups[0]
+        network_groups = self._target.configure(hef, configure_params)
+        self._network_group = network_groups[0]
         self._network_group_params = self._network_group.create_params()
 
         # UINT8 input — normalization is baked into the compiled model
@@ -117,12 +120,14 @@ class HailoDetector:
             self._network_group, format_type=FormatType.FLOAT32
         )
 
-        input_info  = hef.get_input_vstream_infos()
+        input_info = hef.get_input_vstream_infos()
         output_info = hef.get_output_vstream_infos()
-        self._input_name   = input_info[0].name
+        self._input_name = input_info[0].name
         self._output_names = [o.name for o in output_info]
         logger.info("Hailo detector — input: %s", self._input_name)
-        logger.info("Hailo detector — outputs (%d): %s", len(self._output_names), self._output_names)
+        logger.info(
+            "Hailo detector — outputs (%d): %s", len(self._output_names), self._output_names
+        )
         logger.info("HailoDetector ready (threshold=%.2f)", self.threshold)
 
     # ------------------------------------------------------------------
@@ -148,9 +153,13 @@ class HailoDetector:
         if not self._output_logged:
             for name, val in raw_output.items():
                 if isinstance(val, list):
-                    logger.info("Output '%s': list len=%d, element type=%s",
-                                name, len(val), type(val[0]).__name__ if val else "empty")
-                    if val and hasattr(val[0], 'shape'):
+                    logger.info(
+                        "Output '%s': list len=%d, element type=%s",
+                        name,
+                        len(val),
+                        type(val[0]).__name__ if val else "empty",
+                    )
+                    if val and hasattr(val[0], "shape"):
                         logger.info("  element[0].shape=%s dtype=%s", val[0].shape, val[0].dtype)
                 else:
                     logger.info("Output tensor '%s' shape=%s dtype=%s", name, val.shape, val.dtype)
@@ -162,15 +171,19 @@ class HailoDetector:
         crops_added = []
         for det in detections:
             x1, y1, x2, y2 = det.bbox.astype(int)
-            x1 = max(0, x1);  y1 = max(0, y1)
-            x2 = min(frame_w, x2);  y2 = min(frame_h, y2)
+            x1 = max(0, x1)
+            y1 = max(0, y1)
+            x2 = min(frame_w, x2)
+            y2 = min(frame_h, y2)
             crop = frame[y1:y2, x1:x2]
             if crop.size > 0:
-                crops_added.append(Detection(
-                    bbox=np.array([x1, y1, x2, y2]),
-                    confidence=det.confidence,
-                    crop=crop,
-                ))
+                crops_added.append(
+                    Detection(
+                        bbox=np.array([x1, y1, x2, y2]),
+                        confidence=det.confidence,
+                        crop=crop,
+                    )
+                )
         logger.debug("Detections: %d birds above threshold %.2f", len(crops_added), self.threshold)
         return crops_added
 
@@ -190,11 +203,13 @@ class HailoDetector:
             gy2 = min(frame_h, y2 + origin_y)
             if gx2 <= gx1 or gy2 <= gy1:
                 continue
-            remapped.append(Detection(
-                bbox=np.array([gx1, gy1, gx2, gy2]),
-                confidence=det.confidence,
-                crop=frame[gy1:gy2, gx1:gx2],
-            ))
+            remapped.append(
+                Detection(
+                    bbox=np.array([gx1, gy1, gx2, gy2]),
+                    confidence=det.confidence,
+                    crop=frame[gy1:gy2, gx1:gx2],
+                )
+            )
 
         return self._dedupe(remapped)
 
@@ -212,7 +227,9 @@ class HailoDetector:
     def _dedupe(self, detections: List[Detection]) -> List[Detection]:
         kept: List[Detection] = []
         for det in sorted(detections, key=lambda item: item.confidence, reverse=True):
-            if any(self._iou(det.bbox, existing.bbox) >= self.dedupe_iou_threshold for existing in kept):
+            if any(
+                self._iou(det.bbox, existing.bbox) >= self.dedupe_iou_threshold for existing in kept
+            ):
                 continue
             kept.append(det)
         return kept
@@ -236,6 +253,7 @@ class HailoDetector:
 
     def _run_inference(self, input_batch: np.ndarray) -> dict:
         from hailo_platform import InferVStreams
+
         with InferVStreams(
             self._network_group,
             self._input_vstream_params,
@@ -270,11 +288,15 @@ class HailoDetector:
             per_class = val[0] if (len(val) == 1 and isinstance(val[0], list)) else val
 
             if BIRD_CLASS_ID >= len(per_class):
-                logger.warning("NMS per-class list has %d entries, expected >= %d", len(per_class), BIRD_CLASS_ID + 1)
+                logger.warning(
+                    "NMS per-class list has %d entries, expected >= %d",
+                    len(per_class),
+                    BIRD_CLASS_ID + 1,
+                )
                 return []
 
             bird_arr = per_class[BIRD_CLASS_ID]
-            if bird_arr is None or (hasattr(bird_arr, '__len__') and len(bird_arr) == 0):
+            if bird_arr is None or (hasattr(bird_arr, "__len__") and len(bird_arr) == 0):
                 return []
 
             arr = np.array(bird_arr, dtype=np.float32).reshape(-1, 5)
@@ -314,8 +336,13 @@ class HailoDetector:
 
     @staticmethod
     def _make_detection(
-        x1: float, y1: float, x2: float, y2: float,
-        score: float, frame_w: int, frame_h: int,
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        score: float,
+        frame_w: int,
+        frame_h: int,
     ):
         # If coords look normalized [0,1], scale to pixels
         if max(x1, y1, x2, y2) <= 1.0:

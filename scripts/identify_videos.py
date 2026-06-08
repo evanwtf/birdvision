@@ -10,6 +10,7 @@ Usage:
 Each video produces a JSON file in the results/ directory with per-track
 species predictions and a timestamped event log.
 """
+
 import argparse
 import logging
 import sys

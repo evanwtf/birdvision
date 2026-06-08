@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 NAME_OVERRIDES: dict[str, str] = {
     "MALLARD DUCK": "Mallard",
     "COMMON STARLING": "European Starling",
-    "SUPERB STARLING": None,          # exotic, not in our list
+    "SUPERB STARLING": None,  # exotic, not in our list
     "CASPIAN TERN": "Caspian Tern",
     "YELLOW WARBLER": "Yellow Warbler",
     "COMMON YELLOWTHROAT": "Common Yellowthroat",
@@ -131,7 +131,7 @@ class HFImageClassifier:
             task="image-classification",
             model=model_name,
             device=0 if device == "cuda" else -1,
-            top_k=1000,   # large enough to cover any fixed-vocabulary model
+            top_k=1000,  # large enough to cover any fixed-vocabulary model
         )
         self._fuzzy_cutoff = fuzzy_cutoff
         self.top_k = top_k
@@ -141,7 +141,9 @@ class HFImageClassifier:
             r["label"] for r in self._pipe(Image.new("RGB", (224, 224)), top_k=1000)
         ]
         self._n_model_labels = len(self._model_labels)
-        logger.info("HF classifier loaded: %s  (%d output classes)", model_name, self._n_model_labels)
+        logger.info(
+            "HF classifier loaded: %s  (%d output classes)", model_name, self._n_model_labels
+        )
 
         self.species_list: list[str] = []
         self._label_map: dict[str, str | None] = {}
@@ -155,10 +157,13 @@ class HFImageClassifier:
         n_mapped = sum(1 for v in self._label_map.values() if v is not None)
         logger.info(
             "HF classifier ready: %d/%d model labels mapped to species list",
-            n_mapped, self._n_model_labels,
+            n_mapped,
+            self._n_model_labels,
         )
 
-    def _build_label_map(self, species_list: list[str], fuzzy_cutoff: float) -> dict[str, str | None]:
+    def _build_label_map(
+        self, species_list: list[str], fuzzy_cutoff: float
+    ) -> dict[str, str | None]:
         """Build model_label_upper -> our_species_name (or None to discard)."""
         import difflib
 
@@ -180,7 +185,10 @@ class HFImageClassifier:
 
             # 3. Fuzzy
             matches = difflib.get_close_matches(
-                label_upper, list(species_upper.keys()), n=1, cutoff=fuzzy_cutoff,
+                label_upper,
+                list(species_upper.keys()),
+                n=1,
+                cutoff=fuzzy_cutoff,
             )
             if matches:
                 result[label_upper] = species_upper[matches[0]]

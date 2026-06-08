@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def prefetch_bioclip(model_name: str) -> None:
     logger.info("Checking BioCLIP model: %s", model_name)
     import open_clip
+
     # open_clip downloads to torch hub cache on create; this is the same call
     # the classifier makes, so the cache hit path is identical.
     model, _, _ = open_clip.create_model_and_transforms(model_name)
@@ -65,6 +66,7 @@ def prefetch_hf_image_classifier(model_name: str) -> None:
     logger.info("Checking HF image classifier: %s", model_name)
     from transformers import pipeline as hf_pipeline
     from PIL import Image
+
     pipe = hf_pipeline("image-classification", model=model_name, device=-1, top_k=1)
     pipe(Image.new("RGB", (224, 224)))
     del pipe
@@ -74,6 +76,7 @@ def prefetch_hf_image_classifier(model_name: str) -> None:
 def prefetch_yolo(model_path: str) -> None:
     """YOLO downloads yolov8n.pt (etc.) from ultralytics on first use."""
     from ultralytics import YOLO
+
     logger.info("Checking YOLO model: %s", model_path)
     YOLO(model_path)
     logger.info("YOLO OK: %s", model_path)
@@ -83,11 +86,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Pre-download eval models")
     parser.add_argument("--config", default="eval/config.yaml")
     parser.add_argument(
-        "--skip-bioclip", action="store_true",
+        "--skip-bioclip",
+        action="store_true",
         help="Skip BioCLIP check (not needed when reusing existing results JSONs)",
     )
     parser.add_argument(
-        "--skip-yolo", action="store_true",
+        "--skip-yolo",
+        action="store_true",
         help="Skip YOLO check (not needed when reusing existing results JSONs)",
     )
     args = parser.parse_args()

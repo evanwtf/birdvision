@@ -22,7 +22,9 @@ class Track:
     bioclip_prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
     efficientnet_prediction_history: List[List[Tuple[str, float]]] = field(default_factory=list)
 
-    def _weighted_average(self, history: List[List[Tuple[str, float]]]) -> Optional[List[Tuple[str, float]]]:
+    def _weighted_average(
+        self, history: List[List[Tuple[str, float]]]
+    ) -> Optional[List[Tuple[str, float]]]:
         if not history:
             return None
         weights = self.prediction_weights if self.prediction_weights else [1.0] * len(history)
@@ -136,7 +138,9 @@ class BirdTracker:
 
         if frame_size and self.centroid_max_distance > 0:
             max_distance_px = self.centroid_max_distance * float(np.hypot(*frame_size))
-            unmatched_track_indices = [ti for ti in range(len(track_ids)) if ti not in matched_tracks]
+            unmatched_track_indices = [
+                ti for ti in range(len(track_ids)) if ti not in matched_tracks
+            ]
             unmatched_det_indices = [di for di in range(len(detections)) if di not in matched_dets]
             if unmatched_track_indices and unmatched_det_indices:
                 distance_matrix = np.full(
@@ -152,7 +156,9 @@ class BirdTracker:
                         )
 
                 while np.isfinite(distance_matrix).any():
-                    row_idx, col_idx = np.unravel_index(np.argmin(distance_matrix), distance_matrix.shape)
+                    row_idx, col_idx = np.unravel_index(
+                        np.argmin(distance_matrix), distance_matrix.shape
+                    )
                     if distance_matrix[row_idx, col_idx] > max_distance_px:
                         break
                     ti = unmatched_track_indices[row_idx]

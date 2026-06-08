@@ -37,17 +37,17 @@ FBIOGET_VSCREENINFO = 0x4600
 FBIOGET_FSCREENINFO = 0x4602
 
 _CV_ROTATIONS = {
-    90:  cv2.ROTATE_90_CLOCKWISE,
+    90: cv2.ROTATE_90_CLOCKWISE,
     180: cv2.ROTATE_180,
     270: cv2.ROTATE_90_COUNTERCLOCKWISE,
 }
 
-_FONT           = cv2.FONT_HERSHEY_SIMPLEX
-_CAPTION_SCALE  = 1.1
-_CAPTION_THICK  = 2
+_FONT = cv2.FONT_HERSHEY_SIMPLEX
+_CAPTION_SCALE = 1.1
+_CAPTION_THICK = 2
 _CAPTION_MARGIN = 12
-_BOX_COLOR      = (0, 255, 0)
-_BOX_THICK      = 2
+_BOX_COLOR = (0, 255, 0)
+_BOX_THICK = 2
 
 
 class DisplayOverlay:
@@ -69,36 +69,32 @@ class DisplayOverlay:
         show_boxes: bool = True,
         target_fps: float = 30.0,
     ) -> None:
-        self._enabled    = False
-        self._device     = device
-        self._rotate     = rotate if rotate in _CV_ROTATIONS or rotate == 0 else 0
-        self._show_fps   = show_fps
+        self._enabled = False
+        self._device = device
+        self._rotate = rotate if rotate in _CV_ROTATIONS or rotate == 0 else 0
+        self._show_fps = show_fps
         self._show_boxes = show_boxes
-        self._min_dt     = 1.0 / max(1.0, target_fps)
+        self._min_dt = 1.0 / max(1.0, target_fps)
 
         self._mm: Optional[mmap.mmap] = None
         self._fd = None
         self._fb_w = 0
         self._fb_h = 0
-        self._bpp  = 32
+        self._bpp = 32
 
-        self._lock  = threading.Lock()
-        self._state: Optional[tuple] = None   # (frame, bboxes, caption, fps)
-        self._stop  = threading.Event()
+        self._lock = threading.Lock()
+        self._state: Optional[tuple] = None  # (frame, bboxes, caption, fps)
+        self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
         try:
             self._open()
             self._enabled = True
         except (OSError, PermissionError, ValueError) as exc:
-            logger.warning(
-                "Display overlay disabled — cannot open %s: %s", device, exc
-            )
+            logger.warning("Display overlay disabled — cannot open %s: %s", device, exc)
             return
 
-        self._thread = threading.Thread(
-            target=self._run, name="display-overlay", daemon=True
-        )
+        self._thread = threading.Thread(target=self._run, name="display-overlay", daemon=True)
         self._thread.start()
 
     # ------------------------------------------------------------------
@@ -123,11 +119,15 @@ class DisplayOverlay:
         self._mm = mmap.mmap(self._fd.fileno(), fb_size)
         self._fb_w = xres
         self._fb_h = yres
-        self._bpp  = bpp
+        self._bpp = bpp
 
         logger.info(
             "Display overlay: %s %dx%d %dbpp rotate=%d°",
-            self._device, xres, yres, bpp, self._rotate,
+            self._device,
+            xres,
+            yres,
+            bpp,
+            self._rotate,
         )
 
     @property
@@ -223,7 +223,8 @@ class DisplayOverlay:
                     display,
                     (int(x1 * sx), int(y1 * sy)),
                     (int(x2 * sx), int(y2 * sy)),
-                    _BOX_COLOR, _BOX_THICK,
+                    _BOX_COLOR,
+                    _BOX_THICK,
                 )
 
         _draw_caption(display, caption if caption else "No Bird Detected")
@@ -244,15 +245,21 @@ class DisplayOverlay:
 # Drawing helpers
 # ----------------------------------------------------------------------
 
+
 def _draw_caption(frame: np.ndarray, label: str) -> None:
     (tw, th), baseline = cv2.getTextSize(label, _FONT, _CAPTION_SCALE, _CAPTION_THICK)
     h, w = frame.shape[:2]
     bar_h = th + baseline + _CAPTION_MARGIN * 2
     cv2.rectangle(frame, (0, h - bar_h), (w, h), (0, 0, 0), -1)
     cv2.putText(
-        frame, label,
+        frame,
+        label,
         (_CAPTION_MARGIN, h - _CAPTION_MARGIN - baseline),
-        _FONT, _CAPTION_SCALE, (255, 255, 255), _CAPTION_THICK, cv2.LINE_AA,
+        _FONT,
+        _CAPTION_SCALE,
+        (255, 255, 255),
+        _CAPTION_THICK,
+        cv2.LINE_AA,
     )
 
 
@@ -260,8 +267,7 @@ def _draw_fps(frame: np.ndarray, fps: float) -> None:
     label = f"{fps:.0f} fps"
     (fw, fh), _ = cv2.getTextSize(label, _FONT, 0.6, 1)
     cv2.rectangle(frame, (0, 0), (fw + 12, fh + 10), (0, 0, 0), -1)
-    cv2.putText(frame, label, (6, fh + 5), _FONT, 0.6,
-                (180, 180, 180), 1, cv2.LINE_AA)
+    cv2.putText(frame, label, (6, fh + 5), _FONT, 0.6, (180, 180, 180), 1, cv2.LINE_AA)
 
 
 def _frame_to_fb(frame: np.ndarray, bpp: int) -> bytes:

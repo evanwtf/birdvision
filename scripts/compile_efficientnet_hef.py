@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 IMG_SIZE = 224
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-IMAGENET_STD  = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
 def preprocess_image(path: Path) -> np.ndarray:
@@ -43,8 +43,8 @@ def preprocess_image(path: Path) -> np.ndarray:
     DFC expects calibration data in NHWC format (H, W, C).
     """
     img = Image.open(path).convert("RGB").resize((IMG_SIZE, IMG_SIZE), Image.BILINEAR)
-    arr = np.array(img, dtype=np.float32) / 255.0         # HWC [0,1]
-    arr = (arr - IMAGENET_MEAN) / IMAGENET_STD             # normalize, stay HWC
+    arr = np.array(img, dtype=np.float32) / 255.0  # HWC [0,1]
+    arr = (arr - IMAGENET_MEAN) / IMAGENET_STD  # normalize, stay HWC
     return arr
 
 
@@ -88,8 +88,13 @@ def sample_calibration_images(
         logger.warning("Skipped %d images during calibration preprocessing", failed)
 
     calib = np.stack(arrays)  # (N, 3, 224, 224)
-    logger.info("Calibration dataset: shape=%s  dtype=%s  min=%.3f  max=%.3f",
-                calib.shape, calib.dtype, calib.min(), calib.max())
+    logger.info(
+        "Calibration dataset: shape=%s  dtype=%s  min=%.3f  max=%.3f",
+        calib.shape,
+        calib.dtype,
+        calib.min(),
+        calib.max(),
+    )
     return calib
 
 
@@ -137,14 +142,26 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Compile EfficientNet-S ONNX to Hailo HEF")
     parser.add_argument("--onnx", type=Path, default=Path("pi/models/efficientnet_s_birds.onnx"))
     parser.add_argument("--output", type=Path, default=Path("pi/models/efficientnet_s_birds.hef"))
-    parser.add_argument("--train-dir", type=Path, default=Path("train_data"),
-                        help="Training data directory to sample calibration images from")
-    parser.add_argument("--calib-npy", type=Path,
-                        help="Pre-computed calibration .npy file (N,3,224,224) — skips sampling")
-    parser.add_argument("--n-calib", type=int, default=500,
-                        help="Number of calibration images to sample (default: 500)")
-    parser.add_argument("--save-calib", type=Path,
-                        help="Save calibration numpy array to this path for reuse")
+    parser.add_argument(
+        "--train-dir",
+        type=Path,
+        default=Path("train_data"),
+        help="Training data directory to sample calibration images from",
+    )
+    parser.add_argument(
+        "--calib-npy",
+        type=Path,
+        help="Pre-computed calibration .npy file (N,3,224,224) — skips sampling",
+    )
+    parser.add_argument(
+        "--n-calib",
+        type=int,
+        default=500,
+        help="Number of calibration images to sample (default: 500)",
+    )
+    parser.add_argument(
+        "--save-calib", type=Path, help="Save calibration numpy array to this path for reuse"
+    )
     add_logging_args(parser)
     args = parser.parse_args()
 

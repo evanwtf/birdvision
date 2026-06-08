@@ -147,7 +147,9 @@ class WebSocketFrameSource:
     def _start_server(self) -> None:
         app = self._build_app()
         self._server_thread = threading.Thread(
-            target=self._run_server, args=(app,), daemon=True,
+            target=self._run_server,
+            args=(app,),
+            daemon=True,
         )
         self._server_thread.start()
         self._loop_ready.wait(timeout=10.0)
@@ -161,7 +163,10 @@ class WebSocketFrameSource:
         self._loop_ready.set()
 
         config = uvicorn.Config(
-            app, host=self._host, port=self._port, log_level="warning",
+            app,
+            host=self._host,
+            port=self._port,
+            log_level="warning",
         )
         server = uvicorn.Server(config)
         logger.info("WebSocket server listening on http://%s:%d", self._host, self._port)
@@ -211,7 +216,11 @@ class WebSocketFrameSource:
         loop = asyncio.get_event_loop()
         try:
             result = await loop.run_in_executor(
-                None, self._upload_handler, content, filename, content_type,
+                None,
+                self._upload_handler,
+                content,
+                filename,
+                content_type,
             )
         except Exception as exc:
             logger.exception("Upload processing failed")
@@ -224,12 +233,14 @@ class WebSocketFrameSource:
             await ws.accept()
             logger.info("Rejecting extra client while stream is active: %s", ws.client)
             try:
-                await ws.send_json({
-                    "error": (
-                        "BirdVision is already in use by another camera. "
-                        "Try again when that session disconnects."
-                    ),
-                })
+                await ws.send_json(
+                    {
+                        "error": (
+                            "BirdVision is already in use by another camera. "
+                            "Try again when that session disconnects."
+                        ),
+                    }
+                )
                 # Brief delay so the client receives the error JSON before close
                 await asyncio.sleep(0.25)
                 await ws.close(code=1013, reason="BirdVision is already in use")
@@ -251,7 +262,8 @@ class WebSocketFrameSource:
 
         try:
             done, pending = await asyncio.wait(
-                {recv_task, send_task}, return_when=asyncio.FIRST_COMPLETED,
+                {recv_task, send_task},
+                return_when=asyncio.FIRST_COMPLETED,
             )
             for t in pending:
                 t.cancel()

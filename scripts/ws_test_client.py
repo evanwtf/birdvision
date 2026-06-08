@@ -45,7 +45,11 @@ async def stream_video(args: argparse.Namespace) -> None:
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     logger.info(
         "Video: %s  %dx%d  %.1f fps  %d frames",
-        args.video, width, height, src_fps, total_frames,
+        args.video,
+        width,
+        height,
+        src_fps,
+        total_frames,
     )
 
     interval = 1.0 / args.fps
@@ -161,7 +165,10 @@ async def stream_video(args: argparse.Namespace) -> None:
         max_ms = max(latencies) * 1000
         logger.info(
             "  Round-trip:        avg=%.0fms  min=%.0fms  max=%.0fms  (%d samples)",
-            avg_ms, min_ms, max_ms, len(latencies),
+            avg_ms,
+            min_ms,
+            max_ms,
+            len(latencies),
         )
 
 
@@ -171,12 +178,15 @@ def main() -> None:
     )
     parser.add_argument("video", help="Path to video file")
     parser.add_argument(
-        "--server", default="ws://localhost:8765/ws",
+        "--server",
+        default="ws://localhost:8765/ws",
         help="WebSocket URL (default: ws://localhost:8765/ws)",
     )
     parser.add_argument("--fps", type=float, default=5.0, help="Send rate (default: 5)")
     parser.add_argument(
-        "--quality", type=float, default=0.65,
+        "--quality",
+        type=float,
+        default=0.65,
         help="JPEG quality 0.0-1.0 (default: 0.65)",
     )
     parser.add_argument("--width", type=int, default=None, help="Resize width (default: no resize)")

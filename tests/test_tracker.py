@@ -13,6 +13,7 @@ from src.tracker import BirdTracker, Track, centroid_distance, iou
 # iou
 # ---------------------------------------------------------------------------
 
+
 class TestIoU:
     def test_identical_boxes(self):
         box = np.array([10, 10, 50, 50])
@@ -45,19 +46,20 @@ class TestIoU:
 # centroid_distance
 # ---------------------------------------------------------------------------
 
+
 class TestCentroidDistance:
     def test_same_box(self):
         box = np.array([0, 0, 10, 10])
         assert centroid_distance(box, box) == pytest.approx(0.0)
 
     def test_horizontal_offset(self):
-        box1 = np.array([0, 0, 10, 10])   # centroid (5, 5)
+        box1 = np.array([0, 0, 10, 10])  # centroid (5, 5)
         box2 = np.array([10, 0, 20, 10])  # centroid (15, 5)
         assert centroid_distance(box1, box2) == pytest.approx(10.0)
 
     def test_diagonal_offset(self):
-        box1 = np.array([0, 0, 10, 10])   # centroid (5, 5)
-        box2 = np.array([6, 8, 16, 18])   # centroid (11, 13)
+        box1 = np.array([0, 0, 10, 10])  # centroid (5, 5)
+        box2 = np.array([6, 8, 16, 18])  # centroid (11, 13)
         expected = float(np.hypot(6.0, 8.0))  # 10.0
         assert centroid_distance(box1, box2) == pytest.approx(expected)
 
@@ -65,6 +67,7 @@ class TestCentroidDistance:
 # ---------------------------------------------------------------------------
 # Track.best_prediction / best_raw_prediction
 # ---------------------------------------------------------------------------
+
 
 class TestTrackPredictions:
     def test_no_history_returns_none(self):
@@ -124,6 +127,7 @@ class TestTrackPredictions:
 # BirdTracker.update
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class FakeDetection:
     bbox: np.ndarray
@@ -132,8 +136,7 @@ class FakeDetection:
 class TestBirdTrackerUpdate:
     def test_first_frame_creates_tracks(self):
         tracker = BirdTracker()
-        dets = [FakeDetection(np.array([0, 0, 10, 10])),
-                FakeDetection(np.array([50, 50, 60, 60]))]
+        dets = [FakeDetection(np.array([0, 0, 10, 10])), FakeDetection(np.array([50, 50, 60, 60]))]
         tracks = tracker.update(dets)
         assert len(tracks) == 2
         assert all(t.frame_count == 1 for t in tracks.values())

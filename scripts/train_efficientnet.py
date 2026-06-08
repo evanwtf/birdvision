@@ -55,9 +55,9 @@ NUM_WORKERS = min(8, os.cpu_count() or 4)
 def normalize_species_name(name: str) -> str:
     """'American Robin' → 'american_robin'  (matches expected folder names)."""
     name = name.strip().lower()
-    name = re.sub(r"['\u2019]", "", name)   # remove apostrophes
-    name = re.sub(r"[\s\-]+", "_", name)    # spaces + hyphens → underscore
-    name = re.sub(r"[^a-z0-9_]", "", name) # strip anything else
+    name = re.sub(r"['\u2019]", "", name)  # remove apostrophes
+    name = re.sub(r"[\s\-]+", "_", name)  # spaces + hyphens → underscore
+    name = re.sub(r"[^a-z0-9_]", "", name)  # strip anything else
     return name
 
 
@@ -76,12 +76,14 @@ def build_folder_to_species_map(species_list: list[str]) -> dict[str, str]:
     for s in species_list:
         key = normalize_species_name(s)
         if key in mapping:
-            logger.warning("Duplicate normalized name: %s → %s (collision with %s)", s, key, mapping[key])
+            logger.warning(
+                "Duplicate normalized name: %s → %s (collision with %s)", s, key, mapping[key]
+            )
         mapping[key] = s
     return mapping
 
 
-VALID_EXTS = {'.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tiff', '.webp'}
+VALID_EXTS = {".jpg", ".jpeg", ".png", ".ppm", ".bmp", ".pgm", ".tif", ".tiff", ".webp"}
 
 
 class ImageFolderSkipEmpty(datasets.ImageFolder):
@@ -97,28 +99,35 @@ class ImageFolderSkipEmpty(datasets.ImageFolder):
             else:
                 logger.warning("Skipping empty class directory: %s", cls)
         if len(non_empty) < len(classes):
-            logger.warning("Skipped %d empty class(es), training on %d",
-                           len(classes) - len(non_empty), len(non_empty))
+            logger.warning(
+                "Skipped %d empty class(es), training on %d",
+                len(classes) - len(non_empty),
+                len(non_empty),
+            )
         class_to_idx = {cls: i for i, cls in enumerate(non_empty)}
         return non_empty, class_to_idx
 
 
 def make_transforms(augment: bool) -> transforms.Compose:
     if augment:
-        return transforms.Compose([
-            transforms.RandomResizedCrop(IMG_SIZE, scale=(0.6, 1.0)),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(20),
-            transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.05),
+        return transforms.Compose(
+            [
+                transforms.RandomResizedCrop(IMG_SIZE, scale=(0.6, 1.0)),
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomRotation(20),
+                transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.05),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ]
+        )
+    return transforms.Compose(
+        [
+            transforms.Resize(int(IMG_SIZE * 1.14)),
+            transforms.CenterCrop(IMG_SIZE),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-    return transforms.Compose([
-        transforms.Resize(int(IMG_SIZE * 1.14)),
-        transforms.CenterCrop(IMG_SIZE),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
+        ]
+    )
 
 
 def build_model(num_classes: int) -> nn.Module:
@@ -202,17 +211,22 @@ def export_onnx(model: nn.Module, output_path: Path, device: torch.device) -> No
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fine-tune EfficientNet-S for BirdVision species classification")
+    parser = argparse.ArgumentParser(
+        description="Fine-tune EfficientNet-S for BirdVision species classification"
+    )
     parser.add_argument("--data-dir", type=Path, help="ImageFolder-style training data directory")
-    parser.add_argument("--species-list", type=Path, default=Path("data/species_lists/north_america_common.txt"))
+    parser.add_argument(
+        "--species-list", type=Path, default=Path("data/species_lists/north_america_common.txt")
+    )
     parser.add_argument("--output-dir", type=Path, default=Path("pi/models"))
     parser.add_argument("--checkpoint", type=Path, help="Resume from a .pt checkpoint")
     parser.add_argument("--phase1-epochs", type=int, default=PHASE1_EPOCHS)
     parser.add_argument("--phase2-epochs", type=int, default=PHASE2_EPOCHS)
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--list-species", action="store_true",
-                        help="Print expected folder names and exit")
+    parser.add_argument(
+        "--list-species", action="store_true", help="Print expected folder names and exit"
+    )
     add_logging_args(parser)
     args = parser.parse_args()
 
@@ -242,10 +256,13 @@ def main() -> None:
     full_dataset = ImageFolderSkipEmpty(str(args.data_dir), transform=make_transforms(augment=True))
     val_size = max(1, int(len(full_dataset) * VAL_FRACTION))
     train_size = len(full_dataset) - val_size
-    train_ds, val_ds = random_split(full_dataset, [train_size, val_size],
-                                    generator=torch.Generator().manual_seed(42))
+    train_ds, val_ds = random_split(
+        full_dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42)
+    )
     # Apply non-augmenting transform to val split
-    val_ds.dataset = ImageFolderSkipEmpty(str(args.data_dir), transform=make_transforms(augment=False))
+    val_ds.dataset = ImageFolderSkipEmpty(
+        str(args.data_dir), transform=make_transforms(augment=False)
+    )
 
     # Map dataset folder-name classes → ordered species list
     # dataset.classes are folder names (sorted); build label→species mapping
@@ -263,8 +280,11 @@ def main() -> None:
             unrecognized.append(folder_name)
 
     if unrecognized:
-        logger.warning("%d folder(s) not in species list (will be trained as-is): %s",
-                       len(unrecognized), unrecognized[:10])
+        logger.warning(
+            "%d folder(s) not in species list (will be trained as-is): %s",
+            len(unrecognized),
+            unrecognized[:10],
+        )
         # Fall back: use folder name as species display name
         for folder_name, idx in folder_to_idx.items():
             if idx not in idx_to_species:
@@ -272,13 +292,18 @@ def main() -> None:
 
     num_classes = len(dataset_classes)
     species_labels = [idx_to_species[i] for i in range(num_classes)]
-    logger.info("Classes in dataset: %d  |  Recognized species: %d",
-                num_classes, sum(1 for f in dataset_classes if f in folder_map))
+    logger.info(
+        "Classes in dataset: %d  |  Recognized species: %d",
+        num_classes,
+        sum(1 for f in dataset_classes if f in folder_map),
+    )
 
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
-                              num_workers=NUM_WORKERS, pin_memory=True)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False,
-                            num_workers=NUM_WORKERS, pin_memory=True)
+    train_loader = DataLoader(
+        train_ds, batch_size=args.batch_size, shuffle=True, num_workers=NUM_WORKERS, pin_memory=True
+    )
+    val_loader = DataLoader(
+        val_ds, batch_size=args.batch_size, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
+    )
 
     model = build_model(num_classes).to(device)
 
@@ -295,7 +320,8 @@ def main() -> None:
         freeze_backbone(model)
         optimizer = torch.optim.AdamW(
             filter(lambda p: p.requires_grad, model.parameters()),
-            lr=PHASE1_LR, weight_decay=1e-4,
+            lr=PHASE1_LR,
+            weight_decay=1e-4,
         )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.phase1_epochs)
         epoch_bar = tqdm(range(1, args.phase1_epochs + 1), desc="Phase 1", unit="epoch")
@@ -308,7 +334,9 @@ def main() -> None:
             elapsed = time.time() - t0
             phase_elapsed = time.time() - phase_start
             phase_eta = estimate_remaining(phase_elapsed, epoch, args.phase1_epochs)
-            epoch_bar.set_postfix(loss=f"{loss:.4f}", top1=f"{top1:.3f}", top5=f"{top5:.3f}", s=f"{elapsed:.0f}s")
+            epoch_bar.set_postfix(
+                loss=f"{loss:.4f}", top1=f"{top1:.3f}", top5=f"{top5:.3f}", s=f"{elapsed:.0f}s"
+            )
             logger.info(
                 "Phase1 epoch %d/%d  loss=%.4f  val_top1=%.3f  val_top5=%.3f  epoch=%s  elapsed=%s  eta=%s",
                 epoch,
@@ -342,8 +370,13 @@ def main() -> None:
             elapsed = time.time() - t0
             phase_elapsed = time.time() - phase_start
             phase_eta = estimate_remaining(phase_elapsed, epoch, args.phase2_epochs)
-            epoch_bar.set_postfix(loss=f"{loss:.4f}", top1=f"{top1:.3f}", top5=f"{top5:.3f}",
-                                  best=f"{best_top1:.3f}", s=f"{elapsed:.0f}s")
+            epoch_bar.set_postfix(
+                loss=f"{loss:.4f}",
+                top1=f"{top1:.3f}",
+                top5=f"{top5:.3f}",
+                best=f"{best_top1:.3f}",
+                s=f"{elapsed:.0f}s",
+            )
             logger.info(
                 "Phase2 epoch %d/%d  loss=%.4f  val_top1=%.3f  val_top5=%.3f  epoch=%s  elapsed=%s  eta=%s",
                 epoch,
@@ -379,8 +412,10 @@ def main() -> None:
     # Verify ONNX with onnxruntime if available
     try:
         import onnxruntime as ort
+
         sess = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
         import numpy as np
+
         dummy = np.zeros((1, 3, IMG_SIZE, IMG_SIZE), dtype=np.float32)
         out = sess.run(None, {"input": dummy})
         assert out[0].shape == (1, num_classes), f"Unexpected output shape: {out[0].shape}"

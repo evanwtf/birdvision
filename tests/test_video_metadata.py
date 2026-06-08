@@ -12,6 +12,7 @@ from src.video_metadata import MediaMetadata, VideoMetadata, extract
 # VideoMetadata.camera_info
 # ---------------------------------------------------------------------------
 
+
 class TestCameraInfo:
     def test_make_and_model_no_duplication(self):
         meta = VideoMetadata(camera_make="Apple", camera_model="Apple iPhone 15 Pro")
@@ -46,6 +47,7 @@ class TestCameraInfo:
 # VideoMetadata.osm_url
 # ---------------------------------------------------------------------------
 
+
 class TestOsmUrl:
     def test_with_gps(self):
         meta = VideoMetadata(latitude=40.7, longitude=-73.5)
@@ -68,6 +70,7 @@ class TestOsmUrl:
 # MediaMetadata.camera_info
 # ---------------------------------------------------------------------------
 
+
 class TestMediaMetadataCameraInfo:
     def test_delegates_to_video_metadata(self):
         meta = MediaMetadata(camera_make="Canon", camera_model="EOS R6", focal_length="50mm")
@@ -85,6 +88,7 @@ class TestMediaMetadataCameraInfo:
 # ---------------------------------------------------------------------------
 # extract (monkeypatched)
 # ---------------------------------------------------------------------------
+
 
 class TestExtract:
     def test_extract_returns_video_metadata(self):
