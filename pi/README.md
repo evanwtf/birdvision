@@ -58,33 +58,29 @@ pi/deps/hailort-4.23.0-cp3XX-cp3XX-linux_aarch64.whl  ← Python bindings
 Select the `.whl` matching your Python version (cp312 or cp313).
 Only one `.whl` file should be in `pi/deps/` at a time.
 
-#### 1b. EfficientNet-S classifier HEF + labels
+#### 1b. Detector HEF, classifier HEF, and species labels
 
-Download from HuggingFace (run from the repo root):
+All three files live in
+[`k10z/birdvision-efficientnet-s`](https://huggingface.co/k10z/birdvision-efficientnet-s).
+Fetch them in one command:
 
 ```bash
-pip install huggingface_hub   # or: uv pip install huggingface_hub
-python -c "
-from huggingface_hub import hf_hub_download
-hf_hub_download('k10z/birdvision-efficientnet-s', 'efficientnet_s_birds.hef', local_dir='pi/models')
-hf_hub_download('k10z/birdvision-efficientnet-s', 'species_labels.json', local_dir='pi/models')
-"
+uv tool install huggingface-hub        # one-time, installs `hf`
+hf download k10z/birdvision-efficientnet-s \
+  yolov8n.hef efficientnet_s_birds.hef species_labels.json \
+  --local-dir pi/models
 ```
 
-#### 1c. YOLOv8n detector HEF
-
-The YOLOv8n HEF is not on HuggingFace. Copy it from a previous build or recompile:
+If you'd rather rebuild the YOLOv8n detector yourself, you can compile it on
+an x86_64 Linux box with the Hailo Dataflow Compiler:
 
 ```bash
-# If you have a previous build on this machine:
-cp ~/yolov8n.hef pi/models/yolov8n.hef
-
-# To recompile from scratch (x86_64 desktop, Hailo DFC 3.33.1 required):
 hailomz compile yolov8n --hw-arch hailo8 --calib-path ~/calib_images/
 cp yolov8n.hef pi/models/yolov8n.hef
 ```
 
-See `pi/hailo_hef_compile_status.md` for full compilation notes.
+See `pi/hailo_hef_compile_status.md` for full compilation notes on both
+the detector and the classifier.
 
 #### Asset checklist
 
@@ -96,7 +92,7 @@ pi/
     hailort_4.23.0_arm64.deb             ← from hailo.ai/developer-zone
     hailort-4.23.0-*-linux_aarch64.whl   ← from hailo.ai/developer-zone
   models/
-    yolov8n.hef                           ← compiled (see above)
+    yolov8n.hef                           ← from HuggingFace
     efficientnet_s_birds.hef              ← from HuggingFace
     species_labels.json                   ← from HuggingFace
 ```
@@ -136,22 +132,9 @@ docker compose -f docker-compose.pi.yml build
 The Pi compose file defines two services behind separate profiles. Only one
 can run at a time — both require exclusive access to the Hailo-8 chip.
 
-#### Backyard mode (USB camera)
+#### Sidecar mode (phone camera via WebSocket) — primary
 
-Captures live video from the Elgato Cam Link 4K (`/dev/video0`) connected to
-a camcorder pointed at a bird feeder. Detections and species predictions are
-logged to the console and written to `./results/`. Optionally overlays
-bounding boxes on a Pi Touch Display 2 (`/dev/fb0`).
-
-```bash
-docker compose -f docker-compose.pi.yml --profile backyard up
-```
-
-Config: `config.pi.yaml` (bind-mounted read-only).
-
-#### Sidecar mode (phone camera via WebSocket)
-
-No USB camera needed. A phone opens `http://<pi-ip>:8765/` in its browser,
+No USB camera needed. A phone opens `https://<pi-ip>/` in its browser,
 streams camera frames over WebSocket to the Pi for inference, and receives
 bounding boxes + species labels overlaid on the live preview. Works on
 iPhone Safari and Android Chrome.
@@ -169,6 +152,20 @@ Typing `http://<pi-ip>/` will redirect automatically. Safari will show
 a certificate warning on first visit — tap "Show Details" → "visit this
 website" to accept it once. After that, tap "Start Camera" and allow
 camera access when prompted.
+
+#### Backyard mode (USB capture card)
+
+Captures live video from a USB capture card (e.g. Elgato Cam Link 4K
+at `/dev/video0`) connected to a camcorder pointed at a bird feeder.
+Detections and species predictions are logged to the console and
+written to `./results/`. Optionally overlays bounding boxes on a Pi
+Touch Display 2 (`/dev/fb0`).
+
+```bash
+docker compose -f docker-compose.pi.yml --profile backyard up
+```
+
+Config: `config.pi.yaml` (bind-mounted read-only).
 
 #### Common commands
 
