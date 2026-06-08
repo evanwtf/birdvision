@@ -29,6 +29,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "ruff>=0.15.15",
 ]
 pi = [
     # hailort==4.23.0 is installed manually on the Pi (private wheel, not on PyPI).
@@ -44,3 +45,17 @@ default-groups = ["dev"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+    "B008",  # function call in default arg — common FastAPI Depends() pattern
+    "SIM108",  # ternary not always clearer
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B"]  # tests use patterns ruff flags (mutable defaults, etc.)
