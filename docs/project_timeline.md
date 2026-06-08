@@ -15,7 +15,7 @@ and issue numbers so we can drill down later.
 - AMD Ryzen 9 7900X
 - 32 GB RAM
 - x86_64 Ubuntu
-- Location: Long Island / Nassau County, NY (40.7, -73.5)
+- Location: Long Island / Nassau County, NY
 
 **Raspberry Pi 5 (real-time edge pipeline)**
 - **CanaKit Raspberry Pi 5 8GB Quick-Start AI Kit — 26 TOPS** (SKU `PI5-8GB-AI128-C4-WHT-26T`) — $379.95
