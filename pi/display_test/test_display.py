@@ -48,17 +48,17 @@ FAKE_SPECIES = [
 ]
 
 CAPTION_INTERVAL = 3.0
-FONT             = cv2.FONT_HERSHEY_SIMPLEX
-FONT_SCALE       = 1.1
-FONT_THICKNESS   = 2
-CAPTION_MARGIN   = 12
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+FONT_SCALE = 1.1
+FONT_THICKNESS = 2
+CAPTION_MARGIN = 12
 
 # Linux framebuffer ioctls
 FBIOGET_VSCREENINFO = 0x4600
 FBIOGET_FSCREENINFO = 0x4602
 
 CV_ROTATIONS = {
-    90:  cv2.ROTATE_90_CLOCKWISE,
+    90: cv2.ROTATE_90_CLOCKWISE,
     180: cv2.ROTATE_180,
     270: cv2.ROTATE_90_COUNTERCLOCKWISE,
 }
@@ -70,7 +70,7 @@ def open_framebuffer(device: str):
     Uses FBIOGET_VSCREENINFO / FBIOGET_FSCREENINFO ioctls for reliable
     dimensions rather than guessing from sysfs virtual_size.
     """
-    fd = open(device, "r+b")
+    fd = open(device, "r+b")  # noqa: SIM115  caller owns mmap+fd lifecycle
 
     # struct fb_var_screeninfo — first fields we care about:
     #   u32 xres, yres, xres_virtual, yres_virtual, xoffset, yoffset, bits_per_pixel
@@ -89,7 +89,12 @@ def open_framebuffer(device: str):
     fb_size = stride * yres
     logger.info(
         "Framebuffer %s: %dx%d  %dbpp  stride=%d  mmap_size=%d",
-        device, xres, yres, bpp, stride, fb_size,
+        device,
+        xres,
+        yres,
+        bpp,
+        stride,
+        fb_size,
     )
 
     mm = mmap.mmap(fd.fileno(), fb_size)
@@ -117,25 +122,37 @@ def draw_caption(frame: np.ndarray, species: str, confidence: float) -> None:
     h, w = frame.shape[:2]
     bar_h = th + baseline + CAPTION_MARGIN * 2
     cv2.rectangle(frame, (0, h - bar_h), (w, h), (0, 0, 0), -1)
-    cv2.putText(frame, label, (CAPTION_MARGIN, h - CAPTION_MARGIN - baseline),
-                FONT, FONT_SCALE, (255, 255, 255), FONT_THICKNESS, cv2.LINE_AA)
+    cv2.putText(
+        frame,
+        label,
+        (CAPTION_MARGIN, h - CAPTION_MARGIN - baseline),
+        FONT,
+        FONT_SCALE,
+        (255, 255, 255),
+        FONT_THICKNESS,
+        cv2.LINE_AA,
+    )
 
 
 def draw_fps(frame: np.ndarray, fps: float) -> None:
     label = f"{fps:.0f} fps"
     (fw, fh), _ = cv2.getTextSize(label, FONT, 0.6, 1)
     cv2.rectangle(frame, (0, 0), (fw + 12, fh + 10), (0, 0, 0), -1)
-    cv2.putText(frame, label, (6, fh + 5), FONT, 0.6,
-                (180, 180, 180), 1, cv2.LINE_AA)
+    cv2.putText(frame, label, (6, fh + 5), FONT, 0.6, (180, 180, 180), 1, cv2.LINE_AA)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", default="/dev/video0")
-    ap.add_argument("--fb",     default="/dev/fb0")
-    ap.add_argument("--rotate", type=int, default=0, choices=[0, 90, 180, 270],
-                    help="Rotate frame before display (degrees clockwise)")
-    ap.add_argument("--debug",  action="store_true")
+    ap.add_argument("--fb", default="/dev/fb0")
+    ap.add_argument(
+        "--rotate",
+        type=int,
+        default=0,
+        choices=[0, 90, 180, 270],
+        help="Rotate frame before display (degrees clockwise)",
+    )
+    ap.add_argument("--debug", action="store_true")
     args = ap.parse_args()
 
     if args.debug:
@@ -149,7 +166,7 @@ def main():
 
     logger.info("Opening capture device %s", args.device)
     cap = cv2.VideoCapture(args.device, cv2.CAP_V4L2)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  1920)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
     cap.set(cv2.CAP_PROP_FPS, 60)
     if not cap.isOpened():
@@ -160,7 +177,10 @@ def main():
         cap.get(cv2.CAP_PROP_FRAME_WIDTH),
         cap.get(cv2.CAP_PROP_FRAME_HEIGHT),
         cap.get(cv2.CAP_PROP_FPS),
-        fb_w, fb_h, bpp, args.rotate,
+        fb_w,
+        fb_h,
+        bpp,
+        args.rotate,
     )
 
     stop = False
@@ -170,15 +190,15 @@ def main():
         logger.info("Signal %d — stopping", signum)
         stop = True
 
-    signal.signal(signal.SIGINT,  _sig)
+    signal.signal(signal.SIGINT, _sig)
     signal.signal(signal.SIGTERM, _sig)
 
     cv_rotate = CV_ROTATIONS.get(args.rotate)
     species, confidence = random.choice(FAKE_SPECIES)
-    t_caption   = time.monotonic()
-    t_fps       = time.monotonic()
+    t_caption = time.monotonic()
+    t_fps = time.monotonic()
     frame_count = 0
-    fps         = 0.0
+    fps = 0.0
 
     logger.info("Running — Ctrl-C to stop")
 

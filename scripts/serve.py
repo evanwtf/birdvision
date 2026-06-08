@@ -6,6 +6,7 @@ Usage:
     uv run scripts/serve.py
     uv run scripts/serve.py --config config.yaml --port 3587
 """
+
 import argparse
 import logging
 import sys
@@ -51,6 +52,7 @@ def main():
     templates_dir = str(Path(__file__).parent.parent / "templates")
 
     from src.webapp import create_app
+
     app = create_app(config, templates_dir=templates_dir, config_path=config_path)
 
     log_config = {
@@ -70,8 +72,8 @@ def main():
             }
         },
         "loggers": {
-            "uvicorn":        {"handlers": ["default"], "level": "INFO", "propagate": False},
-            "uvicorn.error":  {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+            "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
             "uvicorn.access": {"handlers": ["default"], "level": "INFO", "propagate": False},
         },
     }

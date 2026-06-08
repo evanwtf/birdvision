@@ -7,10 +7,10 @@ import pytest
 
 from src.metadata import MetadataPrior, _date_to_period
 
-
 # ---------------------------------------------------------------------------
 # _date_to_period
 # ---------------------------------------------------------------------------
+
 
 class TestDateToPeriod:
     def test_january_1(self):
@@ -38,6 +38,7 @@ class TestDateToPeriod:
 # MetadataPrior — no database
 # ---------------------------------------------------------------------------
 
+
 class TestMetadataPriorNoDb:
     def test_no_db_returns_uniform(self):
         mp = MetadataPrior()
@@ -61,6 +62,7 @@ class TestMetadataPriorNoDb:
 # ---------------------------------------------------------------------------
 # MetadataPrior — with database fixture
 # ---------------------------------------------------------------------------
+
 
 class TestMetadataPriorWithDb:
     def test_resolve_region_inside_long_island(self, ebird_db):
@@ -144,6 +146,7 @@ class TestMetadataPriorWithDb:
 # MetadataPrior.apply
 # ---------------------------------------------------------------------------
 
+
 class TestMetadataPriorApply:
     def test_apply_reweights_and_normalizes(self, ebird_db):
         mp = MetadataPrior(db_path=ebird_db)
@@ -190,6 +193,7 @@ class TestMetadataPriorApply:
 # ---------------------------------------------------------------------------
 # MetadataPrior — location_only mode
 # ---------------------------------------------------------------------------
+
 
 class TestMetadataPriorLocationOnly:
     def test_prior_mode_stored(self, ebird_db):
@@ -313,6 +317,7 @@ class TestMetadataPriorLocationOnly:
 # Local priors overrides
 # ---------------------------------------------------------------------------
 
+
 class TestLocalPriorOverrides:
     """Tests for user-defined local prior overrides via local_priors.yaml."""
 
@@ -388,7 +393,7 @@ locations:
         priors = mp.get_priors(
             ["Atlantic Puffin"],
             dt=datetime(2024, 1, 1),
-            latitude=40.8,   # ~15 km away
+            latitude=40.8,  # ~15 km away
             longitude=-73.5,
         )
         # No override — zero_floor applies
@@ -406,7 +411,9 @@ locations:
       Atlantic Puffin: 0.001
 """
         lp = self._make_local_priors_file(tmp_path, yaml_content)
-        mp = MetadataPrior(db_path=ebird_db, zero_floor=0.01, local_priors_file=lp, fips="US-NY-059")
+        mp = MetadataPrior(
+            db_path=ebird_db, zero_floor=0.01, local_priors_file=lp, fips="US-NY-059"
+        )
         priors = mp.get_priors(
             ["Atlantic Puffin"],
             dt=datetime(2024, 1, 1),

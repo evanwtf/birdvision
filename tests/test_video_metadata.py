@@ -1,16 +1,14 @@
 """Unit tests for src/video_metadata.py — camera_info, osm_url, and extract."""
 
 from datetime import datetime
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from src.video_metadata import MediaMetadata, VideoMetadata, extract
-
 
 # ---------------------------------------------------------------------------
 # VideoMetadata.camera_info
 # ---------------------------------------------------------------------------
+
 
 class TestCameraInfo:
     def test_make_and_model_no_duplication(self):
@@ -46,6 +44,7 @@ class TestCameraInfo:
 # VideoMetadata.osm_url
 # ---------------------------------------------------------------------------
 
+
 class TestOsmUrl:
     def test_with_gps(self):
         meta = VideoMetadata(latitude=40.7, longitude=-73.5)
@@ -68,6 +67,7 @@ class TestOsmUrl:
 # MediaMetadata.camera_info
 # ---------------------------------------------------------------------------
 
+
 class TestMediaMetadataCameraInfo:
     def test_delegates_to_video_metadata(self):
         meta = MediaMetadata(camera_make="Canon", camera_model="EOS R6", focal_length="50mm")
@@ -85,6 +85,7 @@ class TestMediaMetadataCameraInfo:
 # ---------------------------------------------------------------------------
 # extract (monkeypatched)
 # ---------------------------------------------------------------------------
+
 
 class TestExtract:
     def test_extract_returns_video_metadata(self):

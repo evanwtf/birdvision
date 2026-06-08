@@ -53,7 +53,9 @@ class EnsembleClassifier:
     def species_names(self) -> list[str]:
         return self._bioclip.species_names
 
-    def set_species(self, species_names: list[str], prompt_template: str = "a photo of a {species}") -> None:
+    def set_species(
+        self, species_names: list[str], prompt_template: str = "a photo of a {species}"
+    ) -> None:
         self._bioclip.set_species(species_names, prompt_template)
         self._secondary.set_species(species_names)
 
@@ -81,7 +83,7 @@ class EnsembleClassifier:
         self.last_bioclip_results = []
         self.last_efficientnet_results = []
 
-        for crop, bc_probs in zip(crops_bgr, all_bc_probs):
+        for crop, bc_probs in zip(crops_bgr, all_bc_probs, strict=False):
             # Secondary model scores (dict over all species; 0.0 for unmapped).
             hf_scores = self._secondary.classify(crop)
 
@@ -94,7 +96,7 @@ class EnsembleClassifier:
 
             hf_vec[hf_vec == 0.0] = floor  # neutral prior for unmapped species
 
-            combined = (bc_probs.astype(np.float64) ** alpha) * (hf_vec ** beta)
+            combined = (bc_probs.astype(np.float64) ** alpha) * (hf_vec**beta)
             total = combined.sum()
             if total > 0:
                 combined /= total
@@ -103,9 +105,7 @@ class EnsembleClassifier:
             results.append([(species[i], float(combined[i])) for i in top_idx])
 
             bc_top_idx = np.argsort(bc_probs)[::-1][: self.top_k]
-            self.last_bioclip_results.append(
-                [(species[i], float(bc_probs[i])) for i in bc_top_idx]
-            )
+            self.last_bioclip_results.append([(species[i], float(bc_probs[i])) for i in bc_top_idx])
             hf_top_idx = np.argsort(hf_display)[::-1][: self.top_k]
             self.last_efficientnet_results.append(
                 [(species[i], float(hf_display[i])) for i in hf_top_idx]

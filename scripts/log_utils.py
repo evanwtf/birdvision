@@ -7,7 +7,7 @@ import io
 import logging
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s %(message)s"
@@ -72,7 +72,7 @@ def resolve_log_file(
     if log_dir is None:
         return None
 
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     return log_dir / f"{script_stem}_{timestamp}.log"
 
 

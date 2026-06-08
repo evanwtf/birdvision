@@ -13,9 +13,8 @@ Cam Link 4K supported formats on Pi (from v4l2-ctl --list-formats-ext):
 """
 
 import logging
-import signal
 import time
-from typing import Iterator, Tuple
+from collections.abc import Iterator
 
 import cv2
 import numpy as np
@@ -37,24 +36,24 @@ class V4L2FrameSource:
     def __init__(
         self,
         device: str = "/dev/video0",
-        width: int  = 1920,
+        width: int = 1920,
         height: int = 1080,
-        fps: int    = 60,
+        fps: int = 60,
         fourcc: str = "YUYV",
     ):
         self.device = device
-        self.width  = width
+        self.width = width
         self.height = height
-        self.fps    = fps
+        self.fps = fps
         self.fourcc = fourcc
-        self._stop  = False
+        self._stop = False
 
-    def frames(self) -> Iterator[Tuple[int, np.ndarray]]:
+    def frames(self) -> Iterator[tuple[int, np.ndarray]]:
         """Yield (frame_number, bgr_frame) until stop() is called or an error occurs."""
         cap = self._open()
-        frame_no      = 0
-        empty_streak  = 0
-        max_empty     = 30   # consecutive empty reads before warning
+        frame_no = 0
+        empty_streak = 0
+        max_empty = 30  # consecutive empty reads before warning
 
         try:
             while not self._stop:
@@ -64,7 +63,8 @@ class V4L2FrameSource:
                     if empty_streak == max_empty:
                         logger.warning(
                             "%d consecutive empty reads from %s — camera may have disconnected",
-                            empty_streak, self.device,
+                            empty_streak,
+                            self.device,
                         )
                     time.sleep(0.01)
                     continue
@@ -91,7 +91,11 @@ class V4L2FrameSource:
     def _open(self) -> cv2.VideoCapture:
         logger.info(
             "Opening capture device %s  %dx%d @ %d fps  fourcc=%s",
-            self.device, self.width, self.height, self.fps, self.fourcc,
+            self.device,
+            self.width,
+            self.height,
+            self.fps,
+            self.fourcc,
         )
         cap = cv2.VideoCapture(self.device, cv2.CAP_V4L2)
         if not cap.isOpened():
@@ -100,20 +104,23 @@ class V4L2FrameSource:
         # Request YUYV (or caller-specified format); cv2 converts to BGR
         fourcc_code = cv2.VideoWriter_fourcc(*self.fourcc.ljust(4))
         cap.set(cv2.CAP_PROP_FOURCC, fourcc_code)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH,  self.width)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         cap.set(cv2.CAP_PROP_FPS, self.fps)
 
         # Read back what the driver actually gave us
-        actual_w      = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        actual_h      = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        actual_fps    = cap.get(cv2.CAP_PROP_FPS)
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        actual_fps = cap.get(cv2.CAP_PROP_FPS)
         logger.info("Capture device opened: %dx%d @ %.2f fps", actual_w, actual_h, actual_fps)
 
         if actual_w != self.width or actual_h != self.height:
             logger.warning(
                 "Requested %dx%d but got %dx%d — check device capabilities",
-                self.width, self.height, actual_w, actual_h,
+                self.width,
+                self.height,
+                actual_w,
+                actual_h,
             )
 
         return cap

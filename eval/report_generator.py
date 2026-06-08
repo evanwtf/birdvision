@@ -33,6 +33,7 @@ logger = logging.getLogger("report_generator")
 # Data loading
 # ---------------------------------------------------------------------------
 
+
 def load_config(path: Path) -> dict:
     with open(path) as f:
         return yaml.safe_load(f)
@@ -66,8 +67,7 @@ def load_result_meta(results_dir: Path, sidecar: dict) -> dict:
             "date": d.get("date", ""),
             "source_filename": d.get("source_filename") or d.get("display_name", ""),
             "stills": [
-                s["file"] for s in d.get("frame_gallery", [])
-                if "annotated" in s.get("file", "")
+                s["file"] for s in d.get("frame_gallery", []) if "annotated" in s.get("file", "")
             ][:1],
         }
     except Exception:
@@ -77,6 +77,7 @@ def load_result_meta(results_dir: Path, sidecar: dict) -> dict:
 # ---------------------------------------------------------------------------
 # HTML generation helpers
 # ---------------------------------------------------------------------------
+
 
 def _top1(sidecar: dict) -> str:
     for track in sidecar.get("tracks", []):
@@ -106,6 +107,7 @@ IMPLAUSIBLE_CSS_CLASS = "implausible"
 # ---------------------------------------------------------------------------
 # Main report builder
 # ---------------------------------------------------------------------------
+
 
 def build_report(cfg: dict) -> None:
     results_dir = Path(cfg["results_dir"])
@@ -174,17 +176,19 @@ def build_report(cfg: dict) -> None:
         # Any implausible top-1?
         has_implausible = any(s in implausible for s in top1_by_model.values() if s)
 
-        rows.append({
-            "asset_sha": asset_sha,
-            "date": meta.get("date", ""),
-            "source_filename": meta.get("source_filename", ""),
-            "models": models,
-            "top1_by_model": top1_by_model,
-            "agrees": agrees,
-            "has_implausible": has_implausible,
-            "crop_img": crop_img_rel,
-            "still_img": still_img_rel,
-        })
+        rows.append(
+            {
+                "asset_sha": asset_sha,
+                "date": meta.get("date", ""),
+                "source_filename": meta.get("source_filename", ""),
+                "models": models,
+                "top1_by_model": top1_by_model,
+                "agrees": agrees,
+                "has_implausible": has_implausible,
+                "crop_img": crop_img_rel,
+                "still_img": still_img_rel,
+            }
+        )
 
     # Sort: disagreements first, then implausible, then rest
     rows.sort(key=lambda r: (r["agrees"], not r["has_implausible"], r["date"]))
@@ -213,6 +217,7 @@ def build_report(cfg: dict) -> None:
 # ---------------------------------------------------------------------------
 # HTML template
 # ---------------------------------------------------------------------------
+
 
 def _render_html(
     rows: list[dict],
@@ -336,13 +341,13 @@ def _render_summary_table(
 
         cols = "".join(
             f'<td class="{"top1-implausible" if r["top1_by_model"].get(m) in implausible else ""}">'
-            f'{r["top1_by_model"].get(m, "—")}</td>'
+            f"{r['top1_by_model'].get(m, '—')}</td>"
             for m in model_ids
         )
         agree_cell = "&#10003;" if r["agrees"] else '<span style="color:#c00">&#10007;</span>'
         body_rows.append(
             f'<tr class="{css}"><td><code>{r["asset_sha"][:12]}</code></td>'
-            f'<td>{r["date"][:10]}</td>{cols}<td>{agree_cell}</td></tr>'
+            f"<td>{r['date'][:10]}</td>{cols}<td>{agree_cell}</td></tr>"
         )
 
     return f"<table><thead>{header}</thead><tbody>{''.join(body_rows)}</tbody></table>"
@@ -365,13 +370,13 @@ def _render_card(
 
     crop_html = (
         f'<img src="{row["crop_img"]}" alt="crop" loading="lazy">'
-        if row["crop_img"] else
-        '<div class="no-img">no crop</div>'
+        if row["crop_img"]
+        else '<div class="no-img">no crop</div>'
     )
     still_html = (
         f'<img src="{row["still_img"]}" alt="still" loading="lazy">'
-        if row["still_img"] else
-        '<div class="no-img">no still</div>'
+        if row["still_img"]
+        else '<div class="no-img">no still</div>'
     )
 
     models_html = ""
@@ -386,14 +391,14 @@ def _render_card(
                 f'<div class="model-block">'
                 f'<div class="model-name">{label}</div>'
                 f'<div class="{implausible_cls}">{preds}</div>'
-                f'</div>'
+                f"</div>"
             )
         else:
             models_html += (
                 f'<div class="model-block">'
                 f'<div class="model-name">{label}</div>'
                 f'<div class="muted">no data</div>'
-                f'</div>'
+                f"</div>"
             )
 
     meta = f'{row["date"][:10]} &nbsp; <code title="{row["asset_sha"]}">{row["asset_sha"][:12]}...</code>{tags}'
@@ -401,13 +406,13 @@ def _render_card(
     return (
         f'<div class="{" ".join(css_classes)}" data-agrees="{row["agrees"]}" '
         f'data-implausible="{row["has_implausible"]}">'
-        f'{crop_html}'
-        f'{still_html}'
-        f'<div>'
+        f"{crop_html}"
+        f"{still_html}"
+        f"<div>"
         f'<div class="card-meta">{meta}</div>'
         f'<div class="card-models">{models_html}</div>'
-        f'</div>'
-        f'</div>'
+        f"</div>"
+        f"</div>"
     )
 
 

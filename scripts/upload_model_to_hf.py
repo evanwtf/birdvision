@@ -22,6 +22,7 @@ import json
 import logging
 import os
 from pathlib import Path
+
 from log_utils import add_logging_args, configure_logging
 
 logger = logging.getLogger(__name__)
@@ -137,8 +138,11 @@ def make_model_card(repo_id: str, labels: list[str], metrics: dict) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Upload BirdVision model to Hugging Face Hub")
     parser.add_argument("--model-dir", type=Path, default=Path("pi/models"))
-    parser.add_argument("--repo", default="k10z/birdvision-efficientnet-s",
-                        help="HF repo id (default: k10z/birdvision-efficientnet-s)")
+    parser.add_argument(
+        "--repo",
+        default="k10z/birdvision-efficientnet-s",
+        help="HF repo id (default: k10z/birdvision-efficientnet-s)",
+    )
     parser.add_argument("--private", action="store_true", help="Create repo as private")
     parser.add_argument("--top1", type=float, help="Val top-1 accuracy to include in model card")
     parser.add_argument("--top5", type=float, help="Val top-5 accuracy to include in model card")
@@ -173,9 +177,9 @@ def main() -> None:
 
     # Files to upload
     uploads = [
-        ("efficientnet_s_birds.onnx",    "efficientnet_s_birds.onnx"),
-        ("efficientnet_s_birds.hef",     "efficientnet_s_birds.hef"),
-        ("species_labels.json",          "species_labels.json"),
+        ("efficientnet_s_birds.onnx", "efficientnet_s_birds.onnx"),
+        ("efficientnet_s_birds.hef", "efficientnet_s_birds.hef"),
+        ("species_labels.json", "species_labels.json"),
         ("efficientnet_s_birds_best.pt", "efficientnet_s_birds_best.pt"),
     ]
     # Phase 1 checkpoint is optional

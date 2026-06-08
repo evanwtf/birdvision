@@ -10,16 +10,15 @@ import numpy as np
 import pytest
 
 from src.pipeline import (
-    SWAN_SPECIES,
     BirdIdentificationPipeline,
     compact_path,
     resolution_warning_text,
 )
 
-
 # ---------------------------------------------------------------------------
 # compact_path
 # ---------------------------------------------------------------------------
+
 
 class TestCompactPath:
     def test_short_path_unchanged(self):
@@ -48,6 +47,7 @@ class TestCompactPath:
 # ---------------------------------------------------------------------------
 # resolution_warning_text
 # ---------------------------------------------------------------------------
+
 
 class TestResolutionWarningText:
     def test_none_dimensions(self):
@@ -83,6 +83,7 @@ class TestResolutionWarningText:
 # ---------------------------------------------------------------------------
 # Pipeline helpers — requires monkeypatching heavy constructors
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def pipeline():
@@ -200,7 +201,10 @@ class TestWaterbirdShapeAdjustment:
     def test_no_adjustment_without_both_swan_and_gull(self, pipeline):
         preds = [("Mute Swan", 0.8), ("Robin", 0.2)]
         result = pipeline._apply_waterbird_shape_adjustment(
-            preds, bbox=np.array([0, 0, 200, 50]), frame_width=1920, frame_height=1080,
+            preds,
+            bbox=np.array([0, 0, 200, 50]),
+            frame_width=1920,
+            frame_height=1080,
         )
         assert dict(result) == dict(preds)
 
@@ -229,9 +233,15 @@ class TestWaterbirdShapeAdjustment:
         assert result_dict["Mute Swan"] == pytest.approx(0.5)
 
     def test_empty_preds(self, pipeline):
-        assert pipeline._apply_waterbird_shape_adjustment(
-            [], bbox=np.array([0, 0, 1, 1]), frame_width=100, frame_height=100,
-        ) == []
+        assert (
+            pipeline._apply_waterbird_shape_adjustment(
+                [],
+                bbox=np.array([0, 0, 1, 1]),
+                frame_width=100,
+                frame_height=100,
+            )
+            == []
+        )
 
     def test_adjustment_renormalizes(self, pipeline):
         preds = [("Tundra Swan", 0.4), ("Herring Gull", 0.4), ("Robin", 0.2)]
@@ -248,7 +258,10 @@ class TestWaterbirdShapeAdjustment:
 class TestSelectVideoGalleryPlan:
     def test_empty_candidates_with_fallback(self, pipeline):
         result = pipeline._select_video_gallery_plan(
-            [], total_frames=100, fps=30.0, min_frames=3,
+            [],
+            total_frames=100,
+            fps=30.0,
+            min_frames=3,
         )
         # With only 100 frames and min_gap constraints, fewer than min_frames
         # may be returned; verify fallback frames were generated
@@ -257,7 +270,9 @@ class TestSelectVideoGalleryPlan:
 
     def test_zero_total_frames(self, pipeline):
         result = pipeline._select_video_gallery_plan(
-            [], total_frames=0, fps=30.0,
+            [],
+            total_frames=0,
+            fps=30.0,
         )
         assert result == []
 
@@ -268,7 +283,10 @@ class TestSelectVideoGalleryPlan:
             {"frame": 900, "score": 0.1, "timestamp_s": 30.0, "track_id": 2, "species": "Dove"},
         ]
         result = pipeline._select_video_gallery_plan(
-            candidates, total_frames=1000, fps=30.0, max_frames=3,
+            candidates,
+            total_frames=1000,
+            fps=30.0,
+            max_frames=3,
         )
         assert len(result) <= 3
         # Should be sorted by frame number
@@ -281,14 +299,21 @@ class TestSelectVideoGalleryPlan:
             for i in range(20)
         ]
         result = pipeline._select_video_gallery_plan(
-            candidates, total_frames=2000, fps=30.0, max_frames=6,
+            candidates,
+            total_frames=2000,
+            fps=30.0,
+            max_frames=6,
         )
         assert len(result) <= 6
 
     def test_fallback_frames_added(self, pipeline):
         # No good candidates -> fallback frames fill to min_frames
         result = pipeline._select_video_gallery_plan(
-            [], total_frames=3000, fps=30.0, min_frames=4, max_frames=6,
+            [],
+            total_frames=3000,
+            fps=30.0,
+            min_frames=4,
+            max_frames=6,
         )
         assert len(result) >= 4
         assert all(r["score"] == 0.0 for r in result)

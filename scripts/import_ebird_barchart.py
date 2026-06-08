@@ -5,6 +5,7 @@ Import eBird bar chart TSV files into a SQLite database.
 Usage:
     uv run scripts/import_ebird_barchart.py ebird_data/ --db data/ebird_priors.db
 """
+
 import argparse
 import logging
 import re
@@ -25,8 +26,8 @@ logger = logging.getLogger("import_ebird")
 # Map eBird name -> canonical name used in our species list.
 NAME_OVERRIDES = {
     "American Herring Gull": "Herring Gull",
-    "American Barn Owl":     "Barn Owl",
-    "Mew Gull":              "Common Gull",
+    "American Barn Owl": "Barn Owl",
+    "Mew Gull": "Common Gull",
 }
 
 FIPS_COUNTY = {

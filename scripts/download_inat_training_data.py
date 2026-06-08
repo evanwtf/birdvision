@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 INAT_API = "https://api.inaturalist.org/v1"
 API_PER_PAGE = 200
-API_DELAY = 0.9        # seconds between API calls → ~67 req/min, safely under limit
+API_DELAY = 0.9  # seconds between API calls → ~67 req/min, safely under limit
 PHOTO_SIZE = "medium"  # 500px square — plenty for 224×224 training
 DOWNLOAD_WORKERS = 8
 CONNECT_TIMEOUT = 10.0
@@ -179,8 +179,14 @@ def fetch_observation_photos(
                     break
 
         total = data.get("total_results", 0)
-        logger.debug("  %s page %d: %d/%d unseen observations fetched so far (total=%d)",
-                     taxon_name, page, len(results), needed, total)
+        logger.debug(
+            "  %s page %d: %d/%d unseen observations fetched so far (total=%d)",
+            taxon_name,
+            page,
+            len(results),
+            needed,
+            total,
+        )
 
         if len(observations) < API_PER_PAGE or len(results) >= total:
             break
@@ -244,14 +250,17 @@ def download_species(
         to_download.append((dest, url))
 
     if not to_download:
-        logger.info("  no new observations available; current=%d target=%d", existing_count, max_photos)
+        logger.info(
+            "  no new observations available; current=%d target=%d", existing_count, max_photos
+        )
         return 0, existing_count
 
     downloaded = 0
     failed = 0
     with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as pool:
-        futures = {pool.submit(download_photo, dl_client, url, dest): dest
-                   for dest, url in to_download}
+        futures = {
+            pool.submit(download_photo, dl_client, url, dest): dest for dest, url in to_download
+        }
         for fut in as_completed(futures):
             if fut.result():
                 downloaded += 1
@@ -265,17 +274,33 @@ def download_species(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Download iNaturalist training images for BirdVision")
-    parser.add_argument("--output-dir", type=Path, default=Path("train_data"),
-                        help="Root directory for ImageFolder output (default: ./train_data)")
-    parser.add_argument("--species-list", type=Path,
-                        default=Path("data/species_lists/north_america_common.txt"))
-    parser.add_argument("--place-id", type=int, default=48,
-                        help="iNaturalist place ID (default: 48 = New York state)")
-    parser.add_argument("--max-per-species", type=int, default=500,
-                        help="Target final file count per species (default: 500)")
-    parser.add_argument("--species", nargs="+",
-                        help="Download only these species (by common name); default: all")
+    parser = argparse.ArgumentParser(
+        description="Download iNaturalist training images for BirdVision"
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("train_data"),
+        help="Root directory for ImageFolder output (default: ./train_data)",
+    )
+    parser.add_argument(
+        "--species-list", type=Path, default=Path("data/species_lists/north_america_common.txt")
+    )
+    parser.add_argument(
+        "--place-id",
+        type=int,
+        default=48,
+        help="iNaturalist place ID (default: 48 = New York state)",
+    )
+    parser.add_argument(
+        "--max-per-species",
+        type=int,
+        default=500,
+        help="Target final file count per species (default: 500)",
+    )
+    parser.add_argument(
+        "--species", nargs="+", help="Download only these species (by common name); default: all"
+    )
     add_logging_args(parser)
     args = parser.parse_args()
 
@@ -297,8 +322,13 @@ def main() -> None:
     else:
         target_species = all_species
 
-    logger.info("place_id=%d  max_per_species=%d  species=%d  output=%s",
-                args.place_id, args.max_per_species, len(target_species), args.output_dir)
+    logger.info(
+        "place_id=%d  max_per_species=%d  species=%d  output=%s",
+        args.place_id,
+        args.max_per_species,
+        len(target_species),
+        args.output_dir,
+    )
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     headers = {"User-Agent": "BirdVision-training-data-downloader/1.0"}
@@ -306,14 +336,16 @@ def main() -> None:
     total_skip = 0
     overall_start = time.time()
 
-    with httpx.Client(headers=headers) as api_client, \
-         httpx.Client(headers=headers) as dl_client:
-
+    with httpx.Client(headers=headers) as api_client, httpx.Client(headers=headers) as dl_client:
         for i, species in enumerate(target_species, 1):
             logger.info("[%d/%d] %s", i, len(target_species), species)
             dl, existing = download_species(
-                species, args.output_dir, args.place_id,
-                args.max_per_species, api_client, dl_client,
+                species,
+                args.output_dir,
+                args.place_id,
+                args.max_per_species,
+                api_client,
+                dl_client,
             )
             total_dl += dl
             total_skip += existing

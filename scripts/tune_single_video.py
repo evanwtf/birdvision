@@ -21,8 +21,8 @@ import yaml
 
 from src.tuner import (
     BASELINE_TARGET_SPECIES,
-    default_baseline_video_path,
     SingleVideoTuningRunner,
+    default_baseline_video_path,
 )
 
 logging.basicConfig(
@@ -84,7 +84,9 @@ def _format_diff_lines(original: dict[str, Any], best: dict[str, Any]) -> list[s
     return lines
 
 
-def _prompt_apply_config_updates(config_path: Path, raw_config: dict, best_values: dict[str, Any], diff_lines: list[str]) -> None:
+def _prompt_apply_config_updates(
+    config_path: Path, raw_config: dict, best_values: dict[str, Any], diff_lines: list[str]
+) -> None:
     if not diff_lines:
         print("\nParameter diff: no tuning-space changes from baseline.")
         return
@@ -100,7 +102,9 @@ def _prompt_apply_config_updates(config_path: Path, raw_config: dict, best_value
         print(f"\nInteractive config update skipped because {config_path} does not exist.")
         return
 
-    response = input(f"\nUpdate {config_path} in place with these best values? [y/N] ").strip().lower()
+    response = (
+        input(f"\nUpdate {config_path} in place with these best values? [y/N] ").strip().lower()
+    )
     if response not in {"y", "yes"}:
         print("Config left unchanged.")
         return
@@ -115,7 +119,9 @@ def _prompt_apply_config_updates(config_path: Path, raw_config: dict, best_value
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Tune BirdVision parameters for one video and one target species")
+    parser = argparse.ArgumentParser(
+        description="Tune BirdVision parameters for one video and one target species"
+    )
     parser.add_argument(
         "video",
         nargs="?",

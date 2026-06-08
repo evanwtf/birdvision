@@ -9,8 +9,8 @@ phone/WebSocket/TV-screen variables.
 
 import logging
 import time
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -33,7 +33,7 @@ class FileFrameSource:
         self,
         file_path: str,
         loop: bool = False,
-        fps_limit: Optional[float] = None,
+        fps_limit: float | None = None,
     ):
         self._file_path = Path(file_path)
         self._loop = loop
@@ -43,7 +43,7 @@ class FileFrameSource:
         if not self._file_path.is_file():
             raise FileNotFoundError(f"Video file not found: {self._file_path}")
 
-    def frames(self) -> Iterator[Tuple[int, np.ndarray]]:
+    def frames(self) -> Iterator[tuple[int, np.ndarray]]:
         """Yield (frame_number, bgr_frame) from the video file."""
         frame_no = 0
 
@@ -58,7 +58,11 @@ class FileFrameSource:
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             logger.info(
                 "Opened %s  %dx%d  %.2f fps  %d frames",
-                self._file_path.name, width, height, native_fps, total_frames,
+                self._file_path.name,
+                width,
+                height,
+                native_fps,
+                total_frames,
             )
 
             min_interval = 1.0 / self._fps_limit if self._fps_limit else 0.0

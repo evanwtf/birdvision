@@ -20,12 +20,13 @@ Bounding box coordinates in results are normalized [0, 1].
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import queue
 import threading
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -53,7 +54,7 @@ class WebSocketFrameSource:
         self,
         host: str = "0.0.0.0",
         port: int = 8765,
-        static_dir: Optional[str] = None,
+        static_dir: str | None = None,
         max_buffered_frames: int = 2,
         upload_handler=None,
         client_idle_timeout_seconds: float = 30.0,
@@ -66,9 +67,9 @@ class WebSocketFrameSource:
         self._stop = False
         # Queue stores (bgr, metadata_dict) tuples
         self._frame_queue: queue.Queue = queue.Queue(maxsize=max_buffered_frames)
-        self._result_queue: Optional[asyncio.Queue] = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._server_thread: Optional[threading.Thread] = None
+        self._result_queue: asyncio.Queue | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._server_thread: threading.Thread | None = None
         self._loop_ready = threading.Event()
         self._pending_metadata: dict = {}
         self._metadata: dict = {}
@@ -89,7 +90,7 @@ class WebSocketFrameSource:
             self._bytes_received = 0
             return n
 
-    def frames(self) -> Iterator[Tuple[int, np.ndarray]]:
+    def frames(self) -> Iterator[tuple[int, np.ndarray]]:
         """Yield (frame_number, bgr_frame) from WebSocket JPEG frames."""
         self._start_server()
         frame_no = 0
@@ -147,7 +148,9 @@ class WebSocketFrameSource:
     def _start_server(self) -> None:
         app = self._build_app()
         self._server_thread = threading.Thread(
-            target=self._run_server, args=(app,), daemon=True,
+            target=self._run_server,
+            args=(app,),
+            daemon=True,
         )
         self._server_thread.start()
         self._loop_ready.wait(timeout=10.0)
@@ -161,7 +164,10 @@ class WebSocketFrameSource:
         self._loop_ready.set()
 
         config = uvicorn.Config(
-            app, host=self._host, port=self._port, log_level="warning",
+            app,
+            host=self._host,
+            port=self._port,
+            log_level="warning",
         )
         server = uvicorn.Server(config)
         logger.info("WebSocket server listening on http://%s:%d", self._host, self._port)
@@ -211,7 +217,11 @@ class WebSocketFrameSource:
         loop = asyncio.get_event_loop()
         try:
             result = await loop.run_in_executor(
-                None, self._upload_handler, content, filename, content_type,
+                None,
+                self._upload_handler,
+                content,
+                filename,
+                content_type,
             )
         except Exception as exc:
             logger.exception("Upload processing failed")
@@ -224,12 +234,14 @@ class WebSocketFrameSource:
             await ws.accept()
             logger.info("Rejecting extra client while stream is active: %s", ws.client)
             try:
-                await ws.send_json({
-                    "error": (
-                        "BirdVision is already in use by another camera. "
-                        "Try again when that session disconnects."
-                    ),
-                })
+                await ws.send_json(
+                    {
+                        "error": (
+                            "BirdVision is already in use by another camera. "
+                            "Try again when that session disconnects."
+                        ),
+                    }
+                )
                 # Brief delay so the client receives the error JSON before close
                 await asyncio.sleep(0.25)
                 await ws.close(code=1013, reason="BirdVision is already in use")
@@ -251,7 +263,8 @@ class WebSocketFrameSource:
 
         try:
             done, pending = await asyncio.wait(
-                {recv_task, send_task}, return_when=asyncio.FIRST_COMPLETED,
+                {recv_task, send_task},
+                return_when=asyncio.FIRST_COMPLETED,
             )
             for t in pending:
                 t.cancel()
@@ -267,7 +280,7 @@ class WebSocketFrameSource:
                         ws.receive(),
                         timeout=self._client_idle_timeout,
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.info(
                         "Closing idle client after %.0fs without frames: %s",
                         self._client_idle_timeout,
@@ -280,10 +293,8 @@ class WebSocketFrameSource:
                     break
 
                 if "text" in msg:
-                    try:
+                    with contextlib.suppress(json.JSONDecodeError):
                         self._pending_metadata = json.loads(msg["text"])
-                    except json.JSONDecodeError:
-                        pass
 
                 elif "bytes" in msg:
                     raw = msg["bytes"]
@@ -294,14 +305,10 @@ class WebSocketFrameSource:
                     if bgr is not None:
                         meta_copy = self._pending_metadata.copy()
                         if self._frame_queue.full():
-                            try:
+                            with contextlib.suppress(queue.Empty):
                                 self._frame_queue.get_nowait()
-                            except queue.Empty:
-                                pass
-                        try:
+                        with contextlib.suppress(queue.Full):
                             self._frame_queue.put_nowait((bgr, meta_copy))
-                        except queue.Full:
-                            pass
                         self._pending_metadata = {}
         except WebSocketDisconnect:
             pass

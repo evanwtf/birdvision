@@ -18,17 +18,16 @@ import signal
 import tempfile
 import time
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
 import psutil
 
-from .tracker import BirdTracker
-from .stream_capture import V4L2FrameSource
-from .hailo_detector import HailoDetector
-from .hailo_classifier import HailoClassifier
 from .display_overlay import DisplayOverlay
+from .hailo_classifier import HailoClassifier
+from .hailo_detector import HailoDetector
+from .stream_capture import V4L2FrameSource
+from .tracker import BirdTracker
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +52,9 @@ def _format_seen_birds_summary(species_summary: list[dict]) -> str:
         avg_score = item.get("avg_confidence")
         count = int(item.get("detection_count", item.get("count", 1)))
         if avg_score is None:
-            items.append(f"{species} {max_score * 100:.1f}% ({count} detection{'s' if count != 1 else ''})")
+            items.append(
+                f"{species} {max_score * 100:.1f}% ({count} detection{'s' if count != 1 else ''})"
+            )
         else:
             items.append(
                 f"{species} max={max_score * 100:.1f}% "
@@ -87,7 +88,7 @@ def _expanded_crop(
     padding_ratio_min: float = 0.04,
     closeup_area_ratio: float = 0.06,
     min_crop_area: int = 2500,
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """Extract a padded crop from frame.  Mirrors pipeline.py _expanded_crop logic."""
     x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
     box_w = max(0, x2 - x1)
@@ -125,18 +126,19 @@ class RealtimePipeline:
 
     def __init__(self, config: dict):
         self._config = config
-        self._stop   = False
+        self._stop = False
 
         stream_cfg = config.get("stream", {})
-        det_cfg    = config.get("detector", {})
-        cls_cfg    = config.get("classifier", {})
-        trk_cfg    = config.get("tracker", {})
-        out_cfg    = config.get("output", {})
+        det_cfg = config.get("detector", {})
+        cls_cfg = config.get("classifier", {})
+        trk_cfg = config.get("tracker", {})
+        out_cfg = config.get("output", {})
 
         # Capture source — V4L2 (backyard camera) or WebSocket (phone sidecar)
         source_type = stream_cfg.get("source", "v4l2")
         if source_type == "websocket":
             from .ws_frame_source import WebSocketFrameSource
+
             self._source = WebSocketFrameSource(
                 host=stream_cfg.get("ws_host", "0.0.0.0"),
                 port=stream_cfg.get("ws_port", 8765),
@@ -154,6 +156,7 @@ class RealtimePipeline:
         # Single VDevice shared by detector and classifier — the Hailo-8 chip
         # can only be opened once; both models run as separate network groups.
         from hailo_platform import VDevice
+
         logger.info("Opening Hailo VDevice")
         self._vdevice = VDevice()
 
@@ -183,15 +186,15 @@ class RealtimePipeline:
         )
 
         # Classifier settings
-        self._classify_every_n    = cls_cfg.get("classify_every_n_frames", 10)
-        self._crop_padding        = cls_cfg.get("crop_padding_ratio", 0.18)
-        self._crop_padding_min    = cls_cfg.get("crop_padding_ratio_min", 0.04)
-        self._crop_closeup_ratio  = cls_cfg.get("crop_closeup_area_ratio", 0.06)
-        self._min_crop_area       = cls_cfg.get("min_crop_area", 2500)
-        self._min_event_conf      = cls_cfg.get("min_event_confidence", 0.35)
-        self._log_interval        = out_cfg.get("log_interval_seconds", 1.0)
-        self._stats_interval      = out_cfg.get("stats_interval_seconds", 30.0)
-        self._results_dir         = Path(out_cfg.get("results_dir", "/data/results"))
+        self._classify_every_n = cls_cfg.get("classify_every_n_frames", 10)
+        self._crop_padding = cls_cfg.get("crop_padding_ratio", 0.18)
+        self._crop_padding_min = cls_cfg.get("crop_padding_ratio_min", 0.04)
+        self._crop_closeup_ratio = cls_cfg.get("crop_closeup_area_ratio", 0.06)
+        self._min_crop_area = cls_cfg.get("min_crop_area", 2500)
+        self._min_event_conf = cls_cfg.get("min_event_confidence", 0.35)
+        self._log_interval = out_cfg.get("log_interval_seconds", 1.0)
+        self._stats_interval = out_cfg.get("stats_interval_seconds", 30.0)
+        self._results_dir = Path(out_cfg.get("results_dir", "/data/results"))
 
         # eBird priors (optional — skip if db not present)
         self._metadata = None
@@ -199,6 +202,7 @@ class RealtimePipeline:
         if meta_cfg.get("ebird_db"):
             try:
                 from .metadata import MetadataPrior
+
                 self._metadata = MetadataPrior(
                     db_path=meta_cfg["ebird_db"],
                     fips=meta_cfg.get("ebird_fips", "US-NY-059"),
@@ -212,7 +216,7 @@ class RealtimePipeline:
                 logger.warning("Could not load eBird priors: %s — running without", exc)
 
         # Optional framebuffer display overlay (Pi Touch Display 2)
-        self._display: Optional[DisplayOverlay] = None
+        self._display: DisplayOverlay | None = None
         disp_cfg = config.get("display", {})
         if disp_cfg.get("enabled", False):
             self._display = DisplayOverlay(
@@ -223,7 +227,7 @@ class RealtimePipeline:
             )
         self._caption_ttl = float(disp_cfg.get("caption_ttl_seconds", 3.0))
 
-        signal.signal(signal.SIGINT,  self._handle_signal)
+        signal.signal(signal.SIGINT, self._handle_signal)
         signal.signal(signal.SIGTERM, self._handle_signal)
 
     # ------------------------------------------------------------------
@@ -234,15 +238,15 @@ class RealtimePipeline:
         """Run the pipeline until SIGINT/SIGTERM or stop() is called."""
         logger.info("Real-time pipeline starting")
 
-        frame_count         = 0
-        t_window_start      = time.monotonic()
-        t_stats_last        = time.monotonic()
-        window_events: list = []   # (species, score) from classify events this window
-        caption_species: Optional[str]  = None
-        caption_score:   Optional[float] = None
-        caption_expiry:  float           = 0.0
-        current_fps:     float           = 0.0
-        current_bw_kbps: float           = 0.0
+        frame_count = 0
+        t_window_start = time.monotonic()
+        t_stats_last = time.monotonic()
+        window_events: list = []  # (species, score) from classify events this window
+        caption_species: str | None = None
+        caption_score: float | None = None
+        caption_expiry: float = 0.0
+        current_fps: float = 0.0
+        current_bw_kbps: float = 0.0
 
         for frame_no, frame in self._source.frames():
             if self._stop:
@@ -268,7 +272,8 @@ class RealtimePipeline:
                     continue
                 det = detections[track.matched_detection_idx]
                 crop = _expanded_crop(
-                    frame, det.bbox,
+                    frame,
+                    det.bbox,
                     padding_ratio=self._crop_padding,
                     padding_ratio_min=self._crop_padding_min,
                     closeup_area_ratio=self._crop_closeup_ratio,
@@ -286,35 +291,36 @@ class RealtimePipeline:
                 meta_lat = client_meta.get("lat")
                 meta_lon = client_meta.get("lon")
 
-                for tid, preds in zip(track_ids_to_classify, results):
+                for tid, preds in zip(track_ids_to_classify, results, strict=False):
                     track = tracks[tid]
                     track.last_classified_frame = frame_no
 
                     if self._metadata is not None:
                         preds = self._metadata.apply(
-                            preds, latitude=meta_lat, longitude=meta_lon,
+                            preds,
+                            latitude=meta_lat,
+                            longitude=meta_lon,
                         )
 
                     top_species, top_score = preds[0] if preds else ("unknown", 0.0)
                     if top_score >= self._min_event_conf:
                         track.prediction_history.append(preds)
                         window_events.append((top_species, top_score))
-                        logger.debug(
-                            "track=%d  %s  %.3f", tid, top_species, top_score
-                        )
+                        logger.debug("track=%d  %s  %.3f", tid, top_species, top_score)
                         caption_species = top_species
-                        caption_score   = top_score
-                        caption_expiry  = time.monotonic() + self._caption_ttl
+                        caption_score = top_score
+                        caption_expiry = time.monotonic() + self._caption_ttl
 
             # --- Push to framebuffer display (if enabled) ---
             if self._display is not None and self._display.enabled:
                 now_display = time.monotonic()
                 if caption_expiry and now_display >= caption_expiry:
                     caption_species = None
-                    caption_score   = None
+                    caption_score = None
                 bboxes = [d.bbox for d in detections]
                 self._display.post(
-                    frame, bboxes,
+                    frame,
+                    bboxes,
                     top_species=caption_species,
                     top_score=caption_score,
                     fps=current_fps,
@@ -340,13 +346,15 @@ class RealtimePipeline:
                         if latest:
                             species = latest[0][0]
                             species_score = round(latest[0][1], 3)
-                    ws_detections.append({
-                        "bbox": [round(c, 4) for c in bbox_norm],
-                        "track_id": tid,
-                        "confidence": round(float(det.confidence), 3),
-                        "species": species,
-                        "species_score": species_score,
-                    })
+                    ws_detections.append(
+                        {
+                            "bbox": [round(c, 4) for c in bbox_norm],
+                            "track_id": tid,
+                            "confidence": round(float(det.confidence), 3),
+                            "species": species,
+                            "species_score": species_score,
+                        }
+                    )
                 client_meta = self._source.client_metadata
                 result_msg = {
                     "frame_id": client_meta.get("frame_id", frame_no),
@@ -376,15 +384,19 @@ class RealtimePipeline:
                     best_species, best_score = max(window_events, key=lambda x: x[1])
                     logger.info(
                         "top_species=%s confidence=%.2f tracks=%d fps=%.1f%s",
-                        best_species, best_score, active_tracks, fps, bw_str,
+                        best_species,
+                        best_score,
+                        active_tracks,
+                        fps,
+                        bw_str,
                     )
                 else:
                     logger.info("no_detection tracks=%d fps=%.1f%s", active_tracks, fps, bw_str)
 
                 # Reset window
-                frame_count    = 0
+                frame_count = 0
                 t_window_start = now
-                window_events  = []
+                window_events = []
 
             # --- System stats (every stats_interval_seconds) ---
             if now - t_stats_last >= self._stats_interval:
@@ -460,7 +472,7 @@ class RealtimePipeline:
             return self._process_image_upload(file_bytes, filename)
         return self._process_video_upload(file_bytes, filename)
 
-    def _make_upload_debug_dir(self, filename: str) -> Optional[Path]:
+    def _make_upload_debug_dir(self, filename: str) -> Path | None:
         upload_stem = _safe_path_component(Path(filename).stem)
         run_id = time.strftime("%Y%m%d_%H%M%S")
         dirname = f"{upload_stem}_{run_id}"
@@ -486,12 +498,16 @@ class RealtimePipeline:
             return debug_dir
 
         if first_error is not None:
-            logger.warning("Upload debug crops disabled; could not create %s: %s", first_error[0], first_error[1])
+            logger.warning(
+                "Upload debug crops disabled; could not create %s: %s",
+                first_error[0],
+                first_error[1],
+            )
         return None
 
     def _save_upload_debug_crop(
         self,
-        debug_dir: Optional[Path],
+        debug_dir: Path | None,
         crop: np.ndarray,
         *,
         prefix: str,
@@ -546,7 +562,8 @@ class RealtimePipeline:
             det_indices = []
             for i, det in enumerate(detections):
                 crop = _expanded_crop(
-                    frame, det.bbox,
+                    frame,
+                    det.bbox,
                     padding_ratio=self._crop_padding,
                     padding_ratio_min=self._crop_padding_min,
                     closeup_area_ratio=self._crop_closeup_ratio,
@@ -558,7 +575,7 @@ class RealtimePipeline:
 
             if crops:
                 all_preds = self._classifier.classify_batch(crops)
-                for idx, preds, crop in zip(det_indices, all_preds, crops):
+                for idx, preds, crop in zip(det_indices, all_preds, crops, strict=False):
                     det = detections[idx]
                     if self._metadata is not None:
                         preds = self._metadata.apply(preds)
@@ -580,32 +597,38 @@ class RealtimePipeline:
                         area_ratio * 100.0,
                         _format_prediction_list(preds, limit=10),
                     )
-                    results.append({
-                        "bbox": [
-                            float(det.bbox[0]) / frame_w,
-                            float(det.bbox[1]) / frame_h,
-                            float(det.bbox[2]) / frame_w,
-                            float(det.bbox[3]) / frame_h,
-                        ],
-                        "confidence": round(float(det.confidence), 3),
-                        "species": top_species,
-                        "species_score": round(float(top_score), 3),
-                        "top_predictions": [
-                            [s, round(float(sc), 4)] for s, sc in preds[:10]
-                        ],
-                    })
+                    results.append(
+                        {
+                            "bbox": [
+                                float(det.bbox[0]) / frame_w,
+                                float(det.bbox[1]) / frame_h,
+                                float(det.bbox[2]) / frame_w,
+                                float(det.bbox[3]) / frame_h,
+                            ],
+                            "confidence": round(float(det.confidence), 3),
+                            "species": top_species,
+                            "species_score": round(float(top_score), 3),
+                            "top_predictions": [[s, round(float(sc), 4)] for s, sc in preds[:10]],
+                        }
+                    )
 
         image_species_summary = []
         if results:
             scores_by_species: dict[str, list[float]] = {}
             for item in results:
-                scores_by_species.setdefault(item["species"], []).append(float(item["species_score"]))
-            for species, scores in sorted(scores_by_species.items(), key=lambda x: max(x[1]), reverse=True):
-                image_species_summary.append({
-                    "species": species,
-                    "max_confidence": round(max(scores), 3),
-                    "detection_count": len(scores),
-                })
+                scores_by_species.setdefault(item["species"], []).append(
+                    float(item["species_score"])
+                )
+            for species, scores in sorted(
+                scores_by_species.items(), key=lambda x: max(x[1]), reverse=True
+            ):
+                image_species_summary.append(
+                    {
+                        "species": species,
+                        "max_confidence": round(max(scores), 3),
+                        "detection_count": len(scores),
+                    }
+                )
             logger.info(
                 "Image upload species summary: %s  %s",
                 filename,
@@ -646,7 +669,12 @@ class RealtimePipeline:
             debug_dir = self._make_upload_debug_dir(filename)
             logger.info(
                 "Processing video upload: %s  %dx%d  %.1f fps  %d frames  %.1fs",
-                filename, width, height, native_fps, total_frames, duration,
+                filename,
+                width,
+                height,
+                native_fps,
+                total_frames,
+                duration,
             )
             if debug_dir is not None:
                 logger.info("Upload debug crops: %s", debug_dir)
@@ -691,7 +719,8 @@ class RealtimePipeline:
 
                     det = detections[track.matched_detection_idx]
                     crop = _expanded_crop(
-                        frame, det.bbox,
+                        frame,
+                        det.bbox,
                         padding_ratio=self._crop_padding,
                         padding_ratio_min=self._crop_padding_min,
                         closeup_area_ratio=self._crop_closeup_ratio,
@@ -731,7 +760,9 @@ class RealtimePipeline:
                     if top_score >= self._min_event_conf:
                         species_events.setdefault(top_species, []).append(float(top_score))
                         info = track_info[tid]
-                        info["species_counts"][top_species] = info["species_counts"].get(top_species, 0) + 1
+                        info["species_counts"][top_species] = (
+                            info["species_counts"].get(top_species, 0) + 1
+                        )
                         if top_score > info["best_score"]:
                             info["best_species"] = top_species
                             info["best_score"] = float(top_score)
@@ -741,7 +772,9 @@ class RealtimePipeline:
                     elapsed = time.monotonic() - t_start
                     logger.info(
                         "Video upload progress: %d/%d frames  %.1f fps",
-                        frame_no, total_frames, frame_no / elapsed if elapsed > 0 else 0,
+                        frame_no,
+                        total_frames,
+                        frame_no / elapsed if elapsed > 0 else 0,
                     )
 
             cap.release()
@@ -749,23 +782,27 @@ class RealtimePipeline:
 
             species_summary = []
             for sp, scores in sorted(species_events.items(), key=lambda x: max(x[1]), reverse=True):
-                species_summary.append({
-                    "species": sp,
-                    "max_confidence": round(max(scores), 3),
-                    "avg_confidence": round(sum(scores) / len(scores), 3),
-                    "detection_count": len(scores),
-                })
+                species_summary.append(
+                    {
+                        "species": sp,
+                        "max_confidence": round(max(scores), 3),
+                        "avg_confidence": round(sum(scores) / len(scores), 3),
+                        "detection_count": len(scores),
+                    }
+                )
 
             tracks_summary = []
             for tid, info in sorted(track_info.items()):
                 if info["best_species"]:
-                    tracks_summary.append({
-                        "track_id": tid,
-                        "frame_span": [info["first_frame"], info["last_frame"]],
-                        "top_species": info["best_species"],
-                        "confidence": round(info["best_score"], 3),
-                        "classification_count": sum(info["species_counts"].values()),
-                    })
+                    tracks_summary.append(
+                        {
+                            "track_id": tid,
+                            "frame_span": [info["first_frame"], info["last_frame"]],
+                            "top_species": info["best_species"],
+                            "confidence": round(info["best_score"], 3),
+                            "classification_count": sum(info["species_counts"].values()),
+                        }
+                    )
 
             if species_summary:
                 logger.info(
@@ -794,7 +831,11 @@ class RealtimePipeline:
             )
             logger.info(
                 "Video upload done: %s  %d frames in %.1fs  %d species  %d tracks",
-                filename, frame_no, elapsed, len(species_summary), len(tracks_summary),
+                filename,
+                frame_no,
+                elapsed,
+                len(species_summary),
+                len(tracks_summary),
             )
             return {
                 "type": "video",
