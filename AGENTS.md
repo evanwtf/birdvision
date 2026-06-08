@@ -1,336 +1,219 @@
-# BirdVision — Agent Context
+# BirdVision
 
-This file is the authoritative context document for AI coding agents working
-on this repository. It is symlinked as `CLAUDE.md` for Claude Code compatibility.
+## Overview
 
-## What this project is
+Bird species identification from video and photos using local computer vision
+models. Two deployment surfaces share a common `src/` library: a FastAPI webapp
+(BioCLIP on CUDA, x86_64) and a Raspberry Pi 5 real-time pipeline (YOLOv8n +
+EfficientNet-S compiled to Hailo-8 HEF). Processing is fully local — no cloud
+inference.
 
-Bird species identification from video and photos. Point a camera at a bird,
-run the pipeline, get species predictions weighted by visual similarity plus
-optional eBird location/season frequency data when the media falls inside a
-supported region.
+## Tech Stack
 
-## Hardware
+- **Python ≥ 3.12** (`pyproject.toml`), managed with `uv` (`uv.lock` committed)
+- **Web**: FastAPI, Uvicorn, Jinja2, Authlib (Google OAuth), `python-multipart`
+- **Vision**: `ultralytics` (YOLOv8), `open-clip-torch` (BioCLIP), `transformers`,
+  `torch`/`torchvision`, `opencv-python`, `pillow`
+- **Metadata**: `pyexiftool` (binary `exiftool` required at runtime)
+- **Pi pipeline** (separate dep group): `hailort` 4.23.0 (manual wheel install,
+  aarch64 only — not on PyPI), `opencv-python-headless`, `starlette`/`uvicorn`
+- **Data**: SQLite (eBird priors, built from `ebird_data/*.txt`)
+- **Containers**: `cgr.dev/chainguard/python:latest-dev` (webapp + Pi),
+  `nvidia-container-toolkit` runtime on desktop
+- **Tests**: `pytest` (285 tests, `testpaths = ["tests"]`)
 
-**Desktop (webapp / training / model compilation)**
-- RTX 3080 Ti (12GB VRAM), AMD Ryzen 9 7900X, 32GB RAM, x86_64 Ubuntu
-- Location: 40.7, -73.5 (Long Island / Nassau County, NY)
-- GitHub username: evandhoffman, HuggingFace username: k10z
+## Key Concepts & Terminology
 
-**Raspberry Pi 5 (real-time streaming pipeline)**
-- Hailo-8 AI Processor (PCIe, 26 TOPS INT8), 8GB RAM, aarch64 Ubuntu 24.04
-- Elgato Cam Link 4K (HDMI→USB capture), Samsung camcorder via HDMI
-- HailoRT firmware: 4.23.0
+- **Track** — multi-frame bird identity from `src/tracker.py` (IoU + centroid)
+- **Center weighting** — Gaussian over bbox-center distance from frame center
+  scales each event's contribution (`scoring.center_weight_strength`)
+- **eBird priors** — per-week (`seasonal`) or annual (`location_only`) county
+  bar-chart frequency; multiplicative reweighting, zero floored at 0.01; for
+  GPS jobs applied only inside a Long Island bbox (Kings/Queens/Nassau/Suffolk)
+- **Local priors** — YAML overrides layered on top of eBird (`metadata.local_priors_file`)
+- **Ensemble classifier** — weighted geometric mean of BioCLIP + secondary HF
+  classifier; species outside the secondary vocab get a uniform floor
+- **Content-addressed asset store** — uploads keyed by sha256 under
+  `videos/assets/` with `videos/asset_index.json`
+- **Backyard / sidecar (Pi)** — backyard reads HDMI via V4L2 (`config.pi.yaml`);
+  sidecar serves a phone over HTTPS/WebSocket (`config.pi.sidecar.yaml`)
+- **HEF** — Hailo Executable Format, compiled binary for Hailo-8 inference
 
-## Architecture
+## Environment & Dependencies
 
-```
-src/
-  detector.py            — YOLOv8 object detection (COCO bird class), bbox + crop
-  tracker.py             — multi-frame tracker; IoU + centroid-distance matching;
-                           stores raw and weighted prediction history per track
-  classifier.py          — BioCLIP zero-shot classifier; pre-computed text
-                           embeddings; batched inference
-  hf_classifier.py       — generic HuggingFace image-classification backend;
-                           wraps AutoModelForImageClassification with fuzzy
-                           label mapping to the project species list
-  gemma_classifier.py    — Gemma 4 vision-language classifier backend
-  ensemble_classifier.py — weighted geometric-mean ensemble of BioCLIP + a
-                           secondary HF classifier; per-model score breakdown
-                           in results JSON
-  metadata.py            — eBird bar chart priors; seasonal or location-only
-                           mode; local prior overrides via YAML file; Long
-                           Island bounding-box gating for GPS-driven jobs
-  pipeline.py            — orchestrates detect/track/classify; center-weighted
-                           scoring; adaptive crop padding; video-level summaries
-                           + per-track detail; image jobs emit per-photo
-                           summaries, annotated JPEGs, and overlay metadata;
-                           video jobs extract annotated stills
-  pipeline_defaults.py   — default species list (Northeast NA, ~242 species)
-  tuner.py               — single-video parameter tuner; grid-searches
-                           hot-reloadable params against a known-species asset
-  video_metadata.py      — ExifTool/OpenCV metadata helpers
-  webapp.py              — FastAPI web UI + JSON API; content-addressed asset
-                           store; two-phase upload; Google OAuth gating;
-                           paginated job listing; friendly slug URLs; Open Graph
-                           metadata; theme switcher; per-request access logging.
-                           API: POST /api/v1/videos (token-authenticated)
+- **Webapp host**: NVIDIA GPU + `nvidia-container-toolkit` for Docker;
+  `exiftool` binary if running outside Docker.
+- **Three config files, never merged**: `config.yaml` (webapp),
+  `config.pi.yaml` (Pi backyard), `config.pi.sidecar.yaml` (Pi sidecar).
+- **Secrets** (env vars override `config.yaml`): `GOOGLE_CLIENT_ID`,
+  `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`, `BIRDVISION_DEBUG`.
+- **API tokens**: `api_tokens.yaml` (gitignored). Commit only
+  `api_tokens.yaml.example`.
+- **Pi host**: HailoRT 4.23.0 (`pi/deps/*.whl`, `pi/deps/*.deb` from
+  hailo.ai/developer-zone), `/dev/hailo0`, `/dev/video0`.
+- **eBird DB** `data/ebird_priors.db` is generated by
+  `scripts/import_ebird_barchart.py` (run automatically during
+  `docker compose build`); not committed.
+- Default config paths target container locations (`/data/...`, `/app/...`);
+  bare-metal runs need `--config` pointing at host paths.
 
-  [Pi-only — do not import from webapp or existing pipeline]
-  hailo_detector.py      — YOLOv8n detection via Hailo-8 HEF; same interface
-                           as detector.py; shares VDevice with classifier
-  hailo_classifier.py    — EfficientNet-S classification via Hailo-8 HEF;
-                           same interface as classifier.py; shares VDevice
-  stream_capture.py      — V4L2 live frame source (Cam Link 4K); yields
-                           (frame_no, bgr) iterator; YUYV capture
-  ws_frame_source.py     — Starlette/uvicorn WebSocket frame source for phone
-                           sidecar mode; serves static browser client; accepts
-                           JPEG frames + metadata; sends normalized detections;
-                           exposes POST /upload for sidecar file identification
-  file_frame_source.py   — video-file frame source with the same iterator
-                           interface, useful for Pi pipeline debugging
-  display_overlay.py     — Pi Touch Display 2 framebuffer writer; live feed,
-                           detection boxes, CC-style species caption on /dev/fb0
-  realtime_pipeline.py   — orchestrates V4L2/WebSocket source → hailo_detector →
-                           tracker → hailo_classifier; optional display overlay;
-                           sidecar upload processing + debug crops; 1s summary
-                           logs; system stats every 30s; clean shutdown
+## Commands
 
-scripts/
-  serve.py                       — uvicorn entry point (port 3587)
-  identify_videos.py             — CLI batch processor
-  import_ebird_barchart.py       — eBird bar chart TSVs -> SQLite DB
-  tune_single_video.py           — CLI for tuner.py
-  realtime_identify.py           — [Pi] real-time streaming entry point
-  download_inat_training_data.py — fetch iNaturalist training photos by species
-  train_efficientnet.py          — fine-tune EfficientNet-V2-S, export ONNX
-  compile_efficientnet_hef.py    — compile ONNX to Hailo HEF via DFC SDK
-  verify_efficientnet_onnx.py    — onnxruntime shape/label-count verification
-  upload_model_to_hf.py          — upload model artifacts to HuggingFace Hub
-  ws_test_client.py              — [Pi] stream a video file to sidecar WebSocket
-                                  server for repeatable phone-free testing
-  autostart.sh                   — [Pi] install/uninstall systemd service wrapper
-  run_training.sh                — convenience wrapper for train_efficientnet.py
-  run_verify_efficientnet_onnx.sh — logged wrapper for ONNX verification
-  run_compile_efficientnet_hef.sh — logged wrapper for HEF compilation
-  log_utils.py                   — shared file logging + ETA helpers for long jobs
+Verified from `pyproject.toml`, `Dockerfile`, `docker-compose.yml`,
+`docker-compose.pi.yml`, `.github/workflows/tests.yml`, and `scripts/`.
 
-eval/                       — model comparison eval container
-  eval_runner.py            — runs multiple classifier backends on a test set
-  report_generator.py       — generates comparison reports from eval results
-  Dockerfile, docker-compose.yml, config.yaml
+```bash
+# Setup
+uv sync                                                  # webapp/CI deps
+uv sync --group pi                                       # Pi-only (aarch64; needs local hailort wheel)
 
-templates/
-  base.html, index.html, job.html  — Jinja2, mobile-friendly
+# Run (local)
+uv run scripts/serve.py --config config.yaml --port 3587 # web UI
+uv run scripts/serve.py --debug                          # bypass auth
+uv run scripts/identify_videos.py <path> --config config.yaml
+uv run scripts/tune_single_video.py --config config.yaml
+uv run scripts/import_ebird_barchart.py ebird_data/ --db data/ebird_priors.db
+uv run scripts/realtime_identify.py --config config.pi.yaml  # Pi only
 
-static/
-  index.html                  — Pi sidecar browser camera/upload client
+# Run (Docker)
+docker compose build && docker compose up                # webapp on :3587
+docker compose --profile cli up birdvision               # batch CLI
+docker compose --profile tuner run tuner ...             # tuner
+docker compose -f docker-compose.pi.yml --profile backyard up
+docker compose -f docker-compose.pi.yml --profile sidecar up
 
-ebird_data/
-  ebird_US-NY-{047,059,061,081,103}__*_barchart.txt
-  — Kings, Nassau, Manhattan, Queens, Suffolk counties
-  — Imported at Docker build time -> data/ebird_priors.db (gitignored)
-
-data/
-  species_lists/north_america_common.txt  — 242-species list (Northeast NA)
-  ebird_priors.db                         — generated, not committed
-
-pi/
-  README.md                    — Pi setup, hardware, model locations, run instructions
-  hailo_hef_compile_status.md  — YOLOv8n + EfficientNet-S compile history and results
-  display_test/                — standalone framebuffer/camera display test container
-  sidecar_plan.md              — implementation notes for phone-to-Pi sidecar mode
-  models/                      — .hef + .har + .onnx + species_labels.json (all gitignored)
-
-config.pi.yaml         — Pi-specific config (stream device, Hailo HEF paths, realtime settings)
-                         Separate from config.yaml; do not merge them.
-config.pi.sidecar.yaml — Pi sidecar config; WebSocket source, browser static files, display off.
-Dockerfile.pi          — arm64 image; Hailo + V4L2 device passthrough
-docker-compose.pi.yml  — Pi compose profiles: backyard (Hailo + video + fb0)
-                         and sidecar (Hailo + Caddy HTTPS reverse proxy)
-Caddyfile.sidecar      — sidecar HTTPS reverse proxy; self-signed internal certs
+# Tests
+uv run pytest                                            # 285 tests, no GPU needed
+uv run pytest tests/test_tracker.py                      # single file
+uv run pytest tests/test_tracker.py::TestName::test_name # single test
 ```
 
-## Models
+No lint, formatter, or type-checker is configured in this repo.
 
-### Desktop pipeline (webapp)
-- **Detector**: YOLOv8s (Ultralytics, COCO)
-- **Classifier**: BioCLIP zero-shot, optionally ensembled with a secondary HF model
+## Project Layout
 
-### Raspberry Pi pipeline
-| File | Description | Benchmark |
-|---|---|---|
-| `pi/models/yolov8n.hef` | YOLOv8n detector, Hailo-8 INT8 | 212 FPS on Pi |
-| `pi/models/efficientnet_s_birds.hef` | EfficientNet-V2-S classifier, 237 species | 22 FPS / 44ms |
-| `pi/models/species_labels.json` | 237-entry class index for classifier | — |
+```
+src/                  shared library (desktop + Pi)
+  pipeline.py         orchestrates detect/track/classify; video and image jobs
+  webapp.py           FastAPI app, OAuth, asset store, POST /api/v1/videos
+  detector.py         YOLOv8 (Ultralytics)
+  classifier.py       BioCLIP zero-shot
+  hf_classifier.py    generic HuggingFace image-classification backend
+  gemma_classifier.py Gemma vision-language backend
+  ensemble_classifier.py  weighted geometric-mean ensemble
+  tracker.py          IoU + centroid matching, weighted score aggregation
+  metadata.py         eBird priors, Long Island gating, local overrides
+  video_metadata.py   ExifTool + OpenCV helpers
+  tuner.py            single-video parameter grid search
+  pipeline_defaults.py  default 242-species list
+  # Pi-only modules (do not import into webapp/desktop code):
+  hailo_detector.py, hailo_classifier.py
+  stream_capture.py        V4L2 source (Cam Link 4K, YUYV)
+  ws_frame_source.py       Starlette/uvicorn WebSocket frame source + /upload
+  file_frame_source.py     video-file source matching stream iterator
+  display_overlay.py       /dev/fb0 writer for Pi Touch Display 2
+  realtime_pipeline.py     Pi pipeline entry point
 
-Trained model + HEF: https://huggingface.co/k10z/birdvision-efficientnet-s
+scripts/              CLI entry points and Hailo training/compile wrappers
+tests/                pytest suite; heavy deps monkeypatched in conftest.py
+templates/            Jinja2 (base/index/job)
+static/index.html     Pi sidecar browser camera/upload client
+ebird_data/           county bar-chart TSVs (source for the SQLite priors DB)
+data/species_lists/   committed species lists
+pi/                   Pi setup docs, HEF compile notes; pi/models/ gitignored
+eval/                 standalone model-comparison eval container
+docs/                 long-form docs (OAuth setup, Pi pipeline, etc.)
+```
 
-## Key design decisions
+## Code Style & Patterns
 
-- **No video output** — text logs + JSON results + JPEG crops only
-- **Classify every 10 frames** per track, not every frame
-- **Center weighting** — classification events weighted by Gaussian based on
-  bbox center distance from frame center (`scoring.center_weight_strength`)
-- **Adaptive crop padding** — smaller/distant birds get more context
-- **Ensemble classifier** — BioCLIP + secondary model combined via weighted
-  geometric mean; per-model score breakdown preserved in results JSON;
-  species outside the secondary model's vocabulary get a uniform floor
-- **Video-level summary + per-track detail** — UI leads with video-level
-  species summary; fragmented tracks available as debug detail
-- **Image jobs are photo-first** — per-photo species tables, original photo
-  with overlaid detection boxes, CSS overlay labels; no-detection photos
-  show original in a collapsed view
-- **Video jobs have annotated stills** — evenly-spaced stills snapped to
-  tracked frames, annotated with bounding boxes; video embedded as player
-- **Upload flow is inspect then finalize** — surfaces duplicate status +
-  metadata; Select All / Select None / Select New controls; multiple videos
-  create one job per video
-- **Content-addressed asset store** — uploads stored by sha256; deduplication
-  across browser and API uploads
-- **API ingest** — `POST /api/v1/videos` with `X-API-Token` header validated
-  against `webapp.api_tokens_file`; jobs tagged `submitted_by=<name>@api`
-- **eBird priors** — multiplicative (visual * frequency, renormalized);
-  zero-frequency species floored at 0.01; supports seasonal (default) or
-  location-only mode via `prior_mode` config
-- **Local prior overrides** — YAML file with per-location species frequency
-  adjustments, applied on top of eBird data
-- **Long Island-only GPS gating** — priors applied inside a rough Long Island
-  bounding box (Kings/Queens/Nassau/Suffolk average); visual-only outside
-- **Friendly job URLs** — jobs get slug URLs; bare ID links redirect
-- **Open Graph metadata** — job pages include share card metadata
-- **Paginated job listing** — with media type labels and species summaries
-- **Job state** — in-memory, reconstructed from results JSON on startup;
-  auto-refreshes while jobs are pending/running
-- **Recording date from metadata** — EXIF/QuickTime dates for seasonal priors
-- **Video codec warning** — non-Safari codecs detected at upload time
-- **Safari transcoding** — VP9/AV1 videos can be transcoded to H.264 before
-  ML processing and playback when `webapp.transcode_incompatible_video` is true
-- **Theme switcher** — Default, Birdy, Super Birdy; cookie-backed
-- **OAuth callback override** — `auth.redirect_uri` for reverse-proxied deploys
-- **Access logs** — proxy IP, forwarded client IP, signed-in email
-- **Config hot-reload** — re-read before each job; model/device changes
-  require restart
-- **Species name normalization** at eBird import time (NAME_OVERRIDES dict)
-- **Pi has two runtime modes** — backyard mode reads the Cam Link 4K over V4L2;
-  sidecar mode serves a phone browser client over HTTPS/WebSocket and receives
-  JPEG frames + GPS metadata from the phone
-- **Pi Touch Display overlay** — optional `/dev/fb0` writer shows the live feed,
-  boxes, and a bottom caption; no X11/Wayland required
-- **Pi sidecar uploads** — browser client can upload photo/video files to the
-  Pi; upload path logs copyable prediction summaries and saves classifier debug
-  crops under `results/upload_debug/` or `/tmp/birdvision_upload_debug/`
-- **Hailo classifier input layout** — compiled EfficientNet-S HEF expects NHWC
-  `(224, 224, 3)` tensors; do not change preprocessing back to CHW
-- **Pi classifies at 22 FPS** — sufficient for `classify_every_n_frames: 10`
-  at 60fps capture (max 6 classifications/sec per track needed)
-
-## Docker
-
-**Webapp (x86_64)**
-- Base image: `cgr.dev/chainguard/python:latest-dev` (Wolfi/Alpine)
-- `USER root` before `apk add`; drop to `nonroot` before CMD
-- venv layer separate from source layers for fast rebuilds
-- `config.yaml` bind-mounted (`./config.yaml:/data/config.yaml:ro`)
-- Writable volumes: `./videos`, `./results`, `./models` (chmod 777 on host)
-- eBird SQLite DB built during `docker compose build`
-- Run: `docker compose up`
-
-**Raspberry Pi (arm64)**
-- `Dockerfile.pi` + `docker-compose.pi.yml` — separate files, do not modify main compose
-- Backyard profile device passthrough: `/dev/hailo0`, `/dev/video0`, `/dev/video1`,
-  and optional `/dev/fb0` for Pi Touch Display 2
-- Sidecar profile uses `/dev/hailo0` plus Caddy on ports 80/443; phone opens
-  `https://<pi-ip>/` and accepts the one-time self-signed cert warning
-- Configs: `config.pi.yaml` for backyard, `config.pi.sidecar.yaml` for sidecar;
-  both are bind-mounted as `/app/config.pi.yaml`
-- Run backyard: `docker compose -f docker-compose.pi.yml --profile backyard up`
-- Run sidecar: `docker compose -f docker-compose.pi.yml --profile sidecar up`
-
-## Config (config.yaml)
-
-Treat `config.yaml` as the source of truth for current defaults.
-
-Hot-reloadable: detector threshold, classifier cadence/padding/gates, tracker
-thresholds, scoring weights, metadata coords/FIPS/results dir, auth emails,
-prior_mode, local_priors_file.
-
-Require restart: model path/name/device, OAuth credentials, session secret.
-
-## Workflow notes for AI/code agents
-
-- **Unit tests**: `uv run pytest` (279 tests collected, no GPU needed). Tests cover
-  tracker, metadata priors, pipeline helpers, video metadata, webapp
-  auth/upload, ensemble classifier, WebSocket frame source, and Hailo classifier
-  preprocessing. Heavy deps monkeypatched in fixtures.
-- **Smoke checks**:
-  - `uv run scripts/import_ebird_barchart.py ebird_data/ --db /tmp/ebird_priors.db`
-  - `uv run scripts/serve.py --config config.yaml --port 3587`
-  - `uv run scripts/identify_videos.py <video-or-dir> --config config.yaml`
-  - Direct sidecar WebSocket dev: `uv run --no-project --with websockets,opencv-python-headless scripts/ws_test_client.py <video> --server ws://<pi-ip>:8765/ws`
-- **Pipeline startup is heavyweight**: model init/download at runtime. Avoid
-  unnecessary full runs for small edits.
-- **Default config targets container paths** (`/data/...`). For local runs use
-  local path overrides or an alternate config file.
-- **Pi dependency isolation**: `hailort` and other Pi-only packages live in
-  `[dependency-groups] pi` in `pyproject.toml`. Never add them to
-  `[project.dependencies]` — they only install on Linux aarch64 and will break
-  CI and desktop `uv sync`. Install on Pi with `uv sync --group pi`.
-- **`[tool.uv] default-groups = ["dev"]`** in `pyproject.toml` — prevents uv
-  from trying to resolve `hailort` (not on PyPI) during normal `uv run` /
-  `uv sync`. Do not remove this.
-- **Pi scripts that don't need the project**: use `uv run --no-project --with <pkg>`
-  to avoid project dep resolution entirely (e.g. training and download scripts).
-- **Long-running retraining steps log to files**: `run_training.sh`,
-  `run_verify_efficientnet_onnx.sh`, and `run_compile_efficientnet_hef.sh`
-  print a timestamped log file under `logs/retraining/` so users can `tail -f`
-  while Codex-launched jobs are running.
-- **Pi code is additive**: `src/hailo_*.py`, `src/stream_capture.py`,
-  `src/ws_frame_source.py`, `src/file_frame_source.py`, `src/display_overlay.py`,
-  and `src/realtime_pipeline.py` are Pi-focused. Do not pull Pi-only deps into
-  desktop modules.
-- **Three configs, never merged**: `config.yaml` = webapp,
-  `config.pi.yaml` = Pi backyard, `config.pi.sidecar.yaml` = Pi sidecar.
-  Do not add Pi-specific keys to `config.yaml`.
-- **Result filename conventions** (used by startup reconstruction):
+- **`logging` module everywhere**, configured at entry points. No `print()` in
+  library code.
+- **Heavy deps monkeypatched in tests** (`tests/conftest.py`) — suite runs
+  with no GPU, HailoRT, or model downloads. New detector/classifier/HailoRT
+  tests should follow the same pattern.
+- **Pi modules are additive and one-way**: `src/hailo_*.py`,
+  `stream_capture.py`, `ws_frame_source.py`, `file_frame_source.py`,
+  `display_overlay.py`, `realtime_pipeline.py` may import desktop code, but
+  webapp/desktop modules MUST NOT import them or pull in `hailort`.
+- **Config hot-reload**: pipeline/scoring/tracker/auth re-read before each
+  job; model path, device, OAuth credentials, and session secret need a
+  process restart.
+- **Result filename conventions** (relied on by startup job reconstruction):
   - JSON: `{job_id}_{original_stem}_results.json`
   - Video crops: `<results_dir>/<video_stem>_crops/track_<track_id>.jpg`
-  - Image crops: `<results_dir>/<job_id>_crops/` (bird crops + annotated JPEGs)
-  - Video stills: `still_{idx}_{frame}_annotated.jpg` in crops dir
-- **Jobs reference explicit asset records**, not `{job_id}_filename` paths.
-- **Serial processing** (`ThreadPoolExecutor(max_workers=1)`). Changing
-  concurrency affects queue behavior and GPU memory.
-- **Keep out of commits**: model weights, `results/`, `videos/` (including
-  `videos/assets/` and `videos/asset_index.json`), `data/ebird_priors.db`,
-  `pi/models/*.hef`, `pi/models/*.har`, `pi/models/*.onnx`,
-  `pi/models/species_labels.json`, `pi/deps/*.whl`, `pi/deps/*.deb`, `certs/`.
-- **Hailo DFC compilation** requires x86_64 Linux + DFC 3.33.1 from
-  https://hailo.ai/developer-zone/. ONNX must be exported with `dynamo=False`
-  (legacy TorchScript exporter) for DFC compatibility. Calibration data must
-  be NHWC `(N, 224, 224, 3)` float32.
+  - Image crops: `<results_dir>/<job_id>_crops/`
+  - Annotated stills: `still_{idx}_{frame}_annotated.jpg`
+- **Hailo classifier input is NHWC `(224, 224, 3)`** — do not revert to CHW.
+- **Serial job execution**: `ThreadPoolExecutor(max_workers=1)`. Changing
+  concurrency affects queue semantics and GPU memory.
 
-## GitHub
+## Making Changes
 
-Repo: https://github.com/evanwtf/birdvision (private)
-CI: GitHub Actions runs unit tests on push/PR (manual dispatch only).
+- Minimal, focused edits; preserve existing architecture. `pytest` is the only
+  safety net — no lint or type-checker is configured.
+- Add deps with `uv add <pkg>` (or `uv add --group pi <pkg>` for PyPI Pi deps).
+  `pyproject.toml` is canonical; only update `requirements.txt` /
+  `requirements.pi.txt` alongside it.
+- Update `README.md` (and the config table) and relevant `docs/` files when
+  user-visible behavior, config keys, or commands change.
+- CI (`.github/workflows/tests.yml`) is `workflow_dispatch` only — run
+  `uv run pytest` locally before pushing.
 
-## What's not done yet
+## Guardrails
 
-Key open issues (see GitHub for full backlog):
+### Always
+- Use `uv` (`uv sync`, `uv run`) — `uv.lock` is committed and authoritative.
+- Keep `[tool.uv] default-groups = ["dev"]` in `pyproject.toml`; it prevents
+  `uv` from trying to resolve `hailort` (not on PyPI) on every sync.
+- Treat `config.yaml`, `config.pi.yaml`, and `config.pi.sidecar.yaml` as
+  separate documents.
+- Reference asset records explicitly in jobs (not `{job_id}_filename` paths).
 
-- Broader eBird region coverage beyond Long Island (#18)
-- Video-level summary robustness to noisy track fragments (#9)
-- Species-group rollups and UI (#33, #32)
-- Small-bird recall via tiled/zoomed fallback detection (#26)
-- Tuner improvements: species-group optimization (#34), benchmark workflow (#12)
-- Fine-tuning detector/classifier on BirdVision data (#7, #30)
-- Human-in-the-loop active learning workflow (#31)
-- Pi field sidecar networking/hotspot/autostart docs (#94, #97-#101)
-- Pi power monitoring and model comparison eval (#86, #85)
-- Native iPhone or hybrid phone/server exploration (#90)
+### Never
+- Add `hailort` or other aarch64-only Pi packages to `[project.dependencies]`
+  — it breaks CI and desktop `uv sync`.
+- Import Pi-only modules (`src/hailo_*`, `stream_capture`, `ws_frame_source`,
+  `file_frame_source`, `display_overlay`, `realtime_pipeline`) from webapp or
+  the desktop pipeline.
+- Add Pi-specific config keys to `config.yaml` (or vice versa).
+- Use `print()` for runtime output; use the configured logger.
+- Commit secrets — `api_tokens.yaml`, `.env`, `certs/` are gitignored for a
+  reason. `config.yaml` currently contains live Google OAuth and session
+  secrets; prefer the env-var overrides for any new deployment and do not
+  duplicate those values elsewhere.
 
-**Raspberry Pi real-time sub-project** (#70) — v0.3.1, pipeline working end-to-end:
-- ~~Scaffold Pi monorepo structure (#81)~~ done
-- ~~OS packages on Pi (#71)~~ done
-- ~~Hailo PCIe kernel driver on Pi host (#72)~~ done — `/dev/hailo0` present
-- ~~Cam Link 4K verification (#73)~~ done — `/dev/video0` present
-- ~~YOLOv8n to Hailo HEF (#74)~~ done — `pi/models/yolov8n.hef`, 212 FPS on Pi
-- ~~EfficientNet-S fine-tune (#75)~~ done — 80.7% top-1, 94.0% top-5, 237 species
-- ~~EfficientNet-S to HEF + classifier backend (#77)~~ done — 22 FPS / 44ms on Pi
-- ~~Upload model to HuggingFace (#82)~~ done — https://huggingface.co/k10z/birdvision-efficientnet-s
-- ~~Hailo-8 detection backend hailo_detector.py (#76)~~ done — YOLOv8n via shared VDevice
-- ~~Live video capture stream_capture.py (#78)~~ done — YUYV V4L2 at 1920×1080 60fps
-- ~~Real-time pipeline realtime_pipeline.py (#79)~~ done — ~27–34 FPS end-to-end, verified live
-- ~~ARM64 Docker image (#80)~~ done — Dockerfile.pi + docker-compose.pi.yml
-- ~~Pi Touch Display test container (#89)~~ done — live video + fake captions on `/dev/fb0`
-- ~~Pi Touch Display overlay (#87)~~ done — live feed, boxes, CC-style species label
-- ~~WebSocket phone sidecar mode (PR #95/#96)~~ done — browser camera client streams JPEG frames + GPS to Pi over WebSocket
-- ~~Sidecar HTTPS via Caddy (v0.3.0)~~ done — phone opens `https://<pi-ip>/`; HTTP redirects to HTTPS
-- ~~Sidecar file upload identification (#102/#103, v0.3.1)~~ done — photo/video upload path, copyable summaries, debug crops
-- ~~Hailo EfficientNet input layout fix (#103)~~ done — classifier preprocessing now emits NHWC `(224, 224, 3)`
+### Use Extra Caution
+- **Generated / gitignored, do not commit**: `data/ebird_priors.db`,
+  `models/`, `videos/` (including `videos/assets/`, `videos/asset_index.json`),
+  `results/`, `output/`, `logs/`, `train_data/`, `eval/report/`,
+  `pi/models/*.{hef,har,onnx}`, `pi/models/species_labels.json`,
+  `pi/deps/*.{whl,deb}`, `certs/`, `*.pt`, `*.pth`, `*.onnx`,
+  `api_tokens.yaml`.
+- **Deployment configs**: `Dockerfile`, `Dockerfile.pi`, `docker-compose.yml`,
+  `docker-compose.pi.yml`, `Caddyfile.sidecar` — changes affect device
+  passthrough, runtime users, and volume layout.
+- **Hailo DFC compilation**: requires x86_64 Linux + DFC 3.33.1. ONNX must be
+  exported with `dynamo=False` (legacy TorchScript exporter). Calibration data
+  must be NHWC `(N, 224, 224, 3)` float32.
+- **Pipeline startup is heavyweight** (model init/downloads). Avoid running
+  the full pipeline for small edits — prefer targeted `pytest` runs.
 
-**Next Pi milestones:**
-- Pi WiFi hotspot + sidecar field workflow (#94, #97-#101)
-- Power monitoring via INA219/USB-C meter for battery runtime estimation (#86)
-- Evaluate retrained 237-class EfficientNet against the current desktop classifier (#85)
-- Close or reconcile stale tracking issues now implemented by PR #95/#96 (#91-#93, #88)
+## Troubleshooting
+
+- `uv sync` failing to resolve `hailort` on desktop/CI means the `pi` group
+  was pulled into default resolution; check `[tool.uv] default-groups`.
+- Webapp config defaults point at `/data/...` (container paths). Local runs
+  need `--config` pointing at a file with host paths, or matching directories
+  must exist.
+- Long-running scripts (`scripts/run_training.sh`,
+  `scripts/run_verify_efficientnet_onnx.sh`,
+  `scripts/run_compile_efficientnet_hef.sh`) write timestamped logs under
+  `logs/retraining/`; `tail -f` that file rather than the launching terminal.
+
+## Agent Notes
+
+This file is symlinked as `CLAUDE.md` (and may be symlinked as `GEMINI.md`).
+Keep all instructions tool-neutral and universally applicable to AI coding
+agents — do not add tool-specific commands, slash commands, or assumptions
+about a particular agent harness.
