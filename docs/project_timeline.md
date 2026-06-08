@@ -31,12 +31,10 @@ and issue numbers so we can drill down later.
 ## Trained model, published artifacts
 
 - **Hugging Face repo:** https://huggingface.co/k10z/birdvision-efficientnet-s
-- **GitHub repo:** https://github.com/evandhoffman/birdvision (private)
 - Artifacts published to HF: `efficientnet_s_birds.onnx`, `efficientnet_s_birds.hef`
   (Hailo-compiled), `species_labels.json`, PyTorch best + phase-1 checkpoints,
   auto-generated model card with Pi benchmarks.
 - License: **CC-BY-NC-4.0** — inherited from iNaturalist training data.
-- HF username `k10z`; GitHub username `evandhoffman`.
 
 ---
 

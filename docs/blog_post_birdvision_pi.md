@@ -1,3 +1,6 @@
+> **Draft.** This is a work-in-progress blog post kept in the repo for
+> editing convenience. The final published version will live elsewhere.
+
 # Teaching a Raspberry Pi to identify birds in my backyard
 
 I've got a lot of birds in my backyard. We have a feeder, we have a bird

@@ -20,6 +20,19 @@ Primary deployment targets:
 Desktop models download automatically on first run. Pi HEF models and HailoRT
 packages are placed manually because Hailo's runtime packages are proprietary.
 
+## Background
+
+BirdVision came together in a 34-day burst (Mar 30 – May 2 2026): 88 GitHub
+issues, 168 commits, the webapp + eBird priors + ensemble classifier on day
+one, then the Pi pipeline + Hailo accelerator + sidecar mode in weeks two
+through four. The day-by-day commit log lives in
+[`docs/project_timeline.md`](docs/project_timeline.md) if you want the
+"how did this happen" view.
+
+If you're setting it up for the first time, jump to
+[`docs/getting_started.md`](docs/getting_started.md) — a focused walkthrough
+from `git clone` to your first results page.
+
 ## Setup
 
 ### Docker (recommended)
