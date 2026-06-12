@@ -2,6 +2,7 @@ import bisect
 import json
 import logging
 import os
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -685,6 +686,29 @@ class BirdIdentificationPipeline:
 
         return stills
 
+    @contextmanager
+    def _scoped_job_prior(self, latitude: float | None, longitude: float | None):
+        """Temporarily swap in a per-job GPS prior, restoring the default after.
+
+        When a job carries GPS, the prior is rebuilt for that location. Without
+        save/restore the swapped-in prior would leak into the next job that has
+        no GPS (e.g. the CLI batch runner over a directory), silently scoring it
+        for the wrong region. The default (config-derived) prior is always
+        restored, even if the job raises.
+        """
+        saved_prior = self.prior
+        if latitude is not None and longitude is not None:
+            self.prior = self._build_prior(
+                latitude=latitude,
+                longitude=longitude,
+                fips=None,
+                use_default_fips=False,
+            )
+        try:
+            yield
+        finally:
+            self.prior = saved_prior
+
     def process_video(
         self,
         video_path: str,
@@ -698,19 +722,35 @@ class BirdIdentificationPipeline:
     ) -> dict:
         """
         Process a single video. Returns a summary dict and writes a JSON results file.
+
+        A per-job GPS prior is scoped to this call only (see _scoped_job_prior).
         """
+        with self._scoped_job_prior(latitude, longitude):
+            return self._process_video_impl(
+                video_path,
+                video_date=video_date,
+                latitude=latitude,
+                longitude=longitude,
+                result_stem=result_stem,
+                source_filename=source_filename,
+                display_name=display_name,
+                asset_records=asset_records,
+            )
+
+    def _process_video_impl(
+        self,
+        video_path: str,
+        video_date: datetime | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        result_stem: str | None = None,
+        source_filename: str | None = None,
+        display_name: str | None = None,
+        asset_records: list[dict] | None = None,
+    ) -> dict:
         self.tracker.next_id = 0
         self.tracker.tracks.clear()
         self.tracker.completed_tracks.clear()
-
-        # Use per-video GPS if provided, otherwise fall back to config prior
-        if latitude is not None and longitude is not None:
-            self.prior = self._build_prior(
-                latitude=latitude,
-                longitude=longitude,
-                fips=None,
-                use_default_fips=False,
-            )
 
         cap = cv2.VideoCapture(video_path)
         if not cap.isOpened():
@@ -1091,15 +1131,35 @@ class BirdIdentificationPipeline:
         """
         Classify birds in one or more photos. Returns a summary dict and writes
         a JSON results file.  No tracker is used — each image is independent.
+
+        A per-job GPS prior is scoped to this call only (see _scoped_job_prior).
         """
-        if latitude is not None and longitude is not None:
-            self.prior = self._build_prior(
+        with self._scoped_job_prior(latitude, longitude):
+            return self._process_images_impl(
+                image_paths,
+                source_filenames=source_filenames,
+                video_date=video_date,
                 latitude=latitude,
                 longitude=longitude,
-                fips=None,
-                use_default_fips=False,
+                job_id=job_id,
+                result_stem=result_stem,
+                display_name=display_name,
+                asset_records=asset_records,
             )
 
+    def _process_images_impl(
+        self,
+        image_paths: list[str],
+        *,
+        source_filenames: list[str] | None = None,
+        video_date: datetime | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
+        job_id: str | None = None,
+        result_stem: str | None = None,
+        display_name: str | None = None,
+        asset_records: list[dict] | None = None,
+    ) -> dict:
         stem = result_stem or job_id or Path(image_paths[0]).stem
         crops_dir = Path(self.results_dir) / ((job_id or stem) + "_crops")
         crops_dir.mkdir(parents=True, exist_ok=True)
