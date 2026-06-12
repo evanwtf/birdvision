@@ -321,6 +321,51 @@ class TestWaterbirdShapeAdjustment:
         assert total == pytest.approx(1.0)
 
 
+class TestFinalizePredictions:
+    """Both the track loop and the video-stills pass must apply the waterbird
+    shape adjustment AND the eBird prior, so their species rankings agree."""
+
+    def test_applies_waterbird_then_prior(self, pipeline):
+        # Prior passes through so we can observe the shape adjustment's effect.
+        pipeline.prior.apply = MagicMock(side_effect=lambda preds, **kw: preds)
+        preds = [("Mute Swan", 0.5), ("Herring Gull", 0.5)]
+
+        result = pipeline._finalize_predictions(
+            preds,
+            bbox=np.array([100, 500, 400, 550]),  # wide, low — boosts gull
+            frame_width=1920,
+            frame_height=1080,
+            dt=None,
+            latitude=None,
+            longitude=None,
+        )
+
+        # Shape adjustment ran: gull now outranks swan.
+        assert result[0][0] == "Herring Gull"
+        # Prior was applied to the shape-adjusted predictions.
+        pipeline.prior.apply.assert_called_once()
+        passed_to_prior = dict(pipeline.prior.apply.call_args.args[0])
+        assert passed_to_prior["Herring Gull"] > passed_to_prior["Mute Swan"]
+
+    def test_forwards_date_and_location_to_prior(self, pipeline):
+        pipeline.prior.apply = MagicMock(side_effect=lambda preds, **kw: preds)
+        preds = [("Robin", 0.9)]
+
+        pipeline._finalize_predictions(
+            preds,
+            bbox=np.array([0, 0, 100, 100]),
+            frame_width=640,
+            frame_height=480,
+            dt=None,
+            latitude=40.7,
+            longitude=-73.5,
+        )
+
+        kwargs = pipeline.prior.apply.call_args.kwargs
+        assert kwargs["latitude"] == 40.7
+        assert kwargs["longitude"] == -73.5
+
+
 class TestSelectVideoGalleryPlan:
     def test_empty_candidates_with_fallback(self, pipeline):
         result = pipeline._select_video_gallery_plan(

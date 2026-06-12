@@ -428,6 +428,31 @@ class BirdIdentificationPipeline:
             key=lambda item: -item[1],
         )
 
+    def _finalize_predictions(
+        self,
+        preds: list[tuple[str, float]],
+        *,
+        bbox: np.ndarray,
+        frame_width: int,
+        frame_height: int,
+        dt: datetime | None,
+        latitude: float | None,
+        longitude: float | None,
+    ) -> list[tuple[str, float]]:
+        """Apply the waterbird shape adjustment, then the eBird prior.
+
+        Shared by the per-track classification loop and the video-stills pass so
+        both produce the same ranking (the stills/thumbnail can otherwise
+        disagree with the track summary on swan-vs-gull frames).
+        """
+        preds = self._apply_waterbird_shape_adjustment(
+            preds,
+            bbox=bbox,
+            frame_width=frame_width,
+            frame_height=frame_height,
+        )
+        return self.prior.apply(preds, dt=dt, latitude=latitude, longitude=longitude)
+
     def _select_video_gallery_plan(
         self,
         candidates: list[dict],
@@ -634,14 +659,16 @@ class BirdIdentificationPipeline:
                         if raw_top_conf < self.min_event_confidence:
                             continue
 
-                        preds = self.prior.apply(
+                        det_idx_val = crop_indices[i]
+                        preds = self._finalize_predictions(
                             preds,
+                            bbox=detections[det_idx_val].bbox,
+                            frame_width=width,
+                            frame_height=height,
                             dt=video_date,
                             latitude=latitude,
                             longitude=longitude,
                         )
-
-                        det_idx_val = crop_indices[i]
                         det_results.append(
                             {
                                 "detection_index": len(det_results) + 1,
@@ -857,14 +884,14 @@ class BirdIdentificationPipeline:
                             continue
 
                         bbox = tracks[tid].bbox
-                        preds = self._apply_waterbird_shape_adjustment(
+                        preds = self._finalize_predictions(
                             preds,
                             bbox=bbox,
                             frame_width=width,
                             frame_height=height,
-                        )
-                        preds = self.prior.apply(
-                            preds, dt=video_date, latitude=latitude, longitude=longitude
+                            dt=video_date,
+                            latitude=latitude,
+                            longitude=longitude,
                         )
 
                         # Weight by proximity to frame center (Gaussian falloff)
