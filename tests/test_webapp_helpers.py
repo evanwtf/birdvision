@@ -25,6 +25,7 @@ from src.webapp import (
     require_upload_access,
     resolution_warning_text,
     result_name_seed,
+    safe_redirect_path,
     slugify_result_name,
     transcode_to_h264,
     validate_asset_batch,
@@ -1088,6 +1089,34 @@ class TestSafariCompatibleCodecs:
 
     def test_av1_not_compatible(self):
         assert "av01" not in SAFARI_COMPATIBLE_CODECS
+
+
+class TestSafeRedirectPath:
+    def test_allows_simple_path(self):
+        assert safe_redirect_path("/jobs/abc123") == "/jobs/abc123"
+
+    def test_allows_path_with_query(self):
+        assert safe_redirect_path("/?page=2") == "/?page=2"
+
+    def test_defaults_root_for_empty(self):
+        assert safe_redirect_path("") == "/"
+
+    def test_rejects_protocol_relative(self):
+        # Browsers resolve //host as https://host — open redirect.
+        assert safe_redirect_path("//evil.example/phish") == "/"
+
+    def test_rejects_backslash_protocol_relative(self):
+        # Some browsers normalize /\ to // before resolving.
+        assert safe_redirect_path("/\\evil.example") == "/"
+
+    def test_rejects_absolute_url(self):
+        assert safe_redirect_path("https://evil.example") == "/"
+
+    def test_rejects_scheme_relative_without_leading_slash(self):
+        assert safe_redirect_path("evil.example") == "/"
+
+    def test_custom_default(self):
+        assert safe_redirect_path("//evil.example", default="/home") == "/home"
 
 
 # ---------------------------------------------------------------------------
