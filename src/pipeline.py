@@ -1123,8 +1123,6 @@ class BirdIdentificationPipeline:
         # Check if priors meaningfully changed the ranking
         raw_top = raw_top3[0][0]
         if raw_top != top_final:
-            # Find how much more likely top_final is vs raw_top visually
-            next((p for s, p in raw_top3 if s == top_final), None)
             raw_top_freq = priors.get(raw_top, 0.01)
             final_freq = priors.get(top_final, 0.01)
             if raw_top_freq > 0 and final_freq > raw_top_freq:

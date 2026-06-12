@@ -663,6 +663,7 @@ class RealtimePipeline:
         fd, tmp_path = tempfile.mkstemp(suffix=suffix)
         os.close(fd)
 
+        cap = None
         try:
             with open(tmp_path, "wb") as f:
                 f.write(file_bytes)
@@ -787,7 +788,6 @@ class RealtimePipeline:
                         frame_no / elapsed if elapsed > 0 else 0,
                     )
 
-            cap.release()
             elapsed = time.monotonic() - t_start
 
             species_summary = []
@@ -863,6 +863,8 @@ class RealtimePipeline:
                 "tracks": tracks_summary,
             }
         finally:
+            if cap is not None:
+                cap.release()
             os.unlink(tmp_path)
 
     # ------------------------------------------------------------------
