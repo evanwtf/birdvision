@@ -100,6 +100,72 @@ def pipeline():
     return pipe
 
 
+class TestPriorIsolationBetweenJobs:
+    """A per-job GPS prior must not leak into later jobs that have no GPS."""
+
+    @staticmethod
+    def _empty_capture():
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.get.return_value = 0  # fps/frame-count/width/height all 0
+        cap.read.return_value = (False, None)  # no frames
+        return cap
+
+    def test_video_gps_prior_restored_after_job(self, pipeline, tmp_path):
+        pipeline.results_dir = str(tmp_path)
+        default_prior = pipeline.prior
+        default_prior.prior_mode = "seasonal"
+
+        gps_prior = MagicMock(name="gps_prior")
+        gps_prior.prior_mode = "seasonal"
+
+        with (
+            patch.object(pipeline, "_build_prior", return_value=gps_prior) as build,
+            patch("src.pipeline.cv2.VideoCapture", return_value=self._empty_capture()),
+        ):
+            pipeline.process_video("clip.mp4", latitude=40.7, longitude=-73.5)
+
+        # The per-job GPS prior was built and used during the job…
+        build.assert_called_once()
+        # …but self.prior is restored to the config default afterward.
+        assert pipeline.prior is default_prior
+
+    def test_video_without_gps_keeps_config_prior(self, pipeline, tmp_path):
+        pipeline.results_dir = str(tmp_path)
+        default_prior = pipeline.prior
+        default_prior.prior_mode = "seasonal"
+
+        with (
+            patch.object(pipeline, "_build_prior") as build,
+            patch("src.pipeline.cv2.VideoCapture", return_value=self._empty_capture()),
+        ):
+            pipeline.process_video("clip.mp4")
+
+        build.assert_not_called()
+        assert pipeline.prior is default_prior
+
+    def test_images_gps_prior_restored_after_job(self, pipeline, tmp_path):
+        pipeline.results_dir = str(tmp_path)
+        default_prior = pipeline.prior
+        default_prior.prior_mode = "seasonal"
+        default_prior.resolve_county_name.return_value = None
+
+        gps_prior = MagicMock(name="gps_prior")
+        gps_prior.prior_mode = "seasonal"
+        gps_prior.resolve_county_name.return_value = None
+
+        empty_meta = MagicMock(recorded_at=None, latitude=None, longitude=None, camera_info=None)
+        with (
+            patch.object(pipeline, "_build_prior", return_value=gps_prior) as build,
+            patch("src.pipeline.extract_media_metadata", return_value=empty_meta),
+            patch("src.pipeline.cv2.imread", return_value=None),
+        ):
+            pipeline.process_images(["a.jpg"], latitude=40.7, longitude=-73.5)
+
+        build.assert_called_once()
+        assert pipeline.prior is default_prior
+
+
 class TestExpandedCrop:
     def test_returns_none_for_tiny_box(self, pipeline):
         frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
