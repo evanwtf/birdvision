@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import subprocess
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -75,6 +76,19 @@ def safe_redirect_path(value: str, default: str = "/") -> str:
     if value.startswith("//") or value.startswith("/\\"):
         return default
     return value
+
+
+async def _run_off_event_loop(func, *args, **kwargs):
+    """Run a blocking callable on the default thread pool, awaiting the result.
+
+    Upload inspection/ingest does synchronous heavy work (hashing, large disk
+    writes, an exiftool subprocess, OpenCV probes); calling it directly from an
+    async handler stalls the whole event loop. The default executor is used
+    (not the single-worker pipeline executor) so uploads don't queue behind a
+    running inference job.
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, lambda: func(*args, **kwargs))
 
 
 @dataclass
@@ -339,6 +353,11 @@ class AssetStore:
         self.asset_dir = upload_dir / "assets"
         self.asset_dir.mkdir(parents=True, exist_ok=True)
         self.index_path = upload_dir / "asset_index.json"
+        # Inspect/ingest now runs on thread-pool workers (see
+        # _run_off_event_loop), so concurrent requests can touch the in-memory
+        # index and its JSON file at once. Guard the read-modify-write regions.
+        # Reentrant because inspect_bytes calls get() while already holding it.
+        self._lock = threading.RLock()
         self._assets = self._load_index()
 
     def _load_index(self) -> dict[str, dict[str, Any]]:
@@ -361,16 +380,17 @@ class AssetStore:
         self.index_path.write_text(json.dumps(payload, indent=2))
 
     def get(self, sha256: str) -> dict[str, Any] | None:
-        record = self._assets.get(sha256)
-        if record is None:
+        with self._lock:
+            record = self._assets.get(sha256)
+            if record is None:
+                return None
+            stored_path = Path(record["stored_path"])
+            if stored_path.exists():
+                return record
+            logger.warning(f"Indexed asset missing on disk, dropping stale entry: {stored_path}")
+            self._assets.pop(sha256, None)
+            self._save_index()
             return None
-        stored_path = Path(record["stored_path"])
-        if stored_path.exists():
-            return record
-        logger.warning(f"Indexed asset missing on disk, dropping stale entry: {stored_path}")
-        self._assets.pop(sha256, None)
-        self._save_index()
-        return None
 
     def inspect_bytes(
         self,
@@ -422,13 +442,14 @@ class AssetStore:
             "created_at": (existing or {}).get("created_at") or utc_now_iso(),
             "last_seen_at": utc_now_iso(),
         }
-        if processing_issue is not None:
-            stored_path.unlink(missing_ok=True)
-            self._assets.pop(sha256, None)
-            self._save_index()
-        else:
-            self._assets[sha256] = record
-            self._save_index()
+        with self._lock:
+            if processing_issue is not None:
+                stored_path.unlink(missing_ok=True)
+                self._assets.pop(sha256, None)
+                self._save_index()
+            else:
+                self._assets[sha256] = record
+                self._save_index()
 
         return {
             "sha256": sha256,
@@ -471,12 +492,13 @@ class AssetStore:
 
     def update_transcoded_path(self, sha256: str, new_path: str, new_codec: str) -> None:
         """Update the stored path and codec for an asset after transcoding."""
-        record = self._assets.get(sha256)
-        if record is None:
-            return
-        record["stored_path"] = new_path
-        record["video_codec"] = new_codec
-        self._save_index()
+        with self._lock:
+            record = self._assets.get(sha256)
+            if record is None:
+                return
+            record["stored_path"] = new_path
+            record["video_codec"] = new_codec
+            self._save_index()
 
 
 _jobs: dict[str, Job] = {}
@@ -969,7 +991,8 @@ def create_app(
                 actor=actor,
             )
             raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail=reason)
-        inspected = asset_store.inspect_bytes(
+        inspected = await _run_off_event_loop(
+            asset_store.inspect_bytes,
             original_filename=original_filename,
             content_type=file.content_type,
             data=contents,
@@ -1103,8 +1126,10 @@ def create_app(
             selected_assets = []
             for img_path in image_paths:
                 img_file = Path(img_path)
-                inspected = asset_store.ingest_path(
-                    str(img_file), old_job.filename if len(image_paths) == 1 else img_file.name
+                inspected = await _run_off_event_loop(
+                    asset_store.ingest_path,
+                    str(img_file),
+                    old_job.filename if len(image_paths) == 1 else img_file.name,
                 )
                 selected_assets.append(
                     {
@@ -1121,7 +1146,9 @@ def create_app(
                     first_path = str(candidate)
             if first_path is None:
                 return HTMLResponse("Original video file not found", status_code=404)
-            inspected = asset_store.ingest_path(first_path, old_job.filename)
+            inspected = await _run_off_event_loop(
+                asset_store.ingest_path, first_path, old_job.filename
+            )
             selected_assets = [
                 {
                     "sha256": inspected["sha256"],
@@ -1760,7 +1787,8 @@ async def _inspect_files(
                 content_type=upload.content_type,
             )
         inspected_assets.append(
-            asset_store.inspect_bytes(
+            await _run_off_event_loop(
+                asset_store.inspect_bytes,
                 original_filename=filename,
                 content_type=upload.content_type,
                 data=contents,
