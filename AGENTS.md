@@ -185,6 +185,10 @@ docs/                 long-form docs; getting_started.md = BOM + setup walkthrou
 - Branch off `main` with a kebab-case prefix (`fix/…`, `feat/…`, `chore/…`,
   `docs/…`); one logical change per PR; PRs are required for `main`. See
   `CONTRIBUTING.md`.
+- This repo is a clean re-export of an earlier repo (history scrubbed of
+  secrets). PR/issue numbers in pre-export commit messages and docs (roughly
+  `#74`–`#128`) refer to the old repo and do not resolve here — cite commit
+  SHAs when referencing that history.
 
 ## Guardrails
 
