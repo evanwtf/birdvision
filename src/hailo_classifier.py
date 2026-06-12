@@ -9,6 +9,7 @@ Install: uv sync --group pi
 
 import json
 import logging
+import threading
 import time
 from pathlib import Path
 
@@ -51,10 +52,14 @@ class HailoClassifier:
         top_k: int = 5,
         device: str = "hailo",  # ignored, kept for interface compat
         vdevice=None,  # shared VDevice instance; created if not provided
+        inference_lock: "threading.Lock | None" = None,
     ):
         self.top_k = top_k
         self.hef_path = str(hef_path)
         self._shared_vdevice = vdevice
+        # Shared with the detector to serialize VDevice access across the live
+        # frame loop and the sidecar /upload worker thread. See HailoDetector.
+        self._inference_lock = inference_lock or threading.Lock()
 
         logger.info("Loading species labels: %s", labels_path)
         self.species_names: list[str] = json.loads(Path(labels_path).read_text())
@@ -151,6 +156,7 @@ class HailoClassifier:
 
         t0 = time.perf_counter()
         with (
+            self._inference_lock,
             InferVStreams(
                 self._network_group,
                 self._input_vstream_params,
