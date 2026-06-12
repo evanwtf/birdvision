@@ -3,29 +3,34 @@
 ## Overview
 
 Bird species identification from video and photos using local computer vision
-models. Two deployment surfaces share a common `src/` library: a FastAPI webapp
-(BioCLIP on CUDA, x86_64) and a Raspberry Pi 5 real-time pipeline (YOLOv8n +
-EfficientNet-S compiled to Hailo-8 HEF). Processing is fully local — no cloud
+models. Three deployment shapes share a common `src/` library: a Raspberry
+Pi 5 **sidecar** (phone camera streams to the Pi over WebSocket — the primary
+deployment), a Pi **backyard** mode (USB capture card), and a FastAPI
+**webapp** (BioCLIP on CUDA, x86_64). The Pi modes run YOLOv8n +
+EfficientNet-S compiled to Hailo-8 HEF. Processing is fully local — no cloud
 inference.
 
 ## Tech Stack
 
 - **Python ≥ 3.12** (`pyproject.toml`), managed with `uv` (`uv.lock` committed)
 - **Web**: FastAPI, Uvicorn, Jinja2, Authlib (Google OAuth), `python-multipart`
-- **Vision**: `ultralytics` (YOLOv8), `open-clip-torch` (BioCLIP), `transformers`,
+- **Vision**: `ultralytics` (YOLOv8), `open-clip-torch` (BioCLIP),
+  `transformers` (+ `accelerate`/`bitsandbytes` for Gemma 4-bit),
   `torch`/`torchvision`, `opencv-python`, `pillow`
 - **Metadata**: `pyexiftool` (binary `exiftool` required at runtime)
 - **Pi pipeline**: lightweight runtime deps live in `requirements.pi.txt`
-  (`opencv-python-headless`, `pillow`, `psutil`, `pyyaml`, `numpy`,
-  `starlette`, `uvicorn`); HailoRT 4.23.0 is installed manually from
-  `pi/deps/` (aarch64 `.whl` + `.deb`, not on PyPI). The `[dependency-groups]
-  pi` slot in `pyproject.toml` is currently empty and reserved.
+  (`numpy`, `opencv-python-headless`, `pillow`, `psutil`, `pyyaml`,
+  `starlette`, `uvicorn`, `websockets`, `python-multipart`); HailoRT 4.23.0
+  is installed manually from `pi/deps/` (aarch64 `.whl` + `.deb`, not on
+  PyPI). The `[dependency-groups] pi` slot in `pyproject.toml` is currently
+  empty and reserved.
 - **Data**: SQLite (eBird priors, built from `ebird_data/*.txt`)
 - **Containers**: webapp uses `cgr.dev/chainguard/python:latest-dev`
   (Wolfi/`apk`); `Dockerfile.pi` uses `ubuntu:24.04` because HailoRT ships as
   a `.deb` and needs an apt-based runtime. Desktop Docker runtime is
   `nvidia-container-toolkit`.
-- **Tests**: `pytest` (285 tests, `testpaths = ["tests"]`)
+- **Tests**: `pytest` + `pytest-cov` (285 tests, `testpaths = ["tests"]`;
+  `addopts` enforces `--cov=src --cov-fail-under=42`)
 
 ## Key Concepts & Terminology
 
@@ -50,8 +55,12 @@ inference.
   `exiftool` binary if running outside Docker.
 - **Three config files, never merged**: `config.yaml` (webapp),
   `config.pi.yaml` (Pi backyard), `config.pi.sidecar.yaml` (Pi sidecar).
+  All three are gitignored — create them from the committed `*.example`
+  templates (`cp config.yaml.example config.yaml`).
 - **Secrets** (env vars override `config.yaml`): `GOOGLE_CLIENT_ID`,
-  `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`, `BIRDVISION_DEBUG`.
+  `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET`, `BIRDVISION_DEBUG`. Deploys
+  resolve them from 1Password at launch — `op run --env-file .env.op --
+  docker compose up` (template `.env.op.example`; real `.env.op` gitignored).
 - **API tokens**: `api_tokens.yaml` (gitignored). Commit only
   `api_tokens.yaml.example`.
 - **Pi host**: HailoRT 4.23.0 (`pi/deps/*.whl`, `pi/deps/*.deb` from
@@ -65,13 +74,13 @@ inference.
 ## Commands
 
 Verified from `pyproject.toml`, `Dockerfile`, `docker-compose.yml`,
-`docker-compose.pi.yml`, `.github/workflows/tests.yml`, and `scripts/`.
+`.github/workflows/tests.yml`, and `scripts/`.
 
 ```bash
 # Setup
 uv sync                                                  # webapp/CI deps
-# Pi setup: see pi/README.md — installs requirements.pi.txt plus
-# pi/deps/hailort_4.23.0_arm64.deb and the matching aarch64 wheel.
+cp config.yaml.example config.yaml                       # local webapp config
+# Pi build/run/compile commands: pi/AGENTS.md. Eval commands: eval/AGENTS.md.
 
 # Run (local)
 uv run scripts/serve.py --config config.yaml --port 3587 # web UI
@@ -79,23 +88,22 @@ uv run scripts/serve.py --debug                          # bypass auth
 uv run scripts/identify_videos.py <path> --config config.yaml
 uv run scripts/tune_single_video.py --config config.yaml
 uv run scripts/import_ebird_barchart.py ebird_data/ --db data/ebird_priors.db
-uv run scripts/realtime_identify.py --config config.pi.yaml  # Pi only
 
 # Run (Docker)
 docker compose build && docker compose up                # webapp on :3587
 docker compose --profile cli up birdvision               # batch CLI
 docker compose --profile tuner run tuner ...             # tuner
-docker compose -f docker-compose.pi.yml --profile backyard up
-docker compose -f docker-compose.pi.yml --profile sidecar up
 
-# Tests
+# Tests — the full run enforces the 42% coverage floor; partial runs
+# trip it, so pass --no-cov when running a subset
 uv run pytest                                            # 285 tests, no GPU needed
-uv run pytest tests/test_tracker.py                      # single file
-uv run pytest tests/test_tracker.py::TestName::test_name # single test
-```
+uv run pytest tests/test_tracker.py --no-cov             # single file
+uv run pytest tests/test_tracker.py::TestName::test_name --no-cov
 
-Ruff is configured for lint and format (`uv run ruff check`,
-`uv run ruff format`). No type-checker is configured.
+# Lint / format (no type-checker is configured)
+uv run ruff check
+uv run ruff format
+```
 
 ## Project Layout
 
@@ -112,7 +120,7 @@ src/                  shared library (desktop + Pi)
   metadata.py         eBird priors, Long Island gating, local overrides
   video_metadata.py   ExifTool + OpenCV helpers
   tuner.py            single-video parameter grid search
-  pipeline_defaults.py  default 242-species list
+  pipeline_defaults.py  default 238-species list (COMMON_NA_BIRDS)
   # Pi-only modules (do not import into webapp/desktop code):
   hailo_detector.py, hailo_classifier.py
   stream_capture.py        V4L2 source (Cam Link 4K, YUYV)
@@ -122,23 +130,29 @@ src/                  shared library (desktop + Pi)
   realtime_pipeline.py     Pi pipeline entry point
 
 scripts/              CLI entry points and Hailo training/compile wrappers
-tests/                pytest suite; heavy deps monkeypatched in conftest.py
+tests/                pytest suite; shared fixtures in conftest.py
 templates/            Jinja2 (base/index/job)
 static/index.html     Pi sidecar browser camera/upload client
 ebird_data/           county bar-chart TSVs (source for the SQLite priors DB)
 data/species_lists/   committed species lists
-pi/                   Pi setup docs, HEF compile notes; pi/models/ gitignored
-eval/                 standalone model-comparison eval container
-docs/                 long-form docs (OAuth setup, Pi pipeline, etc.)
+pi/                   Pi deployment assets and docs — see pi/AGENTS.md
+eval/                 model-comparison eval container — see eval/AGENTS.md
+docs/                 long-form docs; getting_started.md = BOM + setup walkthrough
 ```
 
 ## Code Style & Patterns
 
 - **`logging` module everywhere**, configured at entry points. No `print()` in
   library code.
-- **Heavy deps monkeypatched in tests** (`tests/conftest.py`) — suite runs
-  with no GPU, HailoRT, or model downloads. New detector/classifier/HailoRT
-  tests should follow the same pattern.
+- **Tests run with no GPU, HailoRT, or model downloads**: heavy imports
+  (`hailo_platform`, model loads) happen lazily inside methods so modules
+  import cleanly; tests exercise pure helpers and mock the rest with
+  `unittest.mock`. `tests/conftest.py` holds small shared fixtures (tmp dir,
+  miniature eBird SQLite DB). New detector/classifier/HailoRT tests should
+  follow the same pattern.
+- **Ruff is the linter and formatter** (`E,F,I,UP,B,SIM`, line length 100;
+  `E501`/`B023` deferred, `tests/` exempt from `B`). Keep format-only changes
+  in their own commit and add pure-reformat revs to `.git-blame-ignore-revs`.
 - **Pi modules are additive and one-way**: `src/hailo_*.py`,
   `stream_capture.py`, `ws_frame_source.py`, `file_frame_source.py`,
   `display_overlay.py`, `realtime_pipeline.py` may import desktop code, but
@@ -157,15 +171,24 @@ docs/                 long-form docs (OAuth setup, Pi pipeline, etc.)
 
 ## Making Changes
 
-- Minimal, focused edits; preserve existing architecture. `pytest` is the only
-  safety net — no lint or type-checker is configured.
+- Minimal, focused edits; preserve existing architecture. `pytest` (with the
+  coverage floor) and `ruff` are the only gates — no type-checker is
+  configured.
 - Add deps with `uv add <pkg>` (or `uv add --group pi <pkg>` for PyPI Pi deps).
   `pyproject.toml` is canonical; only update `requirements.txt` /
   `requirements.pi.txt` alongside it.
 - Update `README.md` (and the config table) and relevant `docs/` files when
   user-visible behavior, config keys, or commands change.
-- CI (`.github/workflows/tests.yml`) is `workflow_dispatch` only — run
-  `uv run pytest` locally before pushing.
+- CI (`.github/workflows/tests.yml`: ruff lint + format check, pytest) is
+  `workflow_dispatch` only — run `uv run pytest`, `uv run ruff check`, and
+  `uv run ruff format --check` locally before pushing.
+- Branch off `main` with a kebab-case prefix (`fix/…`, `feat/…`, `chore/…`,
+  `docs/…`); one logical change per PR; PRs are required for `main`. See
+  `CONTRIBUTING.md`.
+- This repo is a clean re-export of an earlier repo (history scrubbed of
+  secrets). PR/issue numbers in pre-export commit messages and docs (roughly
+  `#74`–`#128`) refer to the old repo and do not resolve here — cite commit
+  SHAs when referencing that history.
 
 ## Guardrails
 
@@ -176,6 +199,8 @@ docs/                 long-form docs (OAuth setup, Pi pipeline, etc.)
 - Treat `config.yaml`, `config.pi.yaml`, and `config.pi.sidecar.yaml` as
   separate documents.
 - Reference asset records explicitly in jobs (not `{job_id}_filename` paths).
+- Keep coverage at or above the floor in `pyproject.toml` — add tests for new
+  modules; don't lower the floor to land a feature.
 
 ### Never
 - Add `hailort` or other aarch64-only Pi packages to `[project.dependencies]`
@@ -185,10 +210,12 @@ docs/                 long-form docs (OAuth setup, Pi pipeline, etc.)
   the desktop pipeline.
 - Add Pi-specific config keys to `config.yaml` (or vice versa).
 - Use `print()` for runtime output; use the configured logger.
-- Commit secrets — `api_tokens.yaml`, `.env`, `certs/` are gitignored for a
-  reason. `config.yaml` currently contains live Google OAuth and session
-  secrets; prefer the env-var overrides for any new deployment and do not
-  duplicate those values elsewhere.
+- Commit secrets or live configs — `config.yaml`, `config.pi.yaml`,
+  `config.pi.sidecar.yaml`, `api_tokens.yaml`, `.env`, `.env.op`, and
+  `certs/` are gitignored on purpose; commit only `*.example` templates.
+  Real values live in 1Password and reach the app via env vars.
+- Add cloud inference, or a database for app state — local-only processing
+  and JSON sidecars + the asset index are intentional (`CONTRIBUTING.md`).
 
 ### Use Extra Caution
 - **Generated / gitignored, do not commit**: `data/ebird_priors.db`,
@@ -196,13 +223,12 @@ docs/                 long-form docs (OAuth setup, Pi pipeline, etc.)
   `results/`, `output/`, `logs/`, `train_data/`, `eval/report/`,
   `pi/models/*.{hef,har,onnx}`, `pi/models/species_labels.json`,
   `pi/deps/*.{whl,deb}`, `certs/`, `*.pt`, `*.pth`, `*.onnx`,
-  `api_tokens.yaml`.
+  `api_tokens.yaml`, `.env.op`, `config*.yaml`, `.coverage*`.
 - **Deployment configs**: `Dockerfile`, `Dockerfile.pi`, `docker-compose.yml`,
   `docker-compose.pi.yml`, `Caddyfile.sidecar` — changes affect device
   passthrough, runtime users, and volume layout.
-- **Hailo DFC compilation**: requires x86_64 Linux + DFC 3.33.1. ONNX must be
-  exported with `dynamo=False` (legacy TorchScript exporter). Calibration data
-  must be NHWC `(N, 224, 224, 3)` float32.
+- **Hailo DFC compilation** has strict toolchain and export constraints —
+  read `pi/AGENTS.md` before touching the training/compile scripts.
 - **Pipeline startup is heavyweight** (model init/downloads). Avoid running
   the full pipeline for small edits — prefer targeted `pytest` runs.
 
@@ -213,14 +239,14 @@ docs/                 long-form docs (OAuth setup, Pi pipeline, etc.)
 - Webapp config defaults point at `/data/...` (container paths). Local runs
   need `--config` pointing at a file with host paths, or matching directories
   must exist.
-- Long-running scripts (`scripts/run_training.sh`,
-  `scripts/run_verify_efficientnet_onnx.sh`,
-  `scripts/run_compile_efficientnet_hef.sh`) write timestamped logs under
-  `logs/retraining/`; `tail -f` that file rather than the launching terminal.
+- A partial `pytest` run failing with `Required test coverage of 42% not
+  reached` is the coverage gate, not broken tests — pass `--no-cov` when
+  running a subset.
 
 ## Agent Notes
 
-This file is symlinked as `CLAUDE.md` (and may be symlinked as `GEMINI.md`).
-Keep all instructions tool-neutral and universally applicable to AI coding
-agents — do not add tool-specific commands, slash commands, or assumptions
-about a particular agent harness.
+This file is symlinked as `CLAUDE.md` and `GEMINI.md`. Component guidance
+lives in `pi/AGENTS.md` and `eval/AGENTS.md` (same symlink scheme); read
+those before working in either directory. Keep all instructions tool-neutral
+and universally applicable to AI coding agents — do not add tool-specific
+commands, slash commands, or assumptions about a particular agent harness.
