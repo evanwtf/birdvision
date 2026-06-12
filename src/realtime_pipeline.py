@@ -16,6 +16,7 @@ import logging
 import os
 import signal
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -160,12 +161,20 @@ class RealtimePipeline:
         logger.info("Opening Hailo VDevice")
         self._vdevice = VDevice()
 
+        # One lock shared by both backends serializes all inference on the
+        # shared VDevice. The sidecar /upload handler runs inference on a
+        # worker thread (ws_frame_source dispatches _handle_upload via
+        # run_in_executor) concurrently with the live frame loop; without this
+        # lock the two threads race on network_group.activate().
+        self._hailo_lock = threading.Lock()
+
         # Hailo detector
         self._detector = HailoDetector(
             hef_path=det_cfg["hef"],
             threshold=det_cfg.get("confidence", 0.4),
             vdevice=self._vdevice,
             fallback_crop_ratio=det_cfg.get("fallback_crop_ratio", 0.5),
+            inference_lock=self._hailo_lock,
         )
         self._enable_small_bird_zoom_fallback = det_cfg.get("enable_small_bird_zoom_fallback", True)
         self._small_bird_fallback_every_n = det_cfg.get("small_bird_fallback_every_n_frames", 5)
@@ -176,6 +185,7 @@ class RealtimePipeline:
             labels_path=cls_cfg["labels"],
             top_k=cls_cfg.get("top_k", 20),
             vdevice=self._vdevice,
+            inference_lock=self._hailo_lock,
         )
 
         # Tracker

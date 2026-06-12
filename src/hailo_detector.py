@@ -25,6 +25,7 @@ if the format differs from the above, it can be diagnosed from the Pi logs.
 """
 
 import logging
+import threading
 import time
 from dataclasses import dataclass
 
@@ -76,6 +77,7 @@ class HailoDetector:
         vdevice=None,
         fallback_crop_ratio: float = 0.5,
         dedupe_iou_threshold: float = 0.5,
+        inference_lock: "threading.Lock | None" = None,
     ):
         self.hef_path = str(hef_path)
         self.threshold = threshold
@@ -83,6 +85,12 @@ class HailoDetector:
         self.dedupe_iou_threshold = dedupe_iou_threshold
         self._output_logged = False
         self._shared_vdevice = vdevice
+        # Serializes access to the shared Hailo VDevice. The sidecar /upload
+        # handler runs inference on a worker thread concurrently with the live
+        # frame loop; two threads re-entering network_group.activate() on one
+        # VDevice is unsafe. Pass a shared lock so the detector and classifier
+        # are mutually exclusive.
+        self._inference_lock = inference_lock or threading.Lock()
         self._init_hailo()
 
     def _init_hailo(self) -> None:
@@ -254,6 +262,7 @@ class HailoDetector:
         from hailo_platform import InferVStreams
 
         with (
+            self._inference_lock,
             InferVStreams(
                 self._network_group,
                 self._input_vstream_params,
