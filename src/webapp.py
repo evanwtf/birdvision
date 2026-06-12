@@ -365,19 +365,40 @@ class AssetStore:
             return {}
         try:
             payload = json.loads(self.index_path.read_text())
-            assets = payload.get("assets", {})
-            if isinstance(assets, dict):
-                return assets
         except Exception as exc:
             logger.warning(f"Could not load asset index {self.index_path}: {exc}")
+            self._preserve_corrupt_index()
+            return {}
+        assets = payload.get("assets", {})
+        if isinstance(assets, dict):
+            return assets
         return {}
+
+    def _preserve_corrupt_index(self) -> None:
+        """Move an unparseable index aside so the next save can't overwrite it.
+
+        Keeps the bytes around for recovery (the index is also reconstructible
+        from the content-addressed files under assets/).
+        """
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S_%fZ")
+        backup = self.index_path.parent / f"{self.index_path.name}.corrupt-{stamp}"
+        try:
+            os.replace(self.index_path, backup)
+            logger.warning("Preserved corrupt asset index as %s", backup)
+        except OSError as exc:
+            logger.warning(f"Could not preserve corrupt asset index {self.index_path}: {exc}")
 
     def _save_index(self):
         payload = {
             "version": 1,
             "assets": self._assets,
         }
-        self.index_path.write_text(json.dumps(payload, indent=2))
+        # Atomic write: a crash mid-write must not truncate the live index
+        # (which would orphan every stored asset on the next startup). Write to
+        # a temp file in the same directory, then os.replace() onto the target.
+        tmp_path = self.index_path.parent / f"{self.index_path.name}.tmp"
+        tmp_path.write_text(json.dumps(payload, indent=2))
+        os.replace(tmp_path, self.index_path)
 
     def get(self, sha256: str) -> dict[str, Any] | None:
         with self._lock:
