@@ -61,6 +61,22 @@ def slugify_job_label(label: str) -> str:
     return slug or "job"
 
 
+def safe_redirect_path(value: str, default: str = "/") -> str:
+    """Return ``value`` only if it is a safe same-site relative path.
+
+    Guards against open redirects: a plain ``startswith("/")`` check accepts
+    protocol-relative targets like ``//evil.example`` (and ``/\\evil.example``,
+    which some browsers normalize to ``//``), which browsers resolve to an
+    external origin. Anything that is not a single-slash-rooted path falls back
+    to ``default``.
+    """
+    if not value.startswith("/"):
+        return default
+    if value.startswith("//") or value.startswith("/\\"):
+        return default
+    return value
+
+
 @dataclass
 class Job:
     id: str
@@ -682,7 +698,7 @@ def create_app(
 
     @app.get("/theme/{theme_name}")
     async def set_theme(request: Request, theme_name: str, next: str = "/"):
-        redirect_to = next if next.startswith("/") else "/"
+        redirect_to = safe_redirect_path(next)
         normalized_theme = normalize_theme(theme_name)
         response = RedirectResponse(redirect_to, status_code=303)
         if normalized_theme == DEFAULT_THEME_ID:
