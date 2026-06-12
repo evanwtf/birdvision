@@ -104,7 +104,7 @@ class Job:
         self.video_meta: VideoMetadata | None = None
         self.image_paths: list[str] = []
         self.assets: list[dict[str, Any]] = []
-        self.created_at: datetime = datetime.now()
+        self.created_at: datetime = datetime.now(UTC)
         self.selected_date: datetime | None = None
         self.result_stem: str | None = None
         self.submitted_by: str | None = None
@@ -1606,7 +1606,7 @@ def _load_existing_jobs(results_dir: Path):
             job = Job(id=job_id, filename=original_filename, media_type=media_type)
             job.status = "done"
             job.result = result
-            job.created_at = datetime.fromtimestamp(result_file.stat().st_mtime)
+            job.created_at = datetime.fromtimestamp(result_file.stat().st_mtime, tz=UTC)
             job.assets = result.get("asset_records", [])
             if is_image:
                 job.image_paths = [

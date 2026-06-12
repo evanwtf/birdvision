@@ -4,7 +4,7 @@ import logging
 import time
 from collections import OrderedDict
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -144,7 +144,7 @@ class SingleVideoTuningRunner:
         root_results_dir = Path(
             results_dir or self.base_config.get("output", {}).get("results_dir", "results")
         )
-        timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         self.run_id = f"tune_{Path(self.video_path).stem}_{timestamp}"
         self.run_dir = root_results_dir / "tuning" / self.run_id
         self.run_dir.mkdir(parents=True, exist_ok=True)

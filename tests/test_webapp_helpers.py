@@ -3,8 +3,10 @@
 import json
 import os
 import subprocess
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
+import src.webapp as webapp_module
 from src.webapp import (
     SAFARI_COMPATIBLE_CODECS,
     AuthSettings,
@@ -1089,6 +1091,36 @@ class TestSafariCompatibleCodecs:
 
     def test_av1_not_compatible(self):
         assert "av01" not in SAFARI_COMPATIBLE_CODECS
+
+
+class TestJobCreatedAtTimezone:
+    """created_at must be timezone-aware UTC so the Z-suffixed serialization
+    (and the client-side local conversion) is truthful."""
+
+    def test_new_job_created_at_is_aware_utc(self):
+        job = Job("a" * 32, "clip.mp4")
+        assert job.created_at.tzinfo is not None
+        assert job.created_at.utcoffset() == timedelta(0)
+
+    def test_restored_job_created_at_is_aware_utc(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(webapp_module, "_jobs", {})
+        job_id = "c" * 32
+        stem = f"{job_id}_oldvideo"
+        result_data = {
+            "type": "video",
+            "video": "/path/to/old.mp4",
+            "source_filename": "old.mp4",
+            "display_name": "old.mp4",
+            "tracks": [],
+            "video_predictions": [],
+        }
+        (tmp_path / f"{stem}_results.json").write_text(json.dumps(result_data))
+
+        _load_existing_jobs(tmp_path)
+
+        created_at = webapp_module._jobs[job_id].created_at
+        assert created_at.tzinfo is not None
+        assert created_at.utcoffset() == timedelta(0)
 
 
 class TestSafeRedirectPath:
