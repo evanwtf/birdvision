@@ -212,6 +212,10 @@ next job, but model/device changes still require a restart. Key settings:
 | `classifier.crop_closeup_area_ratio` | `0.06` | When bbox area reaches this fraction of the frame, padding ramps down to the minimum |
 | `classifier.min_crop_area` | `2500` | Skip classification for tiny detections that are mostly noise when upscaled |
 | `classifier.min_event_confidence` | `0.35` | Discard low-confidence visual classification events instead of averaging them into a track |
+| `classifier.top_k` | `20` | Number of top species predictions kept per classification event |
+| `classifier.ensemble.enabled` | `true` | Combine BioCLIP with a secondary HuggingFace classifier via a weighted geometric mean |
+| `classifier.ensemble.secondary_model` | `chriamue/bird-species-classifier` | Secondary classifier used in the ensemble |
+| `classifier.ensemble.alpha` / `.beta` | `0.6` / `0.4` | BioCLIP / secondary-model weights in the geometric mean |
 | `tracker.centroid_max_distance` | `0.18` | Fallback match radius as a fraction of frame diagonal when IoU matching fails |
 | `tracker.min_frames_to_report` | `8` | Minimum frames tracked to include in results |
 | `tracker.min_confidence_to_report` | `0.6` | Override min_frames for high-confidence single detections |
@@ -248,12 +252,12 @@ URI, generating `SESSION_SECRET`, and wiring the values into BirdVision.
 ## Themes
 
 Use the header theme switcher to change the UI appearance. BirdVision currently
-ships with:
+ships with two themes:
 
-- `Default` — the current restrained green UI
-- `Birdy` — a warmer, more natural bird-book palette
-- `Super Birdy` — a loud Big Bird-style yellow/orange/blue palette with animated
-  bird icons drifting in the background
+- `Super Birdy` — the default: a loud Big Bird-style yellow/orange/blue palette
+  with animated bird icons drifting in the background
+- `Boring` — a restrained, low-key palette for when you want the results, not the
+  chrome, to do the talking
 
 The selected theme is stored in a cookie and applies to both the upload page
 and results pages.
@@ -342,8 +346,12 @@ docker compose --profile cli run birdvision \
   /data/videos --date 2026-04-15 --config /data/config.yaml
 ```
 
-Results are written as JSON to `results/{job_id}_{display_stem}_results.json`.
-Image-job artifacts are saved under `results/<job_id>_crops/`.
+Results are written as JSON to `results/<source_stem>_results.json`, where
+`<source_stem>` is the video filename (for videos) or the first image's filename
+(for photo batches); crop and annotation artifacts go under
+`results/<source_stem>_crops/`. (The browser and API flows instead key these on
+the job id, e.g. `results/{job_id}_{display_stem}_results.json` and
+`results/<job_id>_crops/`.)
 
 ## Model comparison eval
 
@@ -391,7 +399,9 @@ portable — open it directly in a browser.
 
 ### Adding a model
 
-Enable a backend in `eval/config.yaml`:
+Enable a backend in `eval/config.yaml` by setting `enabled: true` (the Gemma 4
+backend is implemented in `src/gemma_classifier.py` but ships disabled by
+default):
 
 ```yaml
 models:
@@ -399,7 +409,7 @@ models:
     label: "Gemma 4 E4B-it"
     backend: gemma4
     model: google/gemma-4-E4B-it
-    enabled: true          # flip this when the backend is implemented
+    enabled: true          # set true to include this backend in the run
 ```
 
 Then run the prefetch → eval → report sequence above. The `prefetch` service
@@ -552,6 +562,25 @@ Set `display.enabled: false` in `config.pi.yaml` for headless deployments.
 
 Each script writes a timestamped log file under `logs/retraining/` and prints
 the `tail -f` command at startup.
+
+## Development
+
+```bash
+uv sync                      # install deps (no GPU needed for the test suite)
+uv run pytest                # full test suite
+uv run ruff check            # lint
+uv run ruff format --check   # formatting check
+```
+
+Heavy dependencies (`ultralytics`, `open-clip-torch`, `transformers`,
+`hailort`) are monkeypatched in `tests/conftest.py`, so the suite runs CPU-only
+with no model downloads. `pytest-cov` enforces a coverage floor — see
+`[tool.pytest.ini_options]` in `pyproject.toml`. Lint and tests also run in CI
+on every pull request and on pushes to `main`.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow, including the
+branch/PR conventions and the rule that Pi-only modules must not be imported
+from the webapp/desktop pipeline.
 
 ## Secrets
 
