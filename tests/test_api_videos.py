@@ -63,6 +63,39 @@ def _make_client(tmp_path: Path, *, with_tokens: bool = True) -> TestClient:
     return TestClient(app)
 
 
+def test_debug_override_survives_config_path_auth_reload(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    config_on_disk = {
+        "webapp": {
+            "upload_dir": str(tmp_path / "videos"),
+        },
+        "output": {"results_dir": str(tmp_path / "results")},
+        "auth": {
+            "google_client_id": "client-id",
+            "google_client_secret": "client-secret",
+            "session_secret": "session-secret",
+            "allowed_emails": ["birder@example.com"],
+        },
+        "species": {},
+    }
+    config_path.write_text(yaml.safe_dump(config_on_disk))
+
+    runtime_config = yaml.safe_load(config_path.read_text())
+    runtime_config["webapp"]["debug"] = True
+    app = webapp_module.create_app(
+        runtime_config,
+        templates_dir="templates",
+        config_path=config_path,
+        debug_override=True,
+    )
+
+    with TestClient(app) as client:
+        response = client.post("/api/uploads/inspect")
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "No file uploaded"
+
+
 _VALID_TS = "2026-04-07T12:34:56Z"
 
 

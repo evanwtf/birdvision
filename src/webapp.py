@@ -528,11 +528,28 @@ _executor = ThreadPoolExecutor(max_workers=1)
 
 
 def create_app(
-    config: dict, templates_dir: str = "templates", config_path: Path | None = None
+    config: dict,
+    templates_dir: str = "templates",
+    config_path: Path | None = None,
+    debug_override: bool = False,
 ) -> FastAPI:
+    def apply_runtime_overrides(runtime_config: dict[str, Any]) -> dict[str, Any]:
+        if not debug_override:
+            return runtime_config
+
+        runtime_config = dict(runtime_config)
+        webapp_config = runtime_config.get("webapp", {})
+        if not isinstance(webapp_config, dict):
+            webapp_config = {}
+        else:
+            webapp_config = dict(webapp_config)
+        webapp_config["debug"] = True
+        runtime_config["webapp"] = webapp_config
+        return runtime_config
+
     app = FastAPI(title="BirdVision")
     templates = Jinja2Templates(directory=templates_dir)
-    initial_auth_settings = build_auth_settings(config)
+    initial_auth_settings = build_auth_settings(apply_runtime_overrides(config))
     if initial_auth_settings.debug_mode:
         logger.warning("Webapp debug mode is enabled; auth gating is disabled.")
     elif not initial_auth_settings.enabled and any(
@@ -573,7 +590,7 @@ def create_app(
     pipeline: BirdIdentificationPipeline | None = None
 
     def current_config() -> dict[str, Any]:
-        return load_runtime_config(config, config_path)
+        return apply_runtime_overrides(load_runtime_config(config, config_path))
 
     def current_auth_settings() -> AuthSettings:
         return build_auth_settings(current_config())
