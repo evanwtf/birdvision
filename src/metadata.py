@@ -120,10 +120,15 @@ class MetadataPrior:
         latitude: float | None = None,
         longitude: float | None = None,
     ) -> dict | None:
+        has_explicit_location = latitude is not None or longitude is not None
         lat = self.latitude if latitude is None else latitude
         lon = self.longitude if longitude is None else longitude
 
-        if self.default_fips and self.default_fips in self._county_fips:
+        if (
+            not has_explicit_location
+            and self.default_fips
+            and self.default_fips in self._county_fips
+        ):
             return {
                 "name": self._county_names.get(self.default_fips, self.default_fips),
                 "fips": [self.default_fips],

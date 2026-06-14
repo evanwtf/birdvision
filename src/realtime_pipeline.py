@@ -18,6 +18,7 @@ import signal
 import tempfile
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -300,6 +301,7 @@ class RealtimePipeline:
                 client_meta = getattr(self._source, "client_metadata", {})
                 meta_lat = client_meta.get("lat")
                 meta_lon = client_meta.get("lon")
+                meta_dt = datetime.now() if self._metadata is not None else None
 
                 for tid, preds in zip(track_ids_to_classify, results, strict=False):
                     track = tracks[tid]
@@ -308,6 +310,7 @@ class RealtimePipeline:
                     if self._metadata is not None:
                         preds = self._metadata.apply(
                             preds,
+                            dt=meta_dt,
                             latitude=meta_lat,
                             longitude=meta_lon,
                         )
