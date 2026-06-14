@@ -90,6 +90,17 @@ class TestMetadataPriorWithDb:
         assert region["name"] == "Nassau"
         assert region["fips"] == ["US-NY-059"]
 
+    def test_explicit_gps_overrides_default_fips(self, ebird_db):
+        mp = MetadataPrior(db_path=ebird_db, fips="US-NY-059")
+        region = mp.resolve_region(latitude=40.7, longitude=-73.5)
+        assert region is not None
+        assert region["name"] == "Long Island"
+        assert region["fips"] == ["US-NY-059", "US-NY-103"]
+
+    def test_explicit_gps_outside_supported_region_ignores_default_fips(self, ebird_db):
+        mp = MetadataPrior(db_path=ebird_db, fips="US-NY-059")
+        assert mp.resolve_region(latitude=41.9, longitude=-87.6) is None
+
     def test_resolve_county_name(self, ebird_db):
         mp = MetadataPrior(db_path=ebird_db)
         name = mp.resolve_county_name(latitude=40.7, longitude=-73.5)
