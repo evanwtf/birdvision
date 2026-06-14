@@ -53,7 +53,12 @@ def main():
 
     from src.webapp import create_app
 
-    app = create_app(config, templates_dir=templates_dir, config_path=config_path)
+    app = create_app(
+        config,
+        templates_dir=templates_dir,
+        config_path=config_path,
+        debug_override=args.debug,
+    )
 
     log_config = {
         "version": 1,
